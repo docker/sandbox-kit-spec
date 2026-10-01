@@ -84,7 +84,7 @@ lifecycle:
     - name: Preserve Codex sessions on the host
       command: |
         set -eu
-        session_root="$HOME/.sandbox-state/codex"
+        session_root="$HOME/.sandbox-state/$SBX_SANDBOX_NAME/codex"
         mkdir -p "$session_root/sessions" "$session_root/archived_sessions"
         sbx mount "$SBX_SANDBOX_NAME" \
           "$session_root:/home/agent/codex-history:rw"
