@@ -19,7 +19,9 @@ import (
 // the built-in layer integrity, extraction, and collision checks.
 type Options struct {
 	Loader KitLoader
-	// CapabilitySelector decides availability and policy without applying effects.
+	// CapabilitySelector receives the operation context, expanded owning Kit
+	// descriptor (including DisplayName), and capability. It decides availability
+	// and policy without applying effects; callback inputs are deeply copied values.
 	// Nil accepts KnownCapabilities; a runtime with fewer implementations supplies
 	// spec.Supported with its actual claims. Groups remain atomic.
 	CapabilitySelector spec.SelectCapability
@@ -151,12 +153,7 @@ func Assemble(ctx context.Context, requests []Request, options Options) (*Result
 			selector = spec.Supported(spec.KnownCapabilities()...)
 		}
 		var err error
-		resolved, err = mergeKits(kits, args, false, WithCapabilitySelector(func(c spec.Capability) bool {
-			if ctx.Err() != nil {
-				return false
-			}
-			return selector(c)
-		}), WithEnvironment(environment, options.Overrides.Env))
+		resolved, err = mergeKits(ctx, kits, args, false, WithCapabilitySelector(selector), WithEnvironment(environment, options.Overrides.Env))
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

@@ -2,6 +2,7 @@ package spec
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -107,8 +108,21 @@ func (s *CapabilitySource) UnmarshalJSON(data []byte) error {
 }
 
 // SelectCapability answers whether the runtime will provide one expanded entry.
+// The descriptor is the owning Kit after argument and environment expansion,
+// including its DisplayName and all declarations before selection. Callback
+// inputs are values with deeply copied maps, slices, and nested pointers; policy
+// mutations cannot affect declarations or later callbacks. The context carries
+// cancellation and deadlines.
 // It must not apply the entry: the enclosing group can still be rejected.
-type SelectCapability func(Capability) bool
+type SelectCapability func(context.Context, Descriptor, Capability) CapabilityDecision
+
+// CapabilityDecision is the runtime's answer for one expanded entry.
+// Its zero value rejects the entry. Message explains acceptance or rejection
+// for selection records and, on required rejection, error diagnostics.
+type CapabilityDecision struct {
+	Accepted bool   `json:"accepted"`
+	Message  string `json:"message,omitempty"`
+}
 
 // Supported constructs a selector from a runtime's claimed type list.
 func Supported(types ...string) SelectCapability {
@@ -116,7 +130,12 @@ func Supported(types ...string) SelectCapability {
 	for _, typ := range types {
 		claimed[typ] = true
 	}
-	return func(c Capability) bool { return claimed[c.Type] }
+	return func(_ context.Context, _ Descriptor, c Capability) CapabilityDecision {
+		if claimed[c.Type] {
+			return CapabilityDecision{Accepted: true}
+		}
+		return CapabilityDecision{Message: "unsupported capability type " + c.Type}
+	}
 }
 
 // KnownCapabilities lists types understood by this version of the library.
@@ -137,6 +156,9 @@ type SelectionRecord struct {
 	Members       []string           `json:"members"`
 	MemberSources []CapabilitySource `json:"memberSources,omitempty"`
 	Rejected      []string           `json:"rejected,omitempty"`
+	// Decisions follows Members order, including accepted members of skipped
+	// groups. Older persisted records may omit it.
+	Decisions []CapabilityDecision `json:"decisions,omitempty"`
 }
 
 // Selection retains the create-time decision separately from merged grants.
@@ -304,9 +326,14 @@ func ValidateExpandedDeclarations(raw []byte, d *Descriptor) ([]string, error) {
 // A nil descriptor or selector is an error, never an implicit default.
 // Required rejection returns records alongside the error for diagnostics.
 // Callback inputs, selected capabilities, and source records do not share
-// mutable configuration or provenance with the original declarations.
-func SelectCapabilities(d *Descriptor, selectCapability SelectCapability) (Selection, error) {
+// mutable descriptor fields, configuration, or provenance with the original
+// declarations or subsequent callback inputs. Cancellation returns the context
+// error rather than a capability rejection.
+func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability SelectCapability) (Selection, error) {
 	var result Selection
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	if selectCapability == nil {
 		return result, fmt.Errorf("select capabilities: no selector")
 	}
@@ -359,12 +386,25 @@ func SelectCapabilities(d *Descriptor, selectCapability SelectCapability) (Selec
 				origin = *c.Source
 			}
 			record.MemberSources = append(record.MemberSources, origin)
-			if !selectCapability(cloneSelectionCapability(c)) {
+			if err := ctx.Err(); err != nil {
+				return result, err
+			}
+			// Policy can inspect other declarations without changing later decisions.
+			kit := cloneConfigValue(reflect.ValueOf(*d)).Interface().(Descriptor)
+			decision := selectCapability(ctx, kit, cloneSelectionCapability(c))
+			if err := ctx.Err(); err != nil {
+				return result, err
+			}
+			record.Decisions = append(record.Decisions, decision)
+			if !decision.Accepted {
 				record.Rejected = append(record.Rejected, memberPath)
 				if !optional {
 					detail := fmt.Sprintf("required capability selection rejected (item %s)", at)
 					if origin.Kit != "" || origin.Path != memberPath {
 						detail += fmt.Sprintf("; original source %s %s", origin.Kit, origin.Path)
+					}
+					if decision.Message != "" {
+						detail += "; " + decision.Message
 					}
 					errs.add(fieldErrorf(memberPath, "%s", detail))
 				}

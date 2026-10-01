@@ -54,11 +54,21 @@ if err != nil {
 `fetch.Options{}` loads registry metadata and accepts all capability
 types the library knows, without reading or validating layers. That
 default is not a claim that a runtime implements every type: supply its
-actual supported types or a policy callback. Selection sees expanded
-configurations and must not
-apply effects. The library validates even skipped declarations, selects
-groups atomically, and validates the selected composition. Conflicts
-fail; optional groups are not dropped to repair them.
+actual supported types or a policy callback. A callback has signature
+`func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision`.
+It receives the operation context and the owning Kit's expanded
+descriptor, including `DisplayName` and all declarations before
+selection. Descriptor and capability inputs are values with deeply copied
+maps, slices, and nested pointers; mutations cannot change later decisions
+or the result. Use the context for cancellable policy or
+approval calls. Return `spec.CapabilityDecision{Accepted: true}` to accept,
+or `spec.CapabilityDecision{Message: "reason"}` to reject. The zero value
+rejects. Selection records retain each member's `Accepted` and `Message`
+in `Decisions`, in the same order as `Members`. Messages also appear in
+required-rejection errors. Selection must not apply effects. The library
+validates even skipped declarations, selects groups atomically, and
+validates the selected composition. Conflicts fail; optional groups are
+not dropped to repair them.
 
 Supply the complete dependency set, containing exactly one workload.
 `Assemble` does not discover missing dependencies or publish an image.

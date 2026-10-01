@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -36,7 +37,7 @@ func TestResolveEnvironmentDiagnosticsUseDecodedReferences(t *testing.T) {
 					require.NoError(t, err)
 					kits = append(kits, &Kit{Reference: fmt.Sprintf("example.com/kit%d:1.0.0", i), Digest: digest.FromBytes(raw).String(), Raw: raw, Descriptor: d})
 				}
-				result, err := mergeKits(kits, []map[string]string{nil, nil}, true,
+				result, err := mergeKits(t.Context(), kits, []map[string]string{nil, nil}, true,
 					WithEnvironment(map[string]string{"HOME": "/private-environment-value"}, nil))
 				require.Nil(t, result)
 				require.Error(t, err)
@@ -95,13 +96,13 @@ func TestResolveWithEnvironment(t *testing.T) {
 					}
 					calls := 0
 					for range 2 { // Reusing an option cannot retain mutations from a previous result.
-						result, err := resolve(t.Context(), requests, option, WithCapabilitySelector(func(c spec.Capability) bool {
+						result, err := resolve(t.Context(), requests, option, WithCapabilitySelector(func(_ context.Context, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
 							lc, err := spec.LifecycleOf([]spec.Capability{c})
 							require.NoError(t, err)
 							require.Equal(t, tc.wantHome+"/config", lc.Files[0].Path)
 							require.Equal(t, tc.message, lc.Files[0].Content)
 							calls++
-							return true
+							return spec.CapabilityDecision{Accepted: true}
 						}))
 						require.NoError(t, err)
 						require.Equal(t, map[string]string{"HOME": home}, result.ContainerEnv)
@@ -142,7 +143,10 @@ func TestResolveRejectsMalformedInsertedPlaceholders(t *testing.T) {
 				}
 				result, err := client.ResolvePartial(t.Context(), requests,
 					WithEnvironment(map[string]string{"VALUE": secret}, nil),
-					WithCapabilitySelector(func(spec.Capability) bool { t.Fatal("invalid inserted value reached selector"); return true }))
+					WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+						t.Fatal("invalid inserted value reached selector")
+						return spec.CapabilityDecision{Accepted: true}
+					}))
 				require.Nil(t, result)
 				require.ErrorContains(t, err, "placeholders")
 				require.NotContains(t, err.Error(), "private-value")
@@ -185,9 +189,12 @@ func TestResolveRejectsEnvironmentReferencesIntroducedByArguments(t *testing.T) 
 				}
 				raw := kitJSON(t, d)
 				kit := &Kit{Reference: "example.com/tool:1.0.0", Digest: digest.FromBytes(raw).String(), Descriptor: d, Raw: raw}
-				result, err := mergeKits([]*Kit{kit}, []map[string]string{supplied}, true,
+				result, err := mergeKits(t.Context(), []*Kit{kit}, []map[string]string{supplied}, true,
 					WithEnvironment(map[string]string{"SECRET": "private-environment-value", "PUBLIC": "public"}, nil),
-					WithCapabilitySelector(func(spec.Capability) bool { t.Fatal("introduced reference reached selection"); return true }))
+					WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+						t.Fatal("introduced reference reached selection")
+						return spec.CapabilityDecision{Accepted: true}
+					}))
 				require.Nil(t, result)
 				require.ErrorContains(t, err, "argument substitution introduces an environment reference")
 				require.NotContains(t, err.Error(), "private-environment-value")
@@ -206,7 +213,7 @@ func TestResolvePreservesOriginalEnvironmentReferencesBesideArguments(t *testing
 	}
 	raw := kitJSON(t, d)
 	kit := &Kit{Reference: "example.com/tool:1.0.0", Digest: digest.FromBytes(raw).String(), Descriptor: d, Raw: raw}
-	result, err := mergeKits([]*Kit{kit}, []map[string]string{nil}, true, WithEnvironment(map[string]string{"PUBLIC": "public"}, nil))
+	result, err := mergeKits(t.Context(), []*Kit{kit}, []map[string]string{nil}, true, WithEnvironment(map[string]string{"PUBLIC": "public"}, nil))
 	require.NoError(t, err)
 	lc, err := spec.LifecycleOf(result.Descriptor.Capabilities)
 	require.NoError(t, err)
@@ -224,9 +231,12 @@ func TestResolveInvalidEnvironmentGroupKeepsMemberLocation(t *testing.T) {
 	raw := kitJSON(t, d)
 	kit := &Kit{Reference: "example.com/tool:1.0.0", Digest: digest.FromBytes(raw).String(), Descriptor: d, Raw: raw}
 	for _, accept := range []bool{false, true} {
-		_, err := mergeKits([]*Kit{kit}, []map[string]string{nil}, true,
+		_, err := mergeKits(t.Context(), []*Kit{kit}, []map[string]string{nil}, true,
 			WithEnvironment(map[string]string{"PATH": "private-relative-path"}, nil),
-			WithCapabilitySelector(func(spec.Capability) bool { t.Fatal("invalid group reached selection"); return accept }))
+			WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+				t.Fatal("invalid group reached selection")
+				return spec.CapabilityDecision{Accepted: accept}
+			}))
 		require.ErrorContains(t, err, "capabilities[0].group.capabilities[0]")
 		require.NotContains(t, err.Error(), "private-relative-path")
 	}

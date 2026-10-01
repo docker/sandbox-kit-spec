@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -410,7 +411,10 @@ kits:
 	}
 	for _, accept := range []bool{false, true} {
 		calls := 0
-		resolved, err := client.Resolve(t.Context(), []fetch.Request{{Reference: ref}}, fetch.WithCapabilitySelector(func(c spec.Capability) bool { calls++; return accept || c.Type != "com.example/feature@1" }))
+		resolved, err := client.Resolve(t.Context(), []fetch.Request{{Reference: ref}}, fetch.WithCapabilitySelector(func(_ context.Context, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+			calls++
+			return spec.CapabilityDecision{Accepted: accept || c.Type != "com.example/feature@1"}
+		}))
 		require.NoError(t, err)
 		lc, err := spec.LifecycleOf(resolved.Descriptor.Capabilities)
 		require.NoError(t, err)

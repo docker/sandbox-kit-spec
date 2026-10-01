@@ -612,8 +612,18 @@ injection domains, are checked on the selected contributions and merged
 result. Selection does not bypass validation.
 
 The runtime supplies a selection function over expanded ordinary
-entries. A static list of supported types is sufficient; host policy,
-credential availability, and approval can further constrain the answer.
+entries. The reference implementation passes the operation context and
+the owning Kit's expanded descriptor, including its `displayName` and
+all declarations before selection. Callback inputs are values with deeply
+copied maps, slices, and nested pointers; changing them does not change
+declarations or later decisions. A static
+list of supported types is sufficient; host policy, credential
+availability, and approval can further constrain the answer.
+The callback returns a decision with an acceptance flag and an optional
+message. The zero value rejects the entry. Selection records retain
+each member's decision in declaration order, including messages for
+accepted members of a skipped group. Required-rejection diagnostics
+include the rejecting member's message when supplied.
 
 The selection API MUST include a group only when every member is <!-- tck: SPEC-v3 §7.1.1/atomic-selection -->
 accepted. Otherwise it skips and records an optional group in full, or
