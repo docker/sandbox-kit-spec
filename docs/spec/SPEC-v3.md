@@ -803,22 +803,30 @@ about Kits displays a Kit's metadata: `title` ← `displayName`,
 `sourceUrl`, `licenses` ← the comma-joined `licenses` list, and `version`
 ← `version:` or the one version every versioned `provides` entry agrees
 on (disagreement emits nothing — an ambiguous version is worse than
-none). Empty fields emit no key. `created`, `revision`, and `base.*` are
-deliberately not emitted: a wall-clock stamp would break build
-reproducibility, and VCS state is the builder's knowledge (buildx
-provenance already records it), not the descriptor's. These carry the
+none). Empty fields emit no key. `revision` and `base.*` are deliberately
+not emitted: VCS and base-image state are the builder's knowledge (buildx
+provenance already records them), not the descriptor's. These carry the
 descriptor fields' authority — self-asserted display metadata, never
 trust inputs.
 
-`built-by` is the one builder fact the manifest carries, and the line it
-sits on the far side of is worth naming. It records the tool that
-produced the artifact, not the source the artifact was produced from:
+The frontend **MUST NOT** emit `org.opencontainers.image.created` from <!-- tck: SPEC-v3 §9.3/created-not-wall-clock -->
+the wall clock: that would break build reproducibility. A builder **MAY**
+emit it when derived from `SOURCE_DATE_EPOCH`, a timestamp fixed by the
+source, so the same build inputs keep the same bytes. The descriptor
+does not supply this value. An artifact alone cannot show where a
+timestamp came from; conformance checks judge its format, not its origin.
+
+When present, `org.opencontainers.image.created` **MUST** be an RFC 3339 <!-- tck: SPEC-v3 §9.3/created-rfc3339 -->
+timestamp, as required by the OCI annotation definition.
+
+`built-by` records the tool that produced the artifact, not the source
+the artifact was produced from:
 `revision` would name the Kit author's tree, which the frontend cannot
 see and provenance already records, whereas `built-by` names the frontend
-itself, which nothing else in the artifact does. It is deterministic,
-which is what `created` is not — the same frontend and the same
-descriptor give the same bytes, so a Kit keeps its digest across
-rebuilds and only moves when the frontend does. And it is self-asserted
+itself, which nothing else in the artifact does. It is deterministic —
+the same frontend build gives the same annotation bytes. Like a
+`created` value derived from `SOURCE_DATE_EPOCH`, it introduces no
+wall-clock variation across rebuilds. And it is self-asserted
 like every other annotation here: it answers "what claims to have built
 this", never "what is this allowed to do". A consumer deciding whether to
 trust a build reads provenance, which is signed; this value is a label.

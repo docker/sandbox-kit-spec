@@ -67,10 +67,10 @@ const (
 // description, authors, source, and licenses straight from their fields,
 // and version from the version: fallback or — when every versioned
 // provides entry agrees — that one version. Empty fields yield no key,
-// so absence means "not declared", and keys the descriptor cannot answer
-// deterministically (created, revision, base.*) are never emitted here:
-// a wall-clock stamp would break build reproducibility, and VCS state is
-// the builder's knowledge, not the descriptor's.
+// so absence means "not declared". Builder inputs (created, revision,
+// base.*) are never emitted here: the descriptor cannot answer them.
+// A builder may separately emit created from SOURCE_DATE_EPOCH per §9.3;
+// this projection has no timestamp input and never reads the wall clock.
 func OCIAnnotations(d *Descriptor) map[string]string {
 	out := map[string]string{}
 	set := func(key, value string) {

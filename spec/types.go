@@ -36,10 +36,9 @@ const AnnotationSchemaVersion = "vnd.docker.sandbox.kit.schema-version"
 const AnnotationCapabilities = "vnd.docker.sandbox.kit.capabilities"
 
 // AnnotationBuiltBy names the frontend build that published the kit, as
-// compact JSON decoding into BuiltBy. It is the one builder fact the
-// manifest carries, and it is here because it identifies the tool that
+// compact JSON decoding into BuiltBy. It identifies the tool that
 // produced the artifact rather than the source the artifact was produced
-// from — unlike created or revision, which §9.3 refuses. Absent on kits
+// from — unlike revision, which §9.3 refuses. Absent on kits
 // published before the annotation existed, so readers must tolerate it
 // missing; and self-asserted, like every annotation here, so it answers
 // "what claims to have built this", never "what is this allowed to do".
