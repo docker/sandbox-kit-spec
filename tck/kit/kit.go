@@ -418,12 +418,17 @@ var checks = []check{
 						"%s is %q, but the descriptor field it derives from is empty", key, got))
 				}
 			}
-			// Deliberately not emitted: a wall-clock stamp breaks
-			// reproducibility, and VCS or base-image state is the
-			// builder's knowledge (provenance records it), never the
-			// descriptor's.
+			// The artifact cannot show whether created came from
+			// SOURCE_DATE_EPOCH or the wall clock; only its format is
+			// observable here.
+			if created, present := ann[ocispec.AnnotationCreated]; present {
+				if !validRFC3339Timestamp(created) {
+					findings = append(findings, report.Failf("%s is %q, must be an RFC 3339 timestamp", ocispec.AnnotationCreated, created))
+				}
+			}
+			// VCS and base-image state remain deliberately not emitted:
+			// provenance records them, never the descriptor.
 			for _, key := range []string{
-				"org.opencontainers.image.created",
 				"org.opencontainers.image.revision",
 				"org.opencontainers.image.base.name",
 				"org.opencontainers.image.base.digest",
@@ -1400,9 +1405,9 @@ func descriptorsAgree(a, b *spec.Descriptor) bool {
 // ErrNotAKit reports an artifact carrying no descriptor annotation.
 var ErrNotAKit = errors.New("not a kit")
 
-// managedOCIKeys are the org.opencontainers.image.* keys publishing owns.
-// created and revision are deliberately never emitted: a wall-clock stamp
-// breaks reproducibility, and VCS state is the builder's knowledge.
+// managedOCIKeys are the org.opencontainers.image.* keys derived from
+// the descriptor. A builder-supplied created timestamp is checked
+// separately because the descriptor cannot answer it.
 var managedOCIKeys = []string{
 	spec.OCIAnnotationTitle,
 	spec.OCIAnnotationDescription,

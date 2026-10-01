@@ -243,22 +243,73 @@ func TestOCIAnnotationsMustBeDerivedFromTheDescriptor(t *testing.T) {
 	require.Equal(t, report.Fail, findings(t, a)["oci-annotations"].Severity)
 }
 
-// A wall-clock stamp would break build reproducibility, so publishing
-// deliberately omits it.
-func TestCreatedAnnotationMustNotBeEmitted(t *testing.T) {
-	a := conforming(t)
-	a.annotations["org.opencontainers.image.created"] = "2026-01-01T00:00:00Z"
+// SOURCE_DATE_EPOCH can produce a reproducible timestamp. The artifact
+// exposes its format, not the builder input it came from.
+func TestCreatedAnnotationAcceptsRFC3339(t *testing.T) {
+	for _, created := range []string{
+		"2025-10-01T12:00:00Z",
+		"1970-01-01T00:00:00Z",
+		"2025-10-01T12:00:00.123456789Z",
+		"2025-10-01T14:00:00+02:00",
+		"2025-10-01t12:00:00z",
+		"2025-10-01t12:00:00Z",
+		"2025-10-01T12:00:00z",
+		"2025-10-01T12:00:00-00:00",
+		"2024-02-29T12:00:00Z",
+		"1990-12-31T23:59:60Z",
+		"1990-12-31t23:59:60.5z",
+		"1991-01-01T00:59:60+01:00",
+	} {
+		t.Run(created, func(t *testing.T) {
+			a := conforming(t)
+			a.annotations[ocispec.AnnotationCreated] = created
 
-	got := findings(t, a)
-	require.Equal(t, report.Fail, got["oci-annotations"].Severity)
-	require.Contains(t, got["oci-annotations"].Detail, "must not be emitted")
+			rep, err := Run(context.Background(), a)
+			require.NoError(t, err)
+			require.Empty(t, rep.Findings)
+		})
+	}
 }
 
-// base.* sits beside created and revision in §9.3's deliberately-not-
-// emitted list: base-image state is the builder's knowledge, recorded in
+func TestCreatedAnnotationRejectsInvalidTimestamps(t *testing.T) {
+	for _, created := range []string{
+		"",
+		"1759320000",
+		"not-a-timestamp",
+		"2025-10-01",
+		"2025-10-01T12:00:00",
+		"2025-02-30T12:00:00Z",
+		"2025-02-29T12:00:00Z",
+		"2025-10-01T24:00:00Z",
+		"2025-10-01T12:60:00Z",
+		"1990-12-31T23:59:61Z",
+		"1990-12-32T23:59:60Z",
+		"2025-10-01T1:00:00Z",
+		"2025-10-01T12:00:00,5Z",
+		"2025-10-01T12:00:00.Z",
+		"2025-10-01T12:00:00+24:00",
+		"2025-10-01T12:00:00+00:60",
+		"2025-10-01 12:00:00Z",
+		"2025-10-01T12:00:00Z\n",
+	} {
+		t.Run(created, func(t *testing.T) {
+			a := conforming(t)
+			a.annotations[ocispec.AnnotationCreated] = created
+
+			got := findings(t, a)
+			require.Contains(t, got, "oci-annotations")
+			require.Equal(t, report.Fail, got["oci-annotations"].Severity)
+			require.Contains(t, got["oci-annotations"].Detail, ocispec.AnnotationCreated)
+			require.Contains(t, got["oci-annotations"].Detail, "must be an RFC 3339 timestamp")
+		})
+	}
+}
+
+// VCS and base-image state remain the builder's knowledge, recorded in
 // provenance, never the descriptor's.
-func TestBaseImageAnnotationsMustNotBeEmitted(t *testing.T) {
+func TestBuilderSourceAnnotationsMustNotBeEmitted(t *testing.T) {
 	for _, key := range []string{
+		"org.opencontainers.image.revision",
 		"org.opencontainers.image.base.name",
 		"org.opencontainers.image.base.digest",
 	} {

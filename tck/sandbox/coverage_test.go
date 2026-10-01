@@ -99,6 +99,7 @@ var covers = map[string][]string{
 // supplies the evidence.
 var kitCovers = map[string][]string{
 	"agent-skill-content": {"agent-skill@1/content-present"},
+	"oci-annotations":     {"SPEC-v3 §9.3/created-rfc3339"},
 	// ValidatePublished enforces §9.2 on every descriptor this check
 	// decodes, and refuses the authoring-only kind: set — a published
 	// set that was never merged describes layers it does not have.
@@ -195,6 +196,7 @@ var waived = map[string]string{
 	"SPEC-v3 §6/expanded-key-collision-rejected":      "expansion semantics, judged by the spec package's ExpandCreateArgs tests",
 	"SPEC-v3 §7.3/unknown-optional-skipped":           "no runtime probe yet; the fake's unclaimed-skip test judges the suite's own semantics, not a runtime",
 	"SPEC-v3 §9.3/manifest-fallback":                  "consumer behavior; the kit checks verify fallback data exists, not that a consumer uses it",
+	"SPEC-v3 §9.3/created-not-wall-clock":             "the source of a timestamp cannot be observed from the artifact; the kit check judges RFC 3339 format but cannot distinguish SOURCE_DATE_EPOCH from the wall clock",
 	"SPEC-v3 §3.5/workload-has-content":               "no kit check distinguishes content layers from the staged-sources layer yet",
 
 	// A set is merged at publish: what the rules judge is the frontend's

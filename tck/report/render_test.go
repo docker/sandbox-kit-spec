@@ -15,7 +15,7 @@ func judged() Report {
 	r.Add("schema-version-annotation", "SPEC-v3 §9.3", Failf("annotation says %q, descriptor says %q", "2", "3"))
 	r.Add("oci-annotations", "SPEC-v3 §9.3",
 		Failf("title disagrees with the descriptor"),
-		Failf("created must not be emitted"))
+		Failf("created must be an RFC 3339 timestamp"))
 	r.Add("index-annotations", "SPEC-v3 §9.3", Warnf("index carries no descriptor annotation"))
 	r.Add("staged-recipe", "SPEC-v3 §10", Skipf("no staged kit root to look in"))
 	return r
