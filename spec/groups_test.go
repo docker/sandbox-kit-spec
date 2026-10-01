@@ -443,6 +443,31 @@ func TestSelectionHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestSelectionCancellationDiscardsEarlierItems(t *testing.T) {
+	for _, acceptEarlier := range []bool{false, true} {
+		t.Run(fmt.Sprintf("accept earlier=%t", acceptEarlier), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{
+				{Type: "com.example/feature@1", Optional: true},
+				groupHook("later"),
+			}}
+			calls := 0
+			selection, err := SelectCapabilities(ctx, d, func(context.Context, Descriptor, Capability) CapabilityDecision {
+				calls++
+				if calls == 1 {
+					return CapabilityDecision{Accepted: acceptEarlier, Message: "earlier decision"}
+				}
+				cancel()
+				return CapabilityDecision{Accepted: true}
+			})
+			require.ErrorIs(t, err, context.Canceled)
+			require.Equal(t, 2, calls)
+			require.Equal(t, Selection{}, selection, "cancellation discards earlier selected and skipped records")
+		})
+	}
+}
+
 func TestSelectionRetainsDecisionMessages(t *testing.T) {
 	for _, grouped := range []bool{false, true} {
 		for _, optional := range []bool{false, true} {

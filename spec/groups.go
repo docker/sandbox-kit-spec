@@ -323,7 +323,7 @@ func ValidateExpandedDeclarations(raw []byte, d *Descriptor) ([]string, error) {
 // before calling the selector and flattens only wholly selected constructs.
 // A nil descriptor or selector is an error, never an implicit default.
 // Required rejection returns records alongside the error for diagnostics.
-// Cancellation returns the context error rather than a capability rejection.
+// Cancellation returns a zero selection and the context error.
 func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability SelectCapability) (Selection, error) {
 	var result Selection
 	if err := ctx.Err(); err != nil {
@@ -381,11 +381,11 @@ func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability Sel
 			}
 			record.MemberSources = append(record.MemberSources, origin)
 			if err := ctx.Err(); err != nil {
-				return result, err
+				return Selection{}, err
 			}
 			decision := selectCapability(ctx, *d, c)
 			if err := ctx.Err(); err != nil {
-				return result, err
+				return Selection{}, err
 			}
 			record.Decisions = append(record.Decisions, decision)
 			if !decision.Accepted {

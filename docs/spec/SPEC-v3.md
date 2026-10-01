@@ -623,7 +623,8 @@ The callback returns a decision with an acceptance flag and an optional
 message. The zero value rejects the entry. Selection records retain
 each member's decision in declaration order, including messages for
 accepted members of a skipped group. Required-rejection diagnostics
-include the rejecting member's message when supplied.
+include the rejecting member's message when supplied. Cancellation
+returns no partial selection.
 
 The selection API MUST include a group only when every member is <!-- tck: SPEC-v3 §7.1.1/atomic-selection -->
 accepted. Otherwise it skips and records an optional group in full, or
