@@ -157,4 +157,6 @@ capabilities:
 
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: AGENTS.md
+      directory: /home/agent
       contentFile: ./docker-agent-context.md

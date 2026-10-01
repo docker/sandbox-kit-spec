@@ -214,4 +214,6 @@ capabilities:
 
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: AGENTS.md
+      directory: /home/agent/.config/opencode
       contentFile: ./opencode-context.md

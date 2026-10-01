@@ -35,6 +35,18 @@ func loadSchema(t *testing.T) map[string]any {
 	return loadJSON(t, "../schema/kit.schema.json")
 }
 
+func TestAgentContextDirectorySchema(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentContext))
+	directory := at(t, schema, "properties", "directory")
+	require.Equal(t, "string", directory["type"])
+	require.Equal(t, []any{"filename"}, at(t, schema, "dependencies")["directory"])
+	assertAcceptsKitArg(t, directory, "bearing")
+	pattern := regexp.MustCompile(literalPattern(t, directory))
+	for _, value := range []string{"/", "/home/agent/.codex", "/home/agent/.kit-tck/context", "", ".codex", "/home/agent/../agent/.codex", "/home/agent/.codex/", "//home/agent"} {
+		require.Equal(t, canonicalAbsPath(value), pattern.MatchString(value), "directory %q", value)
+	}
+}
+
 func perTypeSchemaPath(typ string) string {
 	return filepath.Join("..", "schema", "capabilities", filepath.FromSlash(typ)+".schema.json")
 }

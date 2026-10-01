@@ -87,7 +87,7 @@
       "items": {
         "$ref": "#/definitions/capabilityItem"
       },
-      "description": "Typed, versioned capability requests, each answered \u2014 granted, refused, or prompted \u2014 by the host. A host refuses a required type it does not provide by name; an optional one is skipped and recorded. Engine-executed behaviors (lifecycle hooks, agent context) live here beside resource grants."
+      "description": "Typed, versioned capability requests, each answered \u2014 granted, refused, or prompted \u2014 by the host. A host refuses a required type it does not provide by name; an optional one is skipped and recorded. Engine-executed behaviors (lifecycle hooks, agent context with an optional discovery profile directory) live here beside resource grants."
     },
     "args": {
       "type": "object",

@@ -1,0 +1,22 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Conformance context destination workload
+description: A profile destination outside the workspace discovery hierarchy
+provides: ["kit-tck-workload@1.0.0"]
+args:
+  directory:
+    default: /home/agent/.codex
+capabilities:
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      directory: "${{ kit.args.directory }}"
+      content: Conformance context destination workload.
+build: |
+  FROM docker/sandbox-templates:claude-code-docker
+  RUN mkdir -p /home/agent/.codex /home/agent/.kit-tck/context \
+      && printf '%s\n' 'kit-tck-existing-instructions' > /home/agent/.codex/AGENTS.md \
+      && printf '%s\n' 'kit-tck-existing-instructions' > /home/agent/.kit-tck/context/AGENTS.md
+  WORKDIR /home/agent/workspace
+  ENTRYPOINT ["sleep", "infinity"]

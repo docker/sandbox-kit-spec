@@ -97,6 +97,8 @@ capabilities:
         allow: [extra.example.com]
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: CLAUDE.md
+      directory: /home/agent/.claude
       content: "Extra is installed."
   - type: com.docker.sandbox/lifecycle@1
     config:
@@ -128,6 +130,8 @@ args:
 capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: CLAUDE.md
+      directory: /home/agent/.claude
       contentFile: ./notes-${{ kit.args.language }}.md
 kits:
   - ref: `+registry+`/sbx-kit-base:1.0.0
@@ -179,7 +183,9 @@ kits:
 
 	context, err := spec.AgentContextOf(d.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, "AGENTS.md", context.Filename)
+	require.Equal(t, "CLAUDE.md", context.Filename,
+		"the agent mixin and set agree on the explicit profile overriding the base's legacy filename")
+	require.Equal(t, "/home/agent/.claude", context.Directory)
 	require.Equal(t, "/usr/share/sandbox/kit/team/context.md", context.ContentFile)
 
 	require.Len(t, d.Kits, 2)

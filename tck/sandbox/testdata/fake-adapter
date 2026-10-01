@@ -158,6 +158,7 @@ create)
   greeting_override_set=no
   group_path=/var/tmp/group-expanded
   env_group_path=/var/tmp/env-group-expanded
+  context_directory=/home/agent/.codex
   hostmode="readwrite"
   hoststore=""
   # The backing SSH agent available to this sandbox; empty when none is.
@@ -169,7 +170,7 @@ create)
   while [ $# -gt 0 ]; do
     case "$1" in
     --arg)
-      case "$2" in greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
+      case "$2" in directory=*) context_directory="${2#directory=}" ;; greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
       shift 2
       ;;
     --env)
@@ -206,6 +207,13 @@ create)
       shift
       ;;
     esac
+  done
+
+  for kit in "${kits[@]}"; do
+    if [ "${kit##*/}" = context-conflict ] && [ "$broken" != accepts-context-conflict ]; then
+      echo 'refusing: conflicting explicit agent-context profiles' >&2
+      exit 2
+    fi
   done
 
   store="$state/store"
@@ -751,6 +759,19 @@ create)
   else
     ls "$dir/skills-rw" >"$dir/skills-rw-at-install"
   fi
+  for kit in "${kits[@]}"; do
+    if [ "${kit##*/}" = context-workload ] || [ "${kit##*/}" = context-profile ]; then
+      case "$broken" in
+      ignores-context-directory) context_directory=/home/agent ;;
+      workload-profile-wins) if [ "${kit##*/}" = context-profile ]; then context_directory=/home/agent; fi ;;
+      context-at-fixed-directory) context_directory=/home/agent/.codex ;;
+      esac
+      printf '%s' "$context_directory" >"$dir/context-directory"
+      context_filename=AGENTS.md
+      if [ "${kit##*/}" = context-profile ] && [ "$broken" != ignores-profile-filename ]; then context_filename=CLAUDE.md; fi
+      printf '%s' "$context_filename" >"$dir/context-filename"
+    fi
+  done
   if [ "$broken" != "no-context" ]; then
     # Surfaced progressively: the profile points at the kit's staged body
     # rather than restating it, which is the reference the check asserts.
@@ -759,6 +780,9 @@ create)
     # A runtime ignoring agent-context writes the workload's own profile
     # and surfaces nothing into it.
     printf '%s\n' "Conformance workload." >"$dir/profile"
+  fi
+  if [ "$broken" != overwrites-context-profile ]; then
+    printf '%s\n' 'kit-tck-existing-instructions' >>"$dir/profile"
   fi
   if { [ "$hostmode" = off ] || [ -n "$hoststore" ]; } && { [ -n "$required_skills" ] || [ -n "$optional_skills" ]; }; then
     skill_fixture=skills
@@ -902,6 +926,14 @@ exec)
     /var/tmp/skills-rw-at-install) cat "$dir/skills-rw-at-install" ;;
     /home/agent/.config/env-written) cat "$dir/env-written" ;;
     /home/agent/.config/kit-written) cat "$dir/kit-written" ;;
+    /home/agent/.codex/AGENTS.md | /home/agent/.kit-tck/context/AGENTS.md | /home/agent/.codex/CLAUDE.md | /home/agent/.kit-tck/context/CLAUDE.md)
+      if [ -f "$dir/context-directory" ] && [ "$2" = "$(cat "$dir/context-directory")/$(cat "$dir/context-filename")" ]; then
+        cat "$dir/profile"
+      else
+        echo "no such file: $2" >&2
+        exit 1
+      fi
+      ;;
     /home/agent/AGENTS.md) cat "$dir/profile" ;;
     /home/sbxagent/AGENTS.md)
       if [ -f "$dir/sbx" ] && [ "$broken" != "workspace-at-fixed-path" ]; then

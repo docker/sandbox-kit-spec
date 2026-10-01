@@ -131,4 +131,5 @@ capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:
       filename: AGENTS.md
+      directory: /home/agent/workspace
       contentFile: ./cursor-context.md

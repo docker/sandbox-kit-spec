@@ -37,8 +37,8 @@ capabilities:
           - deb.debian.org
           - dhi.io
 
-  # The workload owns the context-file profile; composed mixins fan their
-  # guidance out beside it.
+  # This legacy profile is the fallback. An agent mixin can select its
+  # discovery destination; every composed Kit contributes guidance there.
   - type: com.docker.sandbox/agent-context@1
     config:
       filename: AGENTS.md

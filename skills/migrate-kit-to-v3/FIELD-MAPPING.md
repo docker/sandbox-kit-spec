@@ -385,9 +385,12 @@ Audit for the mistake with:
 rg -l '\$\{\{ *kit\.args\.' --glob '*-context.md' .
 ```
 
-`filename:` (`CLAUDE.md`, `AGENTS.md`, …) is **workload-only** — the profile
-belongs to the kit that owns the environment, and declaring it on a mixin is a
-validation error. A mixin carries `contentFile` alone.
+A workload's `filename:` alone keeps the legacy workspace-sibling profile.
+An agent workload or mixin declares `filename:` together with `directory:`
+at the agent's discovery location. The directory is absolute and canonical;
+Codex uses `/home/agent/.codex`. An explicit destination overrides the
+legacy fallback, and differing explicit destinations conflict. Tool mixins
+carry `contentFile` or `content` alone. Staged bodies keep their paths.
 
 ### long-running@1
 
@@ -507,8 +510,8 @@ A workload kit's `-mixin` sibling declares the same credentials, network policy,
 volumes, hooks, args and provides, minus what only the kit that owns the
 environment can carry:
 
-- no `sbx@1`, no `agent-sessions@1`, no `agent-context@1.filename`
-  (`contentFile` only)
+- no `sbx@1` or `agent-sessions@1`; an agent mixin keeps its explicit
+  `agent-context@1` directory and filename, while tool mixins carry bodies only
 - no `ENTRYPOINT` — the base workload's launch command stays, and the user runs
   the tool from the shell. Say so in the descriptor's header comment.
 - `displayName: <Name> (mixin)`, and a description that says to layer it onto a
@@ -591,9 +594,8 @@ Before calling a migration done:
       permission widening and required/optional behavior accounted for
 - [ ] every inject domain appears in the same phase's allow list
 - [ ] the install/runtime phase split loses no host from the v2 list
-- [ ] `filename:` appears only on a workload, or on a set that resolves to
-      one — a set of only mixins derives `kind: mixin` and its `filename` is
-      rejected at publish, not at authoring time
+- [ ] every mixin declaring a context `filename:` also declares its
+      explicit discovery `directory:`
 - [ ] no `sbx@1` or `agent-sessions@1` on a mixin
 - [ ] the mixin's `ENV` is on the recipe's final stage, and profile.d is used
       only for values that collide or that only a shell needs

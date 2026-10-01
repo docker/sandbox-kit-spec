@@ -36,6 +36,7 @@ var covers = map[string][]string{
 	// Reading the staged body behind the profile's reference judges what
 	// the profile is; full progressive semantics are waived until a
 	// fixture can observe them.
+	"agent-context@1/directory-honored": {"agent-context@1/existing-content-preserved", "agent-context@1/explicit-profile-precedence"},
 	"agent-context@1/body-readable": {
 		"agent-context@1/workload-filename-is-profile",
 	},

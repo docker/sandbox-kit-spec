@@ -920,6 +920,53 @@ var (
 func init() {
 	checks = append(checks,
 		check{
+			requirement: "agent-context@1/explicit-profile-conflict",
+			capability:  capAgentContext,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				_, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, "context-profile", "context-conflict"}, nil)
+				cleanup()
+				var refused *adapter.RefusedError
+				if !errors.As(err, &refused) {
+					return []report.Finding{report.Failf("conflicting explicit context profiles must refuse: %v", err)}
+				}
+				return nil
+			},
+		},
+		check{
+			requirement: "agent-context@1/directory-honored",
+			capability:  capAgentContext,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				// Two destinations catch both ignoring directory and hard-coding
+				// the conventional global directory instead of reading config.
+				for _, directory := range []string{"/home/agent/.codex", "/home/agent/.kit-tck/context"} {
+					for _, kits := range [][]string{{"context-workload", fixtureContext}, {fixtureWorkload, "context-profile", fixtureContext}, {"context-profile", fixtureWorkload, fixtureContext}} {
+						id, cleanup, err := e.sandbox(ctx, kits, map[string]string{"directory": directory})
+						if err != nil {
+							return []report.Finding{report.Failf("create with context directory %s: %v", directory, err)}
+						}
+						defer cleanup()
+						filename := "CLAUDE.md"
+						if kits[0] == "context-workload" {
+							filename = "AGENTS.md"
+						}
+						profilePath := path.Join(directory, filename)
+						profile, f := execOutput(ctx, e, id, "cat", profilePath)
+						if f != nil {
+							return []report.Finding{report.Failf("the composition declares its context profile at %s, but it is not readable: %s", profilePath, f.Detail)}
+						}
+						staged := path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md")
+						if !strings.Contains(profile, staged) {
+							return []report.Finding{report.Failf("the profile at %s does not surface the mixin context at %s", profilePath, staged)}
+						}
+						if kits[0] == "context-workload" && !strings.Contains(profile, "kit-tck-existing-instructions") {
+							return []report.Finding{report.Failf("the profile at %s lost its existing instructions", profilePath)}
+						}
+					}
+				}
+				return nil
+			},
+		},
+		check{
 			// Staging is what makes a kit self-describing: the body has to
 			// be readable at the path the published descriptor names, with
 			// no reference back to the build context.
