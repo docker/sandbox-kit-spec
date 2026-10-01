@@ -70,7 +70,7 @@ func TestAgentContextDirectorySurvivesCompositionAndPublication(t *testing.T) {
 			}
 			published, err := Merge([]Contribution{{Reference: workload.Reference, Descriptor: &kit}, mixin}, MergeOptions{ContextPath: "/kit/merged.md"})
 			require.NoError(t, err)
-			selected, err := SelectCapabilities(published.Descriptor, Supported(CapabilityAgentContext))
+			selected, err := SelectCapabilities(t.Context(), published.Descriptor, Supported(CapabilityAgentContext))
 			require.NoError(t, err)
 			effective := *published.Descriptor
 			effective.Capabilities = selected.Capabilities
@@ -104,7 +104,7 @@ func TestExplicitAgentProfileOverridesLegacyFallback(t *testing.T) {
 			}
 			result, err := Merge(contributions, MergeOptions{ContextPath: "/kit/context.md"})
 			require.NoError(t, err)
-			selected, err := SelectCapabilities(result.Descriptor, Supported(CapabilityAgentContext))
+			selected, err := SelectCapabilities(t.Context(), result.Descriptor, Supported(CapabilityAgentContext))
 			require.NoError(t, err)
 			effective := *result.Descriptor
 			effective.Capabilities = selected.Capabilities

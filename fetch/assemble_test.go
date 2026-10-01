@@ -85,7 +85,7 @@ func TestAssembleGroupsEnvironmentAndImage(t *testing.T) {
 	base.Descriptor = kitJSON(t, &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
 		Requires: []string{"tool"}, Args: map[string]spec.Arg{"team": {Default: &team, Env: "TEAM"}},
 	})
-	mixin.Descriptor = kitJSON(t, &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin, Provides: []string{"tool@1.0.0"},
+	mixin.Descriptor = kitJSON(t, &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin, DisplayName: "Tool Kit", Provides: []string{"tool@1.0.0"},
 		Args: map[string]spec.Arg{"tool": {Default: &tool, Env: "TOOL"}},
 		Capabilities: []spec.Capability{{Group: &spec.CapabilityGroup{Name: "cache", Optional: true, Capabilities: []spec.Capability{
 			{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache"}},
@@ -96,10 +96,17 @@ func TestAssembleGroupsEnvironmentAndImage(t *testing.T) {
 	overrides := map[string]string{"TEAM": "caller", "EMPTY": ""}
 	var events []Progress
 	var decisions []string
-	result, err := Assemble(t.Context(), fixtureRequests(2), Options{LayerValidator: DefaultLayerValidator, Loader: fixtureLoader(base, mixin), Overrides: Overrides{Env: overrides, WorkingDir: &workdir},
-		CapabilitySelector: func(c spec.Capability) bool {
+	ctx := t.Context()
+	result, err := Assemble(ctx, fixtureRequests(2), Options{LayerValidator: DefaultLayerValidator, Loader: fixtureLoader(base, mixin), Overrides: Overrides{Env: overrides, WorkingDir: &workdir},
+		CapabilitySelector: func(callCtx context.Context, kit spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+			require.Same(t, ctx, callCtx)
+			require.Equal(t, "Tool Kit", kit.DisplayName)
+			require.Len(t, kit.Capabilities[0].Group.Capabilities, 2)
 			decisions = append(decisions, c.Type)
-			return c.Type != spec.CapabilityVolume
+			if c.Type == spec.CapabilityVolume {
+				return spec.CapabilityDecision{Message: "storage unavailable"}
+			}
+			return spec.CapabilityDecision{Accepted: true}
 		},
 		OnProgress: func(p Progress) { events = append(events, p) },
 	})
@@ -108,6 +115,7 @@ func TestAssembleGroupsEnvironmentAndImage(t *testing.T) {
 	require.Empty(t, result.Resolved.Descriptor.Capabilities)
 	require.Equal(t, fixtureRequests(2)[1].Reference, result.Resolved.Kits[0].Reference)
 	require.Len(t, result.Resolved.Selections[0].Selection.Skipped, 1)
+	require.Equal(t, []spec.CapabilityDecision{{Message: "storage unavailable"}, {Accepted: true}}, result.Resolved.Selections[0].Selection.Skipped[0].Decisions)
 	require.Equal(t, fixtureRequests(2)[1].Reference, result.Resolved.Selections[0].Selection.Skipped[0].MemberSources[0].Kit)
 	require.Len(t, result.Image.Layers, 2, "skipping all capabilities does not remove a Kit's layers")
 	require.Equal(t, base.Manifest.Layers[0], result.Image.Layers[0], "image order starts with the workload")
@@ -378,9 +386,9 @@ func TestAssembleValidatesExpandedGroupBeforeSelector(t *testing.T) {
 	})
 	requests := fixtureRequests(1)
 	requests[0].Args = map[string]string{"port": "70000"}
-	_, err := Assemble(t.Context(), requests, Options{LayerValidator: DefaultLayerValidator, Loader: fixtureLoader(input), CapabilitySelector: func(spec.Capability) bool {
+	_, err := Assemble(t.Context(), requests, Options{LayerValidator: DefaultLayerValidator, Loader: fixtureLoader(input), CapabilitySelector: func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
 		t.Fatal("invalid expanded declaration reached selector")
-		return false
+		return spec.CapabilityDecision{Accepted: false}
 	}})
 	require.ErrorContains(t, err, "70000")
 	require.ErrorContains(t, err, "group.capabilities[0]")
@@ -429,13 +437,13 @@ func TestAssembleExpandsFinalEnvironment(t *testing.T) {
 			}
 			calls := 0
 			result, err := Assemble(t.Context(), fixtureRequests(2), Options{LayerValidator: DefaultLayerValidator, Loader: fixtureLoader(base, mixin), Overrides: Overrides{Env: overrides},
-				CapabilitySelector: func(c spec.Capability) bool {
+				CapabilitySelector: func(_ context.Context, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
 					calls++
 					lc, err := spec.LifecycleOf([]spec.Capability{c})
 					require.NoError(t, err)
 					require.Equal(t, tc.want+"/config", lc.Files[0].Path)
 					overrides["HOME"] = "/mutated-by-selector"
-					return true
+					return spec.CapabilityDecision{Accepted: true}
 				},
 			})
 			require.NoError(t, err)
@@ -467,7 +475,10 @@ func TestAssembleEnvironmentErrorsBeforeSelection(t *testing.T) {
 				Capabilities: []spec.Capability{{Type: spec.CapabilityVolume, Optional: true, Config: tc.config}},
 			})
 			result, err := Assemble(t.Context(), fixtureRequests(1), Options{LayerValidator: DefaultLayerValidator, Loader: fixtureLoader(base), Overrides: Overrides{Env: tc.env},
-				CapabilitySelector: func(spec.Capability) bool { t.Fatal("selector called before validation"); return false },
+				CapabilitySelector: func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+					t.Fatal("selector called before validation")
+					return spec.CapabilityDecision{Accepted: false}
+				},
 			})
 			require.Error(t, err)
 			require.Nil(t, result)

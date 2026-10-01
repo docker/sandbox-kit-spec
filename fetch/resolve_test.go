@@ -91,7 +91,7 @@ func TestResolvePreservesExpandedInputsAndIdentity(t *testing.T) {
 	args := []map[string]string{{"message": "custom workload"}, nil}
 	before, err := json.Marshal(kits)
 	require.NoError(t, err)
-	result, err := mergeKits(kits, args, false)
+	result, err := mergeKits(t.Context(), kits, args, false)
 	require.NoError(t, err)
 	require.Len(t, result.Kits, 2)
 	for i, inputIndex := range []int{1, 0} {
@@ -153,7 +153,7 @@ func TestResolvePerKitEnvExportRules(t *testing.T) {
 			d := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin, Args: tc.decls}
 			raw := kitJSON(t, d)
 			kit := &Kit{Reference: "example.com/tool:1.0.0", Digest: digest.FromBytes(raw).String(), Descriptor: d, Raw: raw}
-			result, err := mergeKits([]*Kit{kit}, []map[string]string{tc.args}, true,
+			result, err := mergeKits(t.Context(), []*Kit{kit}, []map[string]string{tc.args}, true,
 				WithEnvironment(map[string]string{"IMAGE_DEFAULT": "image"}, map[string]string{"VALUE": "runtime"}))
 			require.NoError(t, err)
 			require.Len(t, result.Kits, 1)

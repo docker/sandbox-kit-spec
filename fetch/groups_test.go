@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -33,21 +34,23 @@ func TestResolveGroupsThroughPublicAPIs(t *testing.T) {
 				method = client.ResolvePartial
 			}
 			calls := 0
-			result, err := method(t.Context(), reqs(reg.ref("kits/groups", "1.0.0")), WithCapabilitySelector(func(c spec.Capability) bool {
+			result, err := method(t.Context(), reqs(reg.ref("kits/groups", "1.0.0")), WithCapabilitySelector(func(_ context.Context, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
 				calls++
 				if c.Type != spec.CapabilityPort {
-					return true
+					return spec.CapabilityDecision{Accepted: true}
 				}
 				var port spec.Port
 				require.NoError(t, spec.DecodeCapabilityConfig(c, &port))
-				c.Config["container"] = 1
-				return port.Container == 8080
+				return spec.CapabilityDecision{Accepted: port.Container == 8080, Message: "host permits only port 8080"}
 			}))
 			require.NoError(t, err)
 			require.Equal(t, 3, calls)
 			require.Len(t, result.Kits, 1)
 			require.Len(t, result.Kits[0].Descriptor.Capabilities, 1)
 			require.Len(t, result.Selections[0].Selection.Skipped, 1)
+			require.Equal(t, []spec.CapabilityDecision{
+				{Message: "host permits only port 8080"}, {Accepted: true},
+			}, result.Selections[0].Selection.Skipped[0].Decisions)
 			require.True(t, spec.HasGroups(result.Selections[0].PublishedDescriptor.Capabilities))
 			require.JSONEq(t, string(kitJSON(t, d)), string(kitJSON(t, result.Selections[0].PublishedDescriptor)), "published declarations survive expansion and selection")
 			require.Equal(t, "9000", result.ContainerEnv["PORT"])
@@ -78,16 +81,22 @@ func TestSelectionPrecedesCredentialOwnershipAndCrossChecks(t *testing.T) {
 	result, err := client.Resolve(t.Context(), requests)
 	require.NoError(t, err)
 	require.Len(t, result.Kits[1].Descriptor.Capabilities, 0)
-	_, err = client.Resolve(t.Context(), requests, WithCapabilitySelector(func(spec.Capability) bool { return true }))
+	_, err = client.Resolve(t.Context(), requests, WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+		return spec.CapabilityDecision{Accepted: true}
+	}))
 	require.ErrorContains(t, err, "one credential has one owner")
 	require.ErrorContains(t, err, "group.capabilities[1]")
-	_, err = client.Resolve(t.Context(), requests, WithCapabilitySelector(func(c spec.Capability) bool { return c.Type != spec.CapabilityNetworkPolicy }))
+	_, err = client.Resolve(t.Context(), requests, WithCapabilitySelector(func(_ context.Context, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+		return spec.CapabilityDecision{Accepted: c.Type != spec.CapabilityNetworkPolicy}
+	}))
 	require.ErrorContains(t, err, "required capability selection rejected")
 	// Make the only policy optional: rejection must now fail final coherence,
 	// rather than silently leave a credential injectable outside its allowlist.
 	base.Capabilities[1].Optional = true
 	reg.tag("kits/base", "2.0.0", reg.image(t, kitJSON(t, base)))
-	_, err = client.Resolve(t.Context(), reqs(reg.ref("kits/base", "2.0.0")), WithCapabilitySelector(func(c spec.Capability) bool { return c.Type != spec.CapabilityNetworkPolicy }))
+	_, err = client.Resolve(t.Context(), reqs(reg.ref("kits/base", "2.0.0")), WithCapabilitySelector(func(_ context.Context, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+		return spec.CapabilityDecision{Accepted: c.Type != spec.CapabilityNetworkPolicy}
+	}))
 	require.ErrorContains(t, err, "not in the network policy")
 }
 
@@ -97,7 +106,10 @@ func TestResolveValidatesSkippedMembersAfterExpansion(t *testing.T) {
 	reg.tag("kits/group", "1.0.0", reg.image(t, kitJSON(t, d)))
 	client, err := New()
 	require.NoError(t, err)
-	_, err = client.ResolvePartial(t.Context(), []Request{{Reference: reg.ref("kits/group", "1.0.0"), Args: map[string]string{"port": "70000"}}}, WithCapabilitySelector(func(spec.Capability) bool { t.Fatal("invalid member reached selection"); return false }))
+	_, err = client.ResolvePartial(t.Context(), []Request{{Reference: reg.ref("kits/group", "1.0.0"), Args: map[string]string{"port": "70000"}}}, WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+		t.Fatal("invalid member reached selection")
+		return spec.CapabilityDecision{Accepted: false}
+	}))
 	require.ErrorContains(t, err, "capabilities[0].group.capabilities[0]")
 }
 
@@ -148,7 +160,9 @@ func TestResolveCompletesSelectionSourcesWithoutMutatingDeclarations(t *testing.
 					client, err := New()
 					require.NoError(t, err)
 					ref := reg.ref("kits/source", "1.0.0")
-					result, err := client.ResolvePartial(t.Context(), reqs(ref), WithCapabilitySelector(func(spec.Capability) bool { return accept }))
+					result, err := client.ResolvePartial(t.Context(), reqs(ref), WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+						return spec.CapabilityDecision{Accepted: accept}
+					}))
 					require.NoError(t, err)
 					selection := result.Selections[0]
 					records := selection.Selection.Skipped
@@ -183,8 +197,11 @@ func TestRequiredRejectionCompletesPathOnlySources(t *testing.T) {
 			client, err := New()
 			require.NoError(t, err)
 			ref := reg.ref("kits/source", "1.0.0")
-			_, err = client.ResolvePartial(t.Context(), reqs(ref), WithCapabilitySelector(spec.Supported()))
+			_, err = client.ResolvePartial(t.Context(), reqs(ref), WithCapabilitySelector(func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+				return spec.CapabilityDecision{Message: "storage unavailable"}
+			}))
 			require.ErrorContains(t, err, "original source "+ref+" capabilities[7]")
+			require.ErrorContains(t, err, "storage unavailable")
 			// Normalization must copy both group and member source pointers.
 			copy := withSelectionSources(d, ref)
 			require.Equal(t, "", d.Capabilities[0].Source.Kit)
@@ -193,6 +210,52 @@ func TestRequiredRejectionCompletesPathOnlySources(t *testing.T) {
 				require.Equal(t, "", d.Capabilities[0].Group.Capabilities[0].Source.Kit)
 				require.NotSame(t, d.Capabilities[0].Group.Capabilities[0].Source, copy.Capabilities[0].Group.Capabilities[0].Source)
 			}
+		})
+	}
+}
+
+func TestResolveSelectorReceivesOwningKit(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprint(partial), func(t *testing.T) {
+			reg := newRegistry(t)
+			ctx := t.Context()
+			var requests []Request
+			want := map[string]string{}
+			for i, name := range []string{"Main Kit", "Tool Kit"} {
+				kind := spec.KindMixin
+				if i == 0 && !partial {
+					kind = spec.KindWorkload
+				}
+				value := "expanded"
+				d := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: kind, DisplayName: name,
+					Args:         map[string]spec.Arg{"value": {Default: &value}},
+					Capabilities: []spec.Capability{{Type: "com.example/feature@1", Optional: true, Config: map[string]any{"value": "${{ kit.args.value }}", "home": "${{ kit.env.HOME }}"}}},
+				}
+				path := fmt.Sprintf("kits/owner%d", i)
+				reg.tag(path, "1.0.0", reg.image(t, kitJSON(t, d)))
+				ref := reg.ref(path, "1.0.0")
+				requests = append(requests, Request{Reference: ref})
+				want[ref] = name
+			}
+			client, err := New()
+			require.NoError(t, err)
+			method := client.Resolve
+			if partial {
+				method = client.ResolvePartial
+			}
+			seen := map[string]string{}
+			result, err := method(ctx, requests, WithEnvironment(map[string]string{"HOME": "/home/agent"}, nil),
+				WithCapabilitySelector(func(callCtx context.Context, kit spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+					require.Same(t, ctx, callCtx)
+					require.Len(t, kit.Capabilities, 1, "descriptor belongs to this Kit, before composition")
+					require.Equal(t, c, kit.Capabilities[0])
+					require.Equal(t, map[string]any{"value": "expanded", "home": "/home/agent"}, c.Config)
+					seen[c.Source.Kit] = kit.DisplayName
+					return spec.CapabilityDecision{Accepted: kit.DisplayName == "Tool Kit"}
+				}))
+			require.NoError(t, err)
+			require.Equal(t, want, seen)
+			require.Len(t, result.Descriptor.Capabilities, 1, "policy can decide using the owning Kit")
 		})
 	}
 }

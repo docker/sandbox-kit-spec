@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -313,7 +314,7 @@ func TestSSHAgentGroupSelectionAndComposition(t *testing.T) {
 		{"skip without lifecycle", Supported(CapabilitySSHAgent), []string{"install sign git", "runtime sign git"}, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			selection, err := SelectCapabilities(published.Descriptor, tt.selector)
+			selection, err := SelectCapabilities(t.Context(), published.Descriptor, tt.selector)
 			require.NoError(t, err)
 			require.Len(t, selection.Skipped, tt.skipped)
 			selected := *published.Descriptor
@@ -336,9 +337,9 @@ func TestSSHAgentGroupSelectionAndComposition(t *testing.T) {
 	// A skipped group's invalid config must still be diagnosed before
 	// runtime selection can discard it.
 	d.Capabilities[1].Group.Capabilities[0].Config["phase"] = nil
-	_, err = SelectCapabilities(d, func(Capability) bool {
+	_, err = SelectCapabilities(t.Context(), d, func(context.Context, Descriptor, Capability) CapabilityDecision {
 		t.Fatal("invalid declarations reached selection")
-		return false
+		return CapabilityDecision{Accepted: false}
 	})
 	require.ErrorContains(t, err, "capabilities[1].group.capabilities[0].config.phase")
 }

@@ -29,16 +29,17 @@ func main() {
 		claimed[i] = strings.TrimSpace(claimed[i])
 	}
 	supported := spec.Supported(claimed...)
-	selectCapability := func(capability spec.Capability) bool {
-		if !supported(capability) {
-			return false
+	selectCapability := func(ctx context.Context, kit spec.Descriptor, capability spec.Capability) spec.CapabilityDecision {
+		if decision := supported(ctx, kit, capability); !decision.Accepted {
+			return decision
 		}
 		// A real runtime uses host availability and policy here. The full
-		// entry includes expanded config; deciding must not apply effects.
-		if capability.Type == spec.CapabilityVolume {
-			return *allowVolumes
+		// entry includes expanded config and kit.DisplayName labels the owning
+		// Kit; deciding must not apply effects.
+		if capability.Type == spec.CapabilityVolume && !*allowVolumes {
+			return spec.CapabilityDecision{Message: "persistent volumes disabled by host policy"}
 		}
-		return true
+		return spec.CapabilityDecision{Accepted: true}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

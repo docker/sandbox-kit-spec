@@ -200,11 +200,11 @@ capabilities:
 			continue
 		}
 		require.NoError(t, err)
-		selected, err := SelectCapabilities(parsed, Supported(CapabilityAgentSkill))
+		selected, err := SelectCapabilities(t.Context(), parsed, Supported(CapabilityAgentSkill))
 		require.NoError(t, err)
 		require.Empty(t, selected.Capabilities)
 		require.Len(t, selected.Skipped, 1)
-		selected, err = SelectCapabilities(parsed, Supported(CapabilityAgentSkill, CapabilityAgentSkills))
+		selected, err = SelectCapabilities(t.Context(), parsed, Supported(CapabilityAgentSkill, CapabilityAgentSkills))
 		require.NoError(t, err)
 		require.Len(t, selected.Capabilities, 2)
 		skills, err := AgentSkillRequestsOf(selected.Capabilities)

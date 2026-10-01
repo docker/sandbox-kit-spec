@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -70,7 +71,10 @@ func TestEnvironmentDeclarationsDeferButSelectionRequiresExpansion(t *testing.T)
 	require.NoError(t, err)
 	_, err = ValidateEffective(raw, d)
 	require.ErrorContains(t, err, "kit.env")
-	_, err = SelectCapabilities(d, func(Capability) bool { t.Fatal("selector saw unresolved environment"); return true })
+	_, err = SelectCapabilities(t.Context(), d, func(context.Context, Descriptor, Capability) CapabilityDecision {
+		t.Fatal("selector saw unresolved environment")
+		return CapabilityDecision{Accepted: true}
+	})
 	require.ErrorContains(t, err, "environment")
 	out, err := ExpandEnvironment(d, map[string]string{"HOME": "/home/user"})
 	require.NoError(t, err)
@@ -108,7 +112,7 @@ func TestMergePreservesEnvironmentUntilCreate(t *testing.T) {
 	require.NoError(t, err)
 	expanded, err := ExpandEnvironment(merged.Descriptor, map[string]string{"HOME": "/home/user", "VALUE": "data"})
 	require.NoError(t, err)
-	selected, err := SelectCapabilities(expanded, Supported(KnownCapabilities()...))
+	selected, err := SelectCapabilities(t.Context(), expanded, Supported(KnownCapabilities()...))
 	require.NoError(t, err)
 	d := *expanded
 	d.Capabilities = selected.Capabilities
@@ -153,7 +157,10 @@ func TestEnvironmentReferencesWithEscapedWhitespace(t *testing.T) {
 	require.False(t, ContainsEnvRef(string(raw)))
 	_, err = ValidatePublished(raw, d)
 	require.NoError(t, err)
-	_, err = SelectCapabilities(d, func(Capability) bool { t.Fatal("unexpanded reference reached selector"); return false })
+	_, err = SelectCapabilities(t.Context(), d, func(context.Context, Descriptor, Capability) CapabilityDecision {
+		t.Fatal("unexpanded reference reached selector")
+		return CapabilityDecision{Accepted: false}
+	})
 	require.ErrorContains(t, err, "environment")
 	_, err = ValidateEffective(raw, d)
 	require.ErrorContains(t, err, "kit.env")
@@ -187,7 +194,10 @@ func TestEnvironmentMappingKeysFailAtPublication(t *testing.T) {
 					_, err := validate(raw, d)
 					require.ErrorContains(t, err, "environment references are not allowed in mapping keys")
 				}
-				_, err = SelectCapabilities(d, func(Capability) bool { t.Fatal("invalid mapping key reached selector"); return false })
+				_, err = SelectCapabilities(t.Context(), d, func(context.Context, Descriptor, Capability) CapabilityDecision {
+					t.Fatal("invalid mapping key reached selector")
+					return CapabilityDecision{Accepted: false}
+				})
 				require.ErrorContains(t, err, "mapping keys")
 			}
 		}

@@ -27,6 +27,10 @@
 // same checks while allowing a mixin-only set. There is no validation bypass.
 //
 // WithCapabilitySelector supplies runtime decisions over expanded entries.
+// Callbacks receive the operation context, the owning Kit's expanded descriptor
+// (including DisplayName), and the capability, both passed by value.
+// They return a spec.CapabilityDecision; messages survive in selection records
+// and required-rejection diagnostics.
 // The default selector accepts this library's known types; runtimes should
 // supply their actual claims with spec.Supported or a stricter callback.
 // Resolved.Selections retains published descriptors, their original bytes,

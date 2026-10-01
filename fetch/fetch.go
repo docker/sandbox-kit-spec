@@ -228,7 +228,12 @@ type resolveOptions struct {
 }
 
 // WithCapabilitySelector lets a runtime decide each expanded request. The
-// library retains atomic groups, ordering, validation, and source records.
+// callback receives the operation context and the owning Kit's expanded
+// descriptor, including DisplayName and all declarations. Descriptor and
+// capability inputs are passed by value. The library retains atomic groups,
+// ordering, validation, and source records.
+// Decision messages are recorded for each member and included in required
+// rejection errors.
 func WithCapabilitySelector(selector spec.SelectCapability) ResolveOption {
 	return func(o *resolveOptions) { o.selector = selector }
 }
@@ -291,7 +296,7 @@ func (c *Client) resolve(ctx context.Context, reqs []Request, partial bool, opts
 		kits = append(kits, k)
 		args = append(args, req.Args)
 	}
-	return mergeKits(kits, args, partial, opts...)
+	return mergeKits(ctx, kits, args, partial, opts...)
 }
 
 // Units builds the resolver's input from fetched kits.
@@ -327,7 +332,7 @@ func Units(kits []*Kit) ([]*resolve.Unit, error) {
 	return units, nil
 }
 
-func mergeKits(kits []*Kit, args []map[string]string, partial bool, opts ...ResolveOption) (*Resolved, error) {
+func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, partial bool, opts ...ResolveOption) (*Resolved, error) {
 	options := resolveOptions{selector: spec.Supported(spec.KnownCapabilities()...)}
 	for _, opt := range opts {
 		if opt != nil {
@@ -384,7 +389,7 @@ func mergeKits(kits []*Kit, args []map[string]string, partial bool, opts ...Reso
 	contributions := make([]spec.Contribution, 0, len(ordered))
 	for i, u := range ordered {
 		published := publishedByReference[u.Reference]
-		selected, err := spec.SelectCapabilities(withSelectionSources(u.Descriptor, u.Reference), options.selector)
+		selected, err := spec.SelectCapabilities(ctx, withSelectionSources(u.Descriptor, u.Reference), options.selector)
 		if err != nil {
 			return nil, spec.WithSource(err, u.Reference, published.Raw)
 		}
@@ -426,8 +431,7 @@ func mergeKits(kits []*Kit, args []map[string]string, partial bool, opts ...Reso
 }
 
 // Complete source metadata before selection so refusal errors and successful
-// records use the same attribution. Copy only what normalization changes;
-// SelectCapabilities isolates configs before handing entries to policy.
+// records use the same attribution. Copy only what normalization changes.
 func withSelectionSources(d *spec.Descriptor, reference string) *spec.Descriptor {
 	var copyItems func([]spec.Capability, string) []spec.Capability
 	copyItems = func(items []spec.Capability, prefix string) []spec.Capability {
