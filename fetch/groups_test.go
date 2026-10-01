@@ -41,7 +41,6 @@ func TestResolveGroupsThroughPublicAPIs(t *testing.T) {
 				}
 				var port spec.Port
 				require.NoError(t, spec.DecodeCapabilityConfig(c, &port))
-				c.Config["container"] = 1
 				return spec.CapabilityDecision{Accepted: port.Container == 8080, Message: "host permits only port 8080"}
 			}))
 			require.NoError(t, err)

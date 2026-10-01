@@ -228,9 +228,10 @@ type resolveOptions struct {
 }
 
 // WithCapabilitySelector lets a runtime decide each expanded request. The
-// callback receives the operation context and a deeply copied value of the owning
-// Kit's expanded descriptor, including DisplayName and all declarations. The
-// library retains atomic groups, ordering, validation, and source records.
+// callback receives the operation context and the owning Kit's expanded
+// descriptor, including DisplayName and all declarations. Descriptor and
+// capability inputs are passed by value. The library retains atomic groups,
+// ordering, validation, and source records.
 // Decision messages are recorded for each member and included in required
 // rejection errors.
 func WithCapabilitySelector(selector spec.SelectCapability) ResolveOption {
@@ -430,8 +431,7 @@ func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, parti
 }
 
 // Complete source metadata before selection so refusal errors and successful
-// records use the same attribution. Copy only what normalization changes;
-// SelectCapabilities isolates configs before handing entries to policy.
+// records use the same attribution. Copy only what normalization changes.
 func withSelectionSources(d *spec.Descriptor, reference string) *spec.Descriptor {
 	var copyItems func([]spec.Capability, string) []spec.Capability
 	copyItems = func(items []spec.Capability, prefix string) []spec.Capability {

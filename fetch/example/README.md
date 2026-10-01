@@ -58,11 +58,10 @@ actual supported types or a policy callback. A callback has signature
 `func(context.Context, spec.Descriptor, spec.Capability) spec.CapabilityDecision`.
 It receives the operation context and the owning Kit's expanded
 descriptor, including `DisplayName` and all declarations before
-selection. Descriptor and capability inputs are values with deeply copied
-maps, slices, and nested pointers; mutations cannot change later decisions
-or the result. Use the context for cancellable policy or
-approval calls. Return `spec.CapabilityDecision{Accepted: true}` to accept,
-or `spec.CapabilityDecision{Message: "reason"}` to reject. The zero value
+selection. Descriptor and capability inputs are passed by value. Use the
+context for cancellable policy or approval calls. Return
+`spec.CapabilityDecision{Accepted: true}` to accept, or
+`spec.CapabilityDecision{Message: "reason"}` to reject. The zero value
 rejects. Selection records retain each member's `Accepted` and `Message`
 in `Decisions`, in the same order as `Members`. Messages also appear in
 required-rejection errors. Selection must not apply effects. The library

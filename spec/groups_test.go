@@ -281,58 +281,6 @@ func TestGroupContextConflictRetainsOriginalMemberLocations(t *testing.T) {
 	require.ErrorContains(t, err, "consuming-set")
 }
 
-func TestSelectionIsolatesCallbackOutputsAndOriginals(t *testing.T) {
-	type typedConfig struct{ Values []string }
-	newConfig := func() map[string]any {
-		return map[string]any{
-			"nested": []any{map[string]any{"values": []string{"original"}}},
-			"typed":  &typedConfig{Values: []string{"original"}},
-			"array":  [1][]string{{"original"}},
-			"number": uint64(1 << 60),
-			"nil":    nil,
-		}
-	}
-	mutate := func(c Capability) {
-		c.Config["nested"].([]any)[0].(map[string]any)["values"].([]string)[0] = "changed"
-		c.Config["typed"].(*typedConfig).Values[0] = "changed"
-		c.Config["array"].([1][]string)[0][0] = "changed"
-		c.Source.Path = "changed"
-	}
-	for _, grouped := range []bool{false, true} {
-		for _, accept := range []bool{false, true} {
-			t.Run(fmt.Sprintf("group=%t/accept=%t", grouped, accept), func(t *testing.T) {
-				source := &CapabilitySource{Kit: "original", Path: "capabilities[0]"}
-				member := Capability{Type: "com.example/feature@1", Config: newConfig(), Source: source}
-				item := member
-				if grouped {
-					item = Capability{Source: source, Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{member}}}
-				} else {
-					item.Optional = true
-				}
-				var callbackCopy Capability
-				selection, err := SelectCapabilities(t.Context(), &Descriptor{Kind: KindWorkload, Capabilities: []Capability{item}}, func(_ context.Context, _ Descriptor, c Capability) CapabilityDecision {
-					callbackCopy = c
-					mutate(c)
-					return CapabilityDecision{Accepted: accept}
-				})
-				require.NoError(t, err)
-				records := selection.Skipped
-				if accept {
-					records = selection.Selected
-					require.Equal(t, newConfig(), selection.Capabilities[0].Config)
-					require.Equal(t, *source, *selection.Capabilities[0].Source)
-					mutate(selection.Capabilities[0])
-				}
-				mutate(callbackCopy)
-				records[0].Source.Path = "record changed"
-				records[0].MemberSources[0].Path = "member record changed"
-				require.Equal(t, newConfig(), member.Config)
-				require.Equal(t, "capabilities[0]", source.Path)
-			})
-		}
-	}
-}
-
 func TestPublicationCompletesPathOnlySources(t *testing.T) {
 	for _, kit := range []string{"", "original-kit"} {
 		t.Run("source-kit="+kit, func(t *testing.T) {
@@ -445,41 +393,25 @@ func TestSelectionRejectsUnexpandedCapabilityMetadata(t *testing.T) {
 	}
 }
 
-func TestSelectionReceivesContextAndIsolatedDescriptor(t *testing.T) {
+func TestSelectionReceivesContextAndDescriptor(t *testing.T) {
 	ctx := t.Context()
-	value := "original"
-	d := &Descriptor{Kind: KindWorkload, DisplayName: "My Kit", Provides: []string{"tool"},
-		Args: map[string]Arg{"value": {Default: &value}},
+	d := &Descriptor{Kind: KindWorkload, DisplayName: "My Kit",
 		Capabilities: []Capability{{Group: &CapabilityGroup{Capabilities: []Capability{
-			{Type: "com.example/feature@1", Config: map[string]any{"values": []string{"original"}}, Source: &CapabilitySource{Kit: "publisher", Path: "capabilities[0]"}},
+			{Type: "com.example/feature@1", Config: map[string]any{"number": uint64(1 << 60)}},
 			groupHook("true"),
 		}}}},
 	}
 	calls := 0
 	selection, err := SelectCapabilities(ctx, d, func(callCtx context.Context, kit Descriptor, c Capability) CapabilityDecision {
 		require.Same(t, ctx, callCtx)
-		require.Equal(t, *d, kit, "each call receives all original declarations")
-		members := kit.Capabilities[0].Group.Capabilities
-		if calls == 0 {
-			c.Config["values"].([]string)[0] = "entry mutation"
-			require.Equal(t, "original", members[0].Config["values"].([]string)[0], "entry and descriptor copies are independent")
-		}
-		kit.DisplayName = "changed"
-		kit.Provides[0] = "changed"
-		*kit.Args["value"].Default = "changed"
-		members[0].Config["values"].([]string)[0] = "changed"
-		members[0].Source.Kit = "changed"
-		kit.Capabilities[0].Group.Capabilities = nil
+		require.Equal(t, *d, kit, "callbacks receive all declarations before selection")
+		require.Equal(t, kit.Capabilities[0].Group.Capabilities[calls], c)
 		calls++
 		return CapabilityDecision{Accepted: true}
 	})
 	require.NoError(t, err)
 	require.Equal(t, 2, calls)
-	require.Equal(t, "My Kit", d.DisplayName)
-	require.Equal(t, []string{"tool"}, d.Provides)
-	require.Equal(t, "original", value)
-	require.Equal(t, d.Capabilities[0].Group.Capabilities[0].Config, selection.Capabilities[0].Config)
-	require.Equal(t, "publisher", selection.Capabilities[0].Source.Kit)
+	require.Equal(t, uint64(1<<60), selection.Capabilities[0].Config["number"])
 }
 
 func TestSelectionHonorsContextCancellation(t *testing.T) {

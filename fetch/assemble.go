@@ -21,7 +21,8 @@ type Options struct {
 	Loader KitLoader
 	// CapabilitySelector receives the operation context, expanded owning Kit
 	// descriptor (including DisplayName), and capability. It decides availability
-	// and policy without applying effects; callback inputs are deeply copied values.
+	// and policy without applying effects. Descriptor and capability inputs are
+	// passed by value.
 	// Nil accepts KnownCapabilities; a runtime with fewer implementations supplies
 	// spec.Supported with its actual claims. Groups remain atomic.
 	CapabilitySelector spec.SelectCapability

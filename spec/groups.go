@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -109,10 +108,9 @@ func (s *CapabilitySource) UnmarshalJSON(data []byte) error {
 
 // SelectCapability answers whether the runtime will provide one expanded entry.
 // The descriptor is the owning Kit after argument and environment expansion,
-// including its DisplayName and all declarations before selection. Callback
-// inputs are values with deeply copied maps, slices, and nested pointers; policy
-// mutations cannot affect declarations or later callbacks. The context carries
-// cancellation and deadlines.
+// including its DisplayName and all declarations before selection. Descriptor
+// and capability inputs are passed by value. The context carries cancellation
+// and deadlines.
 // It must not apply the entry: the enclosing group can still be rejected.
 type SelectCapability func(context.Context, Descriptor, Capability) CapabilityDecision
 
@@ -325,10 +323,7 @@ func ValidateExpandedDeclarations(raw []byte, d *Descriptor) ([]string, error) {
 // before calling the selector and flattens only wholly selected constructs.
 // A nil descriptor or selector is an error, never an implicit default.
 // Required rejection returns records alongside the error for diagnostics.
-// Callback inputs, selected capabilities, and source records do not share
-// mutable descriptor fields, configuration, or provenance with the original
-// declarations or subsequent callback inputs. Cancellation returns the context
-// error rather than a capability rejection.
+// Cancellation returns the context error rather than a capability rejection.
 func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability SelectCapability) (Selection, error) {
 	var result Selection
 	if err := ctx.Err(); err != nil {
@@ -375,7 +370,6 @@ func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability Sel
 		}
 		var selected []Capability
 		for j, c := range members {
-			c = cloneSelectionCapability(c)
 			memberPath := at
 			if item.Group != nil {
 				memberPath = fmt.Sprintf("%s.group.capabilities[%d]", at, j)
@@ -389,9 +383,7 @@ func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability Sel
 			if err := ctx.Err(); err != nil {
 				return result, err
 			}
-			// Policy can inspect other declarations without changing later decisions.
-			kit := cloneConfigValue(reflect.ValueOf(*d)).Interface().(Descriptor)
-			decision := selectCapability(ctx, kit, cloneSelectionCapability(c))
+			decision := selectCapability(ctx, *d, c)
 			if err := ctx.Err(); err != nil {
 				return result, err
 			}
@@ -422,55 +414,6 @@ func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability Sel
 		}
 	}
 	return result, errs.err()
-}
-
-func cloneSelectionCapability(c Capability) Capability {
-	if c.Source != nil {
-		source := *c.Source
-		c.Source = &source
-	}
-	c.Config = cloneConfigValue(reflect.ValueOf(c.Config)).Interface().(map[string]any)
-	return c
-}
-
-// Preserve concrete scalar and container types from Go callers as well as
-// decoded YAML/JSON. A serialization round trip would change numeric types.
-func cloneConfigValue(v reflect.Value) reflect.Value {
-	out := reflect.New(v.Type()).Elem()
-	out.Set(v)
-	switch v.Kind() {
-	case reflect.Interface, reflect.Pointer:
-		if !v.IsNil() {
-			if v.Kind() == reflect.Pointer {
-				out.Set(reflect.New(v.Type().Elem()))
-				out.Elem().Set(cloneConfigValue(v.Elem()))
-			} else {
-				out.Set(cloneConfigValue(v.Elem()))
-			}
-		}
-	case reflect.Map:
-		if !v.IsNil() {
-			out.Set(reflect.MakeMapWithSize(v.Type(), v.Len()))
-			iter := v.MapRange()
-			for iter.Next() {
-				out.SetMapIndex(iter.Key(), cloneConfigValue(iter.Value()))
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		if v.Kind() == reflect.Slice && !v.IsNil() {
-			out.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
-		}
-		for i := 0; i < v.Len(); i++ {
-			out.Index(i).Set(cloneConfigValue(v.Index(i)))
-		}
-	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
-			if out.Field(i).CanSet() {
-				out.Field(i).Set(cloneConfigValue(v.Field(i)))
-			}
-		}
-	}
-	return out
 }
 
 func contributionsNeedDeferredMerge(contributions []Contribution) bool {

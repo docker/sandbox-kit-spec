@@ -614,11 +614,11 @@ result. Selection does not bypass validation.
 The runtime supplies a selection function over expanded ordinary
 entries. The reference implementation passes the operation context and
 the owning Kit's expanded descriptor, including its `displayName` and
-all declarations before selection. Callback inputs are values with deeply
-copied maps, slices, and nested pointers; changing them does not change
-declarations or later decisions. A static
-list of supported types is sufficient; host policy, credential
-availability, and approval can further constrain the answer.
+all declarations before selection. The descriptor and capability are
+passed by value. A static list of supported types is sufficient; host
+policy, credential availability, and approval can further constrain the
+answer.
+
 The callback returns a decision with an acceptance flag and an optional
 message. The zero value rejects the entry. Selection records retain
 each member's decision in declaration order, including messages for

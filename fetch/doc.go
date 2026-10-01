@@ -28,7 +28,7 @@
 //
 // WithCapabilitySelector supplies runtime decisions over expanded entries.
 // Callbacks receive the operation context, the owning Kit's expanded descriptor
-// (including DisplayName), and the capability, both as deeply copied values.
+// (including DisplayName), and the capability, both passed by value.
 // They return a spec.CapabilityDecision; messages survive in selection records
 // and required-rejection diagnostics.
 // The default selector accepts this library's known types; runtimes should
