@@ -251,6 +251,14 @@ func TestCreatedAnnotationAcceptsRFC3339(t *testing.T) {
 		"1970-01-01T00:00:00Z",
 		"2025-10-01T12:00:00.123456789Z",
 		"2025-10-01T14:00:00+02:00",
+		"2025-10-01t12:00:00z",
+		"2025-10-01t12:00:00Z",
+		"2025-10-01T12:00:00z",
+		"2025-10-01T12:00:00-00:00",
+		"2024-02-29T12:00:00Z",
+		"1990-12-31T23:59:60Z",
+		"1990-12-31t23:59:60.5z",
+		"1991-01-01T00:59:60+01:00",
 	} {
 		t.Run(created, func(t *testing.T) {
 			a := conforming(t)
@@ -271,12 +279,25 @@ func TestCreatedAnnotationRejectsInvalidTimestamps(t *testing.T) {
 		"2025-10-01",
 		"2025-10-01T12:00:00",
 		"2025-02-30T12:00:00Z",
+		"2025-02-29T12:00:00Z",
+		"2025-10-01T24:00:00Z",
+		"2025-10-01T12:60:00Z",
+		"1990-12-31T23:59:61Z",
+		"1990-12-32T23:59:60Z",
+		"2025-10-01T1:00:00Z",
+		"2025-10-01T12:00:00,5Z",
+		"2025-10-01T12:00:00.Z",
+		"2025-10-01T12:00:00+24:00",
+		"2025-10-01T12:00:00+00:60",
+		"2025-10-01 12:00:00Z",
+		"2025-10-01T12:00:00Z\n",
 	} {
 		t.Run(created, func(t *testing.T) {
 			a := conforming(t)
 			a.annotations[ocispec.AnnotationCreated] = created
 
 			got := findings(t, a)
+			require.Contains(t, got, "oci-annotations")
 			require.Equal(t, report.Fail, got["oci-annotations"].Severity)
 			require.Contains(t, got["oci-annotations"].Detail, ocispec.AnnotationCreated)
 			require.Contains(t, got["oci-annotations"].Detail, "must be an RFC 3339 timestamp")

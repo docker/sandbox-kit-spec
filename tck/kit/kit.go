@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -423,8 +422,8 @@ var checks = []check{
 			// SOURCE_DATE_EPOCH or the wall clock; only its format is
 			// observable here.
 			if created, present := ann[ocispec.AnnotationCreated]; present {
-				if _, err := time.Parse(time.RFC3339, created); err != nil {
-					findings = append(findings, report.Failf("%s is %q, must be an RFC 3339 timestamp: %v", ocispec.AnnotationCreated, created, err))
+				if !validRFC3339Timestamp(created) {
+					findings = append(findings, report.Failf("%s is %q, must be an RFC 3339 timestamp", ocispec.AnnotationCreated, created))
 				}
 			}
 			// VCS and base-image state remain deliberately not emitted:
