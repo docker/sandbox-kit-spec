@@ -973,10 +973,13 @@ type Lifecycle struct {
 }
 
 // AgentContext is CapabilityAgentContext's config: instruction content
-// the agent reads. Filename is the profile a workload kit owns; mixins
-// contribute ContentFile alone.
+// the agent reads. An explicit Directory and Filename select the agent's
+// discovery profile; a workload Filename alone supplies the legacy fallback.
 type AgentContext struct {
-	Filename string `json:"filename,omitempty" yaml:"filename,omitempty"`
+	// Directory overrides workspace-sibling placement for agents whose
+	// startup discovery only reads a dedicated configuration directory.
+	Directory string `json:"directory,omitempty" yaml:"directory,omitempty"`
+	Filename  string `json:"filename,omitempty" yaml:"filename,omitempty"`
 	// ContentFile points at the context body: a context-relative path in
 	// the authored descriptor, rewritten by the frontend to the staged
 	// in-image path in the published one.

@@ -2,10 +2,9 @@
 # The Codex agent as a MIXIN, migrated from the built-in v2 codex kit:
 # the same credential (API key or ChatGPT OAuth), egress, and hooks, minus
 # what only the environment-owning kit carries (the entrypoint — run
-# `codex` in the base's shell — and the context-file profile). The v2
-# environment.variables block has no v3 field; those exports ride the
-# overlay as /etc/profile.d/codex-env.sh, sourced by the base's login
-# shell.
+# `codex` in the base's shell). CODEX_HOME is image environment so ACP
+# launches see it too; exports that may collide with the base ride the
+# overlay as /etc/profile.d/codex-env.sh for login shells.
 schemaVersion: "3"
 displayName: Codex CLI
 author: "Docker, Inc."
@@ -222,4 +221,6 @@ capabilities:
 
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: AGENTS.md
+      directory: /home/agent/.codex
       contentFile: ./codex-context.md

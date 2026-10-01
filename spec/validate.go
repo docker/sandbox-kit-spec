@@ -605,6 +605,10 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 		}
 
+		if n.Type == CapabilityAgentContext {
+			errs.add(validateContextDirectory(path, i, d.Kind, n))
+		}
+
 		// A parameterized entry — its config references a kit arg — defers
 		// its typed validation to ValidateEffective, after expansion has
 		// resolved every placeholder: a string placeholder cannot pass a
@@ -792,12 +796,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
 				continue
 			}
-			// A set may state the profile when the kits it lists make
-			// it a workload; the merged descriptor carries the derived
-			// kind, so a set of mixins claiming one is caught there.
-			if a.Filename != "" && d.Kind != KindWorkload && d.Kind != KindSet {
-				errs.add(fieldErrorf(path+".config.filename", "capabilities[%d]: agent-context filename is workload-kit-only: the profile belongs to the kit that owns the environment; a mixin contributes contentFile or content", i))
-			}
 			if a.ContentFile != "" && a.Content != "" {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: agent-context contentFile and content are mutually exclusive", i))
 			}
@@ -822,6 +820,36 @@ func validateCapabilityBlock(d *Descriptor) error {
 		return errs.err()
 	}
 	errs.add(validateInjectWithinAllow(needs, invalidCredentials))
+	return errs.err()
+}
+
+// Validate literal destination structure even when another config field
+// defers decoding until argument expansion.
+func validateContextDirectory(field string, i int, kind string, n Capability) error {
+	value, stated := n.Config["directory"]
+	if !stated {
+		if filename, ok := n.Config["filename"].(string); ok && filename != "" && kind == KindMixin {
+			return fieldErrorf(field+".config.filename", "capabilities[%d]: agent-context filename without directory is workload-kit-only; an agent mixin must state an explicit directory", i)
+		}
+		return nil
+	}
+	var errs ValidationErrors
+	directory, isString := value.(string)
+	if !isString {
+		errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context directory must be a string", i))
+	} else if !ContainsArgRef(directory) && !ContainsEnvRef(directory) {
+		if !canonicalAbsPath(directory) || strings.ContainsAny(directory, "\\\x00") {
+			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context directory must be an absolute, canonical path", i))
+		}
+	}
+	filename, ok := n.Config["filename"].(string)
+	if !ok || filename == "" {
+		errs.add(fieldErrorf(field+".config.filename", "capabilities[%d]: agent-context directory requires filename in the same entry", i))
+	} else if !ContainsArgRef(filename) && !ContainsEnvRef(filename) {
+		if filename == "." || filename == ".." || strings.ContainsAny(filename, "/\\\x00") {
+			errs.add(fieldErrorf(field+".config.filename", "capabilities[%d]: agent-context filename must be a single filename when directory is stated", i))
+		}
+	}
 	return errs.err()
 }
 

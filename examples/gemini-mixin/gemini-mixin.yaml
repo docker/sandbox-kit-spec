@@ -94,4 +94,6 @@ capabilities:
   # gemini reads its profile as GEMINI.md, not AGENTS.md.
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: GEMINI.md
+      directory: /home/agent/.gemini
       contentFile: ./gemini-context.md

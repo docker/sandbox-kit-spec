@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/agent-context@1",
-  "description": "Written instruction content the agent reads. filename is the profile a workload kit owns; mixins contribute contentFile or content alone (the two are mutually exclusive).",
+  "description": "Written instruction content the agent reads. An explicit directory and filename select the agent profile; a workload filename alone is the legacy fallback. Tool mixins contribute contentFile or content alone (the two are mutually exclusive).",
   "type": "object",
   "additionalProperties": false,
   "minProperties": 1,
@@ -16,6 +16,57 @@
     "content": {
       "type": "string",
       "description": "Small instruction content inline, for content-free kits."
+    },
+    "directory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional absolute, canonical in-sandbox profile directory; requires filename in the same entry. Omitted places the profile beside the workspace.",
+      "anyOf": [
+        {
+          "pattern": "^(/|(/([^./][^/]*|\\.[^./][^/]*|\\.\\.[^/]+))+)$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "not": {
+        "pattern": "[\\\\\u0000]"
+      }
     }
-  }
+  },
+  "dependencies": {
+    "directory": [
+      "filename"
+    ]
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "directory"
+        ]
+      },
+      "then": {
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^/\\\\\u0000]+$",
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                }
+              },
+              {
+                "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

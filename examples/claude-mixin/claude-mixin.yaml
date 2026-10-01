@@ -2,8 +2,7 @@
 # The Claude Code agent as a MIXIN: the same declarations as the
 # standalone workload kit (examples/claude), minus what only the kit that
 # owns the environment can carry — the entrypoint (the base workload's
-# stays; run `claude` in the shell), the context-file profile (filename is
-# workload-only; this kit contributes contentFile), and agent-sessions
+# stays; run `claude` in the shell), and agent-sessions
 # (the verbs drive the workload's entrypoint, which is the base's shell).
 schemaVersion: "3"
 displayName: Claude Code (mixin)
@@ -203,4 +202,6 @@ capabilities:
 
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: CLAUDE.md
+      directory: /home/agent/.claude
       contentFile: ./claude-context.md

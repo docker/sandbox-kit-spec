@@ -1,0 +1,13 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Conformance context-profile
+args:
+  directory:
+    default: /home/agent/.codex
+capabilities:
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: CLAUDE.md
+      directory: "${{ kit.args.directory }}"
+      content: Conformance explicit agent profile.

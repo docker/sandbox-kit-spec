@@ -30,7 +30,7 @@ args:
 
 kits:
   # The base. One of them is a workload, so the merged kit is one too,
-  # and its AGENTS.md profile becomes the merged kit's.
+  # and the set selects the agent's discovery profile below.
   - ref: ${{ kit.args.registry }}/sbx-kit-shell:1.0.0
 
   # Claude Code itself: the binary at /usr/local/bin/claude, the
@@ -53,10 +53,12 @@ kits:
   - ref: ${{ kit.args.registry }}/sbx-kit-claude-acp:0.84.0
 
 # The set's own declarations merge on top of the three. This one adds
-# only a note: how to reach the adapter, which is the one thing none of
+# a note: how to reach the adapter, which is the one thing none of
 # the kits can say on its own, because none of them knows it was
 # composed with the others.
 capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:
+      filename: CLAUDE.md
+      directory: /home/agent/.claude
       contentFile: ./claude-acp-set-context.md

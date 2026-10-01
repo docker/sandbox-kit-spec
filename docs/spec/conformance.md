@@ -227,7 +227,17 @@ The workload fixture declares its working directory as
 beside it, at `/home/agent/AGENTS.md`. A runtime is free to place
 workspaces wherever it likes for its own workloads; for THIS workload, the
 declared workdir is the workspace, so the profile's place beside it is a
-path the suite can name.
+path the suite can name. The `context-workload` fixture instead declares
+an explicit profile directory; the suite passes its `directory` argument
+to test both `/home/agent/.codex/AGENTS.md` and
+`/home/agent/.kit-tck/context/AGENTS.md`. The adapter passes that argument
+through rather than assuming every profile is beside the workspace.
+The fixture seeds existing instructions at both destinations; the runtime
+preserves them while adding its guidance and Kit index. The
+`context-profile` mixin declares an explicit `CLAUDE.md` destination
+against the legacy workload, testing directory and filename precedence in
+both input orders. The `context-conflict`
+mixin declares a differing explicit profile, which composition refuses.
 
 An adapter that cannot bind credentials **SHOULD NOT** claim
 `com.docker.sandbox/credential@1`, in which case its checks are skipped.

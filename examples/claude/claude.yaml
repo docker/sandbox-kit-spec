@@ -263,4 +263,5 @@ capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:
       filename: CLAUDE.md
+      directory: /home/agent/.claude
       contentFile: ./claude-context.md

@@ -1052,6 +1052,19 @@ func (m *capabilityMerge) mergedContext() (*Capability, []ContextSource, error) 
 
 	merged := &AgentContext{}
 	filenameFrom := ""
+	// Select explicit destinations first so a shell's legacy profile
+	// cannot win merely because it arrived before the agent mixin.
+	for _, ask := range m.context {
+		if ask.context.Directory == "" {
+			continue
+		}
+		if filenameFrom != "" && (merged.Directory != ask.context.Directory || merged.Filename != ask.context.Filename) {
+			return nil, nil, fmt.Errorf("merge: %s and %s declare conflicting explicit agent-context profiles", filenameFrom, ask.reference)
+		}
+		filenameFrom = ask.reference
+		merged.Filename = ask.context.Filename
+		merged.Directory = ask.context.Directory
+	}
 	name := ""
 	optional := true
 	var sources []ContextSource
@@ -1059,9 +1072,9 @@ func (m *capabilityMerge) mergedContext() (*Capability, []ContextSource, error) 
 		if name == "" {
 			name = ask.name
 		}
-		if ask.context.Filename != "" {
-			// Only a workload states the profile, and a composition has
-			// one workload, so two is a set that was mis-assembled
+		if ask.context.Filename != "" && merged.Directory == "" {
+			// Only a workload states a legacy profile, and a composition
+			// has one workload, so two is a set that was mis-assembled
 			// rather than a choice to arbitrate.
 			if filenameFrom != "" {
 				return nil, nil, fmt.Errorf("merge: %s and %s both declare an agent-context filename; the profile belongs to the kit that owns the environment",
