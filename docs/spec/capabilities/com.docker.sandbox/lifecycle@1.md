@@ -63,8 +63,9 @@ last client disconnecting declares [long-running@1](long-running@1.md).
 
 A lifecycle entry declaring no hooks, no files, and no interactive tail is
 invalid — drop the entry instead. An explicit `interactive: []` is a
-stated empty tail, the launch argv with nothing appended, so an entry
-holding only that is valid, and composition preserves it.
+stated empty tail, the launch argv with nothing appended, and
+composition preserves it. It says nothing on its own, so it must sit
+beside a hook or file.
 
 `interactive` names the same launch as the `newSession` verb of
 [agent-interactive-sessions@1](agent-interactive-sessions@1.md); a Kit

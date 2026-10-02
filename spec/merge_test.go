@@ -491,7 +491,7 @@ kind: mixin
 version: "1.0.0"
 capabilities:
   - type: com.docker.sandbox/lifecycle@1
-    config: {interactive: `+interactive+`}
+    config: {interactive: `+interactive+`, startup: [{command: echo ready}]}
 `)
 	}
 	for _, tc := range []struct {
@@ -582,8 +582,8 @@ capabilities:
 }
 
 // A stated empty interactive tail is the launch argv with nothing
-// appended: an entry holding only that is valid, and composition keeps it
-// rather than letting omitempty turn it into absence.
+// appended, valid beside a hook as it is at @1 today, and composition
+// keeps it rather than letting omitempty turn it into absence.
 func TestLifecycleKeepsAStatedEmptyInteractiveTail(t *testing.T) {
 	lifecycleOf := func(t *testing.T, config string) *Capability {
 		t.Helper()
@@ -604,7 +604,7 @@ capabilities:
 		return &composed.Capabilities[0]
 	}
 
-	empty := lifecycleOf(t, "{interactive: []}")
+	empty := lifecycleOf(t, "{interactive: [], startup: [{command: echo ready}]}")
 	require.Contains(t, empty.Config, "interactive")
 	require.Empty(t, empty.Config["interactive"])
 	l, err := LifecycleOf([]Capability{*empty})
@@ -616,6 +616,44 @@ capabilities:
 
 	tail := lifecycleOf(t, "{interactive: [--tui]}")
 	require.Equal(t, []any{"--tui"}, tail.Config["interactive"])
+}
+
+// Lifecycle round-trips a stated empty interactive tail through JSON, the
+// way CapabilityWithConfig re-renders it, and writes every other field as
+// before.
+func TestLifecycleMarshalsAStatedEmptyInteractiveTail(t *testing.T) {
+	raw, err := json.Marshal(Lifecycle{Interactive: []string{}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"interactive":[]}`, string(raw))
+
+	raw, err = json.Marshal(Lifecycle{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(raw))
+
+	raw, err = json.Marshal(Lifecycle{Interactive: []string{"--tui"}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"interactive":["--tui"]}`, string(raw))
+
+	// Other fields keep omitempty and their order.
+	raw, err = json.Marshal(Lifecycle{Startup: []StartupHook{{Command: CommandLine{"true"}}}, Interactive: []string{}})
+	require.NoError(t, err)
+	require.Equal(t, `{"startup":[{"command":["true"]}],"interactive":[]}`, string(raw))
+
+	d := decodeValid(t, `schemaVersion: "3"
+kind: workload
+provides: ["claude@2.1.0"]
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: {interactive: [], startup: [{command: echo ready}]}
+`)
+	first, err := LifecycleOf(d.Capabilities)
+	require.NoError(t, err)
+	rendered, err := CapabilityWithConfig(d.Capabilities[0], first)
+	require.NoError(t, err)
+	again, err := LifecycleOf([]Capability{*rendered})
+	require.NoError(t, err)
+	require.NotNil(t, again.Interactive)
+	require.Empty(t, again.Interactive)
 }
 
 // A lifecycle tail inside a selected group reaches composition as a plain

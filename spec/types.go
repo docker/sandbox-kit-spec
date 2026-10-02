@@ -1035,6 +1035,25 @@ type Lifecycle struct {
 	Interactive []string `json:"interactive,omitempty" yaml:"interactive,omitempty"`
 }
 
+// MarshalJSON writes a stated empty Interactive as [] and leaves every
+// other field as omitempty writes it. omitempty alone would drop a
+// non-nil empty tail, and that is a statement (the launch argv with
+// nothing appended), so re-rendering the typed config through
+// CapabilityWithConfig has to keep it.
+func (l Lifecycle) MarshalJSON() ([]byte, error) {
+	type plain Lifecycle
+	out := struct {
+		plain
+		// Shadows the embedded field: a non-nil pointer is written even
+		// when the slice it points to is empty.
+		Interactive *[]string `json:"interactive,omitempty"`
+	}{plain: plain(l)}
+	if l.Interactive != nil {
+		out.Interactive = &l.Interactive
+	}
+	return json.Marshal(out)
+}
+
 // AgentContext is CapabilityAgentContext's config: instruction content
 // the agent reads. An explicit Directory and Filename select the agent's
 // discovery profile; a workload Filename alone supplies the legacy fallback.

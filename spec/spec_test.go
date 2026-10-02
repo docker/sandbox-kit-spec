@@ -656,17 +656,20 @@ capabilities:
 	require.NoError(t, err)
 }
 
-// A lifecycle entry says something when any hook, file or interactive
-// tail is stated, and a stated empty tail is a tail: the launch argv with
-// nothing appended. Only an entry stating none of them is empty.
+// A lifecycle entry has to say something, and the shipped rule is by
+// length: an empty interactive tail alone says nothing, so an entry holding
+// only that stays invalid at @1 (it is valid beside a hook or file). The
+// {interactive: []} row pins that on purpose.
 func TestLifecycleEntryStatesSomething(t *testing.T) {
 	const head = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:\n  - type: com.docker.sandbox/lifecycle@1\n    config: "
 	for config, ok := range map[string]bool{
-		"{interactive: []}":                     true,
-		"{interactive: [--tui]}":                true,
-		"{startup: [{command: echo ready}]}":    true,
-		"{}":                                    false,
-		"{install: [], startup: [], files: []}": false,
+		"{interactive: []}":                                   false,
+		"{interactive: [], files: []}":                        false,
+		"{interactive: [], startup: [{command: echo ready}]}": true,
+		"{interactive: [--tui]}":                              true,
+		"{startup: [{command: echo ready}]}":                  true,
+		"{}":                                                  false,
+		"{install: [], startup: [], files: []}":               false,
 	} {
 		t.Run(config, func(t *testing.T) {
 			d, err := Decode([]byte(head + config + "\n"))
@@ -697,14 +700,14 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 		needs string
 		ok    bool
 	}{
-		{"both empty", sessions("newSession: []") + lifecycle("interactive: []"), true},
+		{"both empty", sessions("newSession: []") + lifecycle("interactive: [], startup: [{command: echo ready}]"), true},
 		{"newSession empty, lifecycle absent", sessions("newSession: []") + lifecycle("startup: [{command: echo ready}]"), true},
 		{"same tail", sessions("newSession: [--tui]") + lifecycle("interactive: [--tui]"), true},
 		{"newSession absent, lifecycle tail", sessions("continue: [--continue]") + lifecycle("interactive: [--tui]"), true},
 		{"newSession tail, no lifecycle", sessions("newSession: [--tui]"), true},
 		{"newSession tail, lifecycle without tail", sessions("newSession: [--tui]") + lifecycle("startup: [{command: echo ready}]"), true},
 		{"newSession empty, lifecycle tail", sessions("newSession: []") + lifecycle("interactive: [--tui]"), false},
-		{"newSession tail, lifecycle empty", sessions("newSession: [--tui]") + lifecycle("interactive: []"), false},
+		{"newSession tail, lifecycle empty", sessions("newSession: [--tui]") + lifecycle("interactive: [], startup: [{command: echo ready}]"), false},
 		{"different tails", sessions("newSession: [--tui]") + lifecycle("interactive: [--other]"), false},
 	}
 	for _, tc := range cases {

@@ -1124,12 +1124,6 @@ func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A stated empty tail is the launch argv with nothing appended, which is
-	// a statement, not an absence: omitempty would drop it from the render,
-	// so put it back.
-	if merged.Interactive != nil && len(merged.Interactive) == 0 {
-		c.Config["interactive"] = []any{}
-	}
 	c.Optional = optional
 	c.Name = name
 	return c, nil

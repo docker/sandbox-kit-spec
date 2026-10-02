@@ -933,7 +933,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 				continue
 			}
 			interactive, interactiveAt = l.Interactive, i
-			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && l.Interactive == nil {
+			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
 			}
 			errs.add(validateLifecycle(path, i, &l))
