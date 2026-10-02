@@ -134,7 +134,9 @@ A conforming runtime (or host):
 
 ## Composition
 
-The workload Kit's declaration governs. A mixin declaring
-agent-interactive-sessions has nothing to drive; composition keeps the
-workload's entry, as the original declaration rather than a re-rendering
-of it, so an empty tail survives composition as the verb it is.
+At most one contribution may declare it: an identical restatement is
+the same ask, and anything else is an error
+([§9.5](../../SPEC-v3.md#95-merging-a-set)). The surviving entry is the
+original declaration, not a re-rendering of it, so an empty tail
+survives composition as the verb it is. A mixin has nothing to drive, so
+the declaration belongs on the workload.

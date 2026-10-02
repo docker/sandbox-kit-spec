@@ -56,7 +56,8 @@
       "oneOf": [
         {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "\\S"
         },
         {
           "type": "array",

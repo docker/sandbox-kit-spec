@@ -441,6 +441,9 @@ func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
 		switch branch["type"] {
 		case "string":
 			require.EqualValues(t, 1, branch["minLength"], "list: \"\" must fail")
+			blank := regexp.MustCompile(branch["pattern"].(string))
+			require.False(t, blank.MatchString("  \t"), "a blank list string names no command")
+			require.True(t, blank.MatchString("ls ids"))
 		case "array":
 			require.EqualValues(t, 1, branch["minItems"], "list: [] must fail")
 		default:
