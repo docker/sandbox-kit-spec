@@ -473,6 +473,20 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLongRunning:              true,
 }
 
+// emptyCommand reports whether an authored command (string or list form)
+// names nothing: an empty or blank string, or an empty list.
+func emptyCommand(v any) bool {
+	switch c := v.(type) {
+	case string:
+		return strings.TrimSpace(c) == ""
+	case []any:
+		return len(c) == 0
+	case []string:
+		return len(c) == 0
+	}
+	return false
+}
+
 // argvContains reports whether any argv element contains the substring
 // — placeholders may ride inside a larger token ("--prompt={{.Prompt}}").
 func argvContains(argv []string, sub string) bool {
@@ -808,6 +822,13 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 			if a.Resume != nil && !argvContains(a.Resume, SessionIDPlaceholder) {
 				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
+			}
+			// list is a complete command, so a present one must name a
+			// command. Judged on the authored value: the string form
+			// decodes to ["sh", "-c", s], which a length check would let
+			// an empty string slip through as a three-element argv.
+			if list, stated := n.Config["list"]; stated && emptyCommand(list) {
+				errs.add(fieldErrorf(path+".config.list", "capabilities[%d]: list must name a command", i))
 			}
 			newSession, newSessionAt = a.NewSession, i
 		case CapabilityLifecycle:

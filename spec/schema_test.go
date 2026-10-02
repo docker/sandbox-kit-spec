@@ -426,6 +426,23 @@ func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
 		require.Equal(t, "array", prop["type"])
 		require.EqualValues(t, 1, prop["minItems"], "%s: [] cannot carry its placeholder", verb)
 	}
+	// A present list must name a command, in either spelling.
+	list := at(t, schema, "properties", "list")
+	branches, ok := list["oneOf"].([]any)
+	require.True(t, ok)
+	require.Len(t, branches, 2)
+	for _, b := range branches {
+		branch := b.(map[string]any)
+		switch branch["type"] {
+		case "string":
+			require.EqualValues(t, 1, branch["minLength"], "list: \"\" must fail")
+		case "array":
+			require.EqualValues(t, 1, branch["minItems"], "list: [] must fail")
+		default:
+			t.Fatalf("unexpected list branch %v", branch)
+		}
+	}
+
 	for _, verb := range []string{"continue", "newSession", "sessionPicker"} {
 		prop := at(t, schema, "properties", verb)
 		require.Equal(t, "array", prop["type"])

@@ -44,13 +44,15 @@
       "description": "Argv tail that starts the agent on its own session picker."
     },
     "list": {
-      "description": "Complete command (string run via sh -c, or argv list) whose stdout is one resumable session id per line, most recent first. The same command, with the same meaning, as agent-sessions@1's list.",
+      "description": "Complete command (string run via sh -c, or argv list) whose stdout is one resumable session id per line, most recent first. The same command, with the same meaning, as agent-sessions@1's list, but a present list must name a command: neither an empty string nor an empty list.",
       "oneOf": [
         {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           }

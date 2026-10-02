@@ -570,6 +570,29 @@ capabilities:
     config:
       new_session: []
 `,
+		"empty list command alone": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      list: []
+`,
+		"empty list command beside a verb": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      continue: [--continue]
+      list: []
+`,
+		"empty string list command beside a verb": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      continue: [--continue]
+      list: ""
+`,
+		"blank string list command beside a verb": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      continue: [--continue]
+      list: "  "
+`,
 		"second declaration": `
   - type: com.docker.sandbox/agent-interactive-sessions@1
     config:
@@ -596,6 +619,7 @@ capabilities:
       prompt: ["--prompt={{.Prompt}}"]
       continue: []
       sessionPicker: []
+      list: "claude-sessions --format ids"
 `
 	d2, err := Decode([]byte(embedded))
 	require.NoError(t, err)
