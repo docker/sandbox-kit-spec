@@ -67,8 +67,8 @@ invalid — drop the entry instead.
 `interactive` names the same launch as the `newSession` verb of
 [agent-interactive-sessions@1](agent-interactive-sessions@1.md); a Kit
 declaring both gives them the same argv (an explicit `[]` included), and
-validation rejects a mismatch. `agent-interactive-sessions@1` `newSession` defaults to this
-tail when omitted.
+validation rejects a mismatch. `agent-interactive-sessions@1`
+`newSession` defaults to this tail when omitted.
 
 ## Runtime behavior
 
