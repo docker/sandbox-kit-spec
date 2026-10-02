@@ -473,6 +473,18 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLongRunning:              true,
 }
 
+// hasNull reports whether an authored config value is null or a list
+// holding a null element.
+func hasNull(v any) bool {
+	if v == nil {
+		return true
+	}
+	if list, ok := v.([]any); ok {
+		return slices.ContainsFunc(list, func(e any) bool { return e == nil })
+	}
+	return false
+}
+
 // emptyCommand reports whether an authored command (string or list form)
 // names nothing: an empty or blank string, or an empty list.
 func emptyCommand(v any) bool {
@@ -814,6 +826,15 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
 				continue
+			}
+			// Presence is meaning here, and the typed decode reads a stated
+			// null as absent (and a null element as ""), so a null is
+			// refused on the authored value rather than silently becoming
+			// "unsupported".
+			for _, key := range []string{"prompt", "resume", "continue", "newSession", "sessionPicker", "list"} {
+				if value, stated := n.Config[key]; stated && hasNull(value) {
+					errs.add(fieldErrorf(path+".config."+key, "capabilities[%d]: %s must not be null or contain null", i, key))
+				}
 			}
 			// Presence, not length: an empty tail is a verb ("the launch
 			// argv alone"), so a declaration holding only newSession: []

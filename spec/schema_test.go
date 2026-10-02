@@ -421,10 +421,15 @@ func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
 	require.Equal(t, false, schema["additionalProperties"])
 	require.EqualValues(t, 1, schema["minProperties"], "{} must fail: no verbs")
 
-	for _, verb := range []string{"prompt", "resume"} {
+	for verb, placeholder := range map[string]string{"prompt": SessionPromptPlaceholder, "resume": SessionIDPlaceholder} {
 		prop := at(t, schema, "properties", verb)
 		require.Equal(t, "array", prop["type"])
 		require.EqualValues(t, 1, prop["minItems"], "%s: [] cannot carry its placeholder", verb)
+		// The validator refuses a tail without the placeholder, so the
+		// schema must too: contains is the keyword that judges it.
+		pattern := regexp.MustCompile(at(t, prop, "contains")["pattern"].(string))
+		require.True(t, pattern.MatchString("--flag="+placeholder), "%s: a placeholder inside a token counts", verb)
+		require.False(t, pattern.MatchString("--flag"), "%s: a tail without it fails", verb)
 	}
 	// A present list must name a command, in either spelling.
 	list := at(t, schema, "properties", "list")

@@ -9,6 +9,10 @@
     "prompt": {
       "type": "array",
       "minItems": 1,
+      "contains": {
+        "type": "string",
+        "pattern": "\\{\\{\\.Prompt\\}\\}"
+      },
       "items": {
         "type": "string"
       },
@@ -17,6 +21,10 @@
     "resume": {
       "type": "array",
       "minItems": 1,
+      "contains": {
+        "type": "string",
+        "pattern": "\\{\\{\\.SessionID\\}\\}"
+      },
       "items": {
         "type": "string"
       },

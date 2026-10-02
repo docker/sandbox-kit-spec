@@ -441,6 +441,29 @@ capabilities:
     config:
       prompt: ["-p"]
 `,
+		"null prompt beside a valid verb": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: null
+      continue: [--continue]
+`,
+		"null newSession beside a valid verb": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      newSession: null
+      continue: [--continue]
+`,
+		"null element in a tail": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      continue: [--continue, null]
+`,
+		"null list beside a valid verb": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      list: null
+      continue: [--continue]
+`,
 		"resume without placeholder": `
   - type: com.docker.sandbox/agent-sessions@1
     config:
