@@ -418,6 +418,24 @@ func AgentSessionsOf(needs []Capability) (*AgentSessions, error) {
 	return nil, nil
 }
 
+// AgentInteractiveSessionsOf returns the agent-interactive-sessions
+// declaration's config, or nil when none is declared. A verb's presence
+// is its slice being non-nil: an authored `newSession: []` decodes to an
+// empty non-nil slice, an absent key to nil.
+func AgentInteractiveSessionsOf(needs []Capability) (*AgentInteractiveSessions, error) {
+	for _, n := range needs {
+		if n.Type != CapabilityAgentInteractiveSessions {
+			continue
+		}
+		var a AgentInteractiveSessions
+		if err := DecodeCapabilityConfig(n, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	}
+	return nil, nil
+}
+
 // AgentContextsOf reads all selected context contributions of one Kit. Unlike
 // AgentContextOf (for an effective singleton), it retains separate bodies from
 // selected groups for contributor-specific runtime guidance handlers.

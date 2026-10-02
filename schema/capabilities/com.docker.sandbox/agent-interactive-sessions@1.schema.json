@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/agent-interactive-sessions@1",
+  "description": "The workload's interactive session control surface: the argv shapes a human-facing host uses to put the agent's terminal UI in front of a person. prompt, resume, continue, newSession, and sessionPicker are argv tails appended to the launch command and run with a terminal attached; list is a complete command whose stdout enumerates resumable session ids, one per line, most recent first. Every verb is optional, but at least one must be declared. A present key means the verb is supported and an absent key means it is not, except newSession, which defaults to the lifecycle@1 interactive launch; a present empty list means the launch argv alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "prompt": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "Argv tail that starts an interactive session seeded with a prompt; must reference {{.Prompt}}, which the host substitutes before execution."
+    },
+    "resume": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "Argv tail that reopens a named session interactively; must reference {{.SessionID}}."
+    },
+    "continue": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Argv tail that reopens the most recent session interactively."
+    },
+    "newSession": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Argv tail that starts a fresh interactive session with no prompt. Often empty: the launch argv alone. When omitted, a new session starts as lifecycle@1's interactive launch does. When the Kit also declares lifecycle's interactive tail, the two must be the same argv."
+    },
+    "sessionPicker": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Argv tail that starts the agent on its own session picker."
+    },
+    "list": {
+      "description": "Complete command (string run via sh -c, or argv list) whose stdout is one resumable session id per line, most recent first. The same command, with the same meaning, as agent-sessions@1's list.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -442,6 +442,15 @@ const (
 	// practice — the agent the verbs drive is the workload's.
 	CapabilityAgentSessions = "com.docker.sandbox/agent-sessions@1"
 
+	// CapabilityAgentInteractiveSessions is agent-sessions' interactive
+	// sibling: the argv shapes a human-facing host uses to put the agent's
+	// terminal UI in front of a person — start one, seed it with a prompt,
+	// reopen or pick a past session. An agent whose CLI has both a headless
+	// and an interactive mode declares both capabilities; each is read by a
+	// different kind of host. Not a grant, for the same reason
+	// agent-sessions is not.
+	CapabilityAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
+
 	// CapabilitySbx declares that a workload targets the sandbox agent
 	// platform: the host launches the agent rather than letting the image
 	// entrypoint be PID 1, honors the identity the image config states,
@@ -845,6 +854,41 @@ type AgentSessions struct {
 	Resume   []string    `json:"resume,omitempty" yaml:"resume,omitempty"`
 	Continue []string    `json:"continue,omitempty" yaml:"continue,omitempty"`
 	List     CommandLine `json:"list,omitempty" yaml:"list,omitempty"`
+}
+
+// AgentInteractiveSessions is CapabilityAgentInteractiveSessions's config.
+// Prompt, Resume, Continue, NewSession, and SessionPicker are argv tails
+// appended to the workload's launch command; the host runs each with a
+// terminal attached. Prompt starts a session seeded with a prompt and must
+// reference {{.Prompt}}; Resume reopens a named session and must reference
+// {{.SessionID}}; Continue reopens the most recent session; NewSession
+// starts a fresh session with no prompt; SessionPicker starts the agent
+// on its own session chooser. List is the same complete command, with the
+// same meaning, as AgentSessions.List: stdout enumerates resumable session
+// ids, one per line, most recent first.
+//
+// Presence, not length, says whether a tail is supported. For the bare
+// interactive launch of most agents the launch argv alone is the whole
+// command, so NewSession: [] is a real verb meaning "launch with no
+// tail", and only nil means the agent has no such operation. NewSession
+// is the one exception to "absent is unsupported": every agent can start
+// a new session, so when it is omitted the new-session launch is the
+// lifecycle interactive launch (the launch argv plus lifecycle's
+// interactive tail, or the launch argv alone), and validation holds a
+// stated NewSession to the same argv as a stated lifecycle tail so the
+// default and the explicit spelling cannot disagree. That is why every
+// tail is read as != nil, never len > 0, and why a declaration of
+// this type must reach a consumer as the original Capability: re-rendering
+// the struct through CapabilityWithConfig or toConfigMap would let
+// omitempty erase an empty tail and turn "supported" into "unsupported".
+// A declaration with no verbs at all says nothing and is invalid.
+type AgentInteractiveSessions struct {
+	Prompt        []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Resume        []string    `json:"resume,omitempty" yaml:"resume,omitempty"`
+	Continue      []string    `json:"continue,omitempty" yaml:"continue,omitempty"`
+	NewSession    []string    `json:"newSession,omitempty" yaml:"newSession,omitempty"`
+	SessionPicker []string    `json:"sessionPicker,omitempty" yaml:"sessionPicker,omitempty"`
+	List          CommandLine `json:"list,omitempty" yaml:"list,omitempty"`
 }
 
 // Arg declares one installer-supplied value. Private by default: it reaches

@@ -433,6 +433,45 @@ capabilities:
 	require.Len(t, out.Capabilities, 1, "an identical restatement is the same ask")
 }
 
+// An empty newSession is a verb ("the launch argv alone"), so composing
+// must hand it on as authored: re-rendering the typed config would let
+// omitempty drop it and make the verb read as unsupported.
+func TestMergeKeepsEmptyInteractiveVerbs(t *testing.T) {
+	workload := contribute(t, "agent", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {newSession: [], continue: [--continue]}
+`)
+	mixin := contribute(t, "extra", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/resources@1
+    config: {cpu: 2}
+`)
+	out := mergeOK(t, workload, mixin).Descriptor
+	sessions, err := AgentInteractiveSessionsOf(out.Capabilities)
+	require.NoError(t, err)
+	require.NotNil(t, sessions)
+	require.NotNil(t, sessions.NewSession, "an empty newSession survives composition")
+	require.Empty(t, sessions.NewSession)
+	require.Nil(t, sessions.SessionPicker)
+
+	other := `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {%s}
+`
+	_, err = Merge([]Contribution{workload, contribute(t, "b", fmt.Sprintf(other, "continue: [-c]"))}, MergeOptions{})
+	require.ErrorContains(t, err, "one author")
+	same := mergeOK(t, workload, contribute(t, "b", fmt.Sprintf(other, "newSession: [], continue: [--continue]"))).Descriptor
+	require.Len(t, same.Capabilities, 1, "an identical restatement is the same ask")
+}
+
 // The profile belongs to the workload; the bodies become one staged
 // file, which the descriptor cannot carry and the caller has to write.
 func TestMergeCollectsAgentContextBodies(t *testing.T) {

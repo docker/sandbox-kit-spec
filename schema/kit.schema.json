@@ -528,6 +528,25 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/agent-interactive-sessions@1"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/agent-interactive-sessions@1.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/lifecycle@1"
               }
             },

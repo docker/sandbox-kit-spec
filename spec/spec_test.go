@@ -485,6 +485,163 @@ capabilities:
 	require.NoError(t, err)
 }
 
+func TestAgentInteractiveSessionsNeed(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:"
+	base := `# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+provides: ["claude@2.1.0"]
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: ["{{.Prompt}}"]
+      resume: ["--resume", "{{.SessionID}}"]
+      continue: ["--continue"]
+      newSession: []
+      sessionPicker: ["--resume"]
+      list: [sh, -c, "ls sessions"]
+`
+	d := decodeValid(t, base)
+	sessions, err := AgentInteractiveSessionsOf(d.Capabilities)
+	require.NoError(t, err)
+	require.Equal(t, []string{"{{.Prompt}}"}, sessions.Prompt)
+	require.Equal(t, []string{"--resume", "{{.SessionID}}"}, sessions.Resume)
+	require.Equal(t, []string{"--continue"}, sessions.Continue)
+	require.Equal(t, []string{"--resume"}, sessions.SessionPicker)
+	require.Equal(t, CommandLine{"sh", "-c", "ls sessions"}, sessions.List)
+
+	// Presence is the verb: an authored empty tail decodes non-nil, an
+	// absent one nil, so "launch argv alone" and "unsupported" stay apart.
+	require.NotNil(t, sessions.NewSession)
+	require.Empty(t, sessions.NewSession)
+	bare := decodeValid(t, head+`
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      newSession: []
+`)
+	only, err := AgentInteractiveSessionsOf(bare.Capabilities)
+	require.NoError(t, err)
+	require.NotNil(t, only.NewSession, "an empty newSession is a declared verb")
+	require.Empty(t, only.NewSession)
+	require.Nil(t, only.Prompt)
+	require.Nil(t, only.Resume)
+	require.Nil(t, only.Continue)
+	require.Nil(t, only.SessionPicker)
+
+	// The same distinction holds for a config built in code, the way JSON
+	// input and programmatic callers reach the accessor.
+	fromJSON := []Capability{{
+		Type:   CapabilityAgentInteractiveSessions,
+		Config: map[string]any{"newSession": []any{}, "prompt": []any{"{{.Prompt}}"}},
+	}}
+	got, err := AgentInteractiveSessionsOf(fromJSON)
+	require.NoError(t, err)
+	require.NotNil(t, got.NewSession)
+	require.Empty(t, got.NewSession)
+	require.Nil(t, got.SessionPicker)
+
+	cases := map[string]string{
+		"no verbs": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {}
+`,
+		"prompt without placeholder": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: ["--prompt"]
+`,
+		"empty prompt cannot carry the placeholder": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: []
+`,
+		"resume without placeholder": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      resume: ["--resume"]
+`,
+		"empty resume cannot carry the placeholder": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      resume: []
+`,
+		"unknown config key": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      new_session: []
+`,
+		"second declaration": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      newSession: []
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      continue: ["--continue"]
+`,
+	}
+	for name, needs := range cases {
+		t.Run(name, func(t *testing.T) {
+			d, err := Decode([]byte(head + needs))
+			require.NoError(t, err)
+			_, err = Validate(d)
+			require.Error(t, err)
+		})
+	}
+
+	// A placeholder inside a larger token still counts, and an empty
+	// continue or picker is a verb like any other tail.
+	embedded := head + `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: ["--prompt={{.Prompt}}"]
+      continue: []
+      sessionPicker: []
+`
+	d2, err := Decode([]byte(embedded))
+	require.NoError(t, err)
+	_, err = Validate(d2)
+	require.NoError(t, err)
+}
+
+// newSession and lifecycle's interactive tail name the same launch, so a
+// Kit that states both states one argv. Absence on either side is not a
+// disagreement: newSession omitted falls back to the lifecycle tail.
+func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:"
+	sessions := func(config string) string {
+		return "\n  - type: com.docker.sandbox/agent-interactive-sessions@1\n    config: {" + config + "}"
+	}
+	lifecycle := func(config string) string {
+		return "\n  - type: com.docker.sandbox/lifecycle@1\n    config: {" + config + "}"
+	}
+	cases := []struct {
+		name  string
+		needs string
+		ok    bool
+	}{
+		{"both empty", sessions("newSession: []") + lifecycle("interactive: [], startup: [{command: echo ready}]"), true},
+		{"newSession empty, lifecycle absent", sessions("newSession: []") + lifecycle("startup: [{command: echo ready}]"), true},
+		{"same tail", sessions("newSession: [--tui]") + lifecycle("interactive: [--tui]"), true},
+		{"newSession absent, lifecycle tail", sessions("continue: [--continue]") + lifecycle("interactive: [--tui]"), true},
+		{"newSession tail, no lifecycle", sessions("newSession: [--tui]"), true},
+		{"newSession tail, lifecycle without tail", sessions("newSession: [--tui]") + lifecycle("startup: [{command: echo ready}]"), true},
+		{"newSession empty, lifecycle tail", sessions("newSession: []") + lifecycle("interactive: [--tui]"), false},
+		{"different tails", sessions("newSession: [--tui]") + lifecycle("interactive: [--other]"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Decode([]byte(head + tc.needs))
+			require.NoError(t, err)
+			_, err = Validate(d)
+			if tc.ok {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "disagrees with lifecycle interactive")
+		})
+	}
+}
+
 func decodeValid(t *testing.T, y string) *Descriptor {
 	t.Helper()
 	d, err := Decode([]byte(y))

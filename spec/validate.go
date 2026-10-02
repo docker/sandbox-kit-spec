@@ -459,17 +459,18 @@ var needType = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z
 // once per thing requested and dedup on their own key; unknown types
 // dedup on the exact request (type + config).
 var singletonCapabilities = map[string]bool{
-	CapabilityGitIdentity:     true,
-	CapabilityNetworkPolicy:   true,
-	CapabilityNetworkPolicyV2: true,
-	CapabilityResources:       true,
-	CapabilityPrivileged:      true,
-	CapabilityKitRegistry:     true,
-	CapabilityAgentSessions:   true,
-	CapabilityLifecycle:       true,
-	CapabilityAgentContext:    true,
-	CapabilitySbx:             true,
-	CapabilityLongRunning:     true,
+	CapabilityGitIdentity:              true,
+	CapabilityNetworkPolicy:            true,
+	CapabilityNetworkPolicyV2:          true,
+	CapabilityResources:                true,
+	CapabilityPrivileged:               true,
+	CapabilityKitRegistry:              true,
+	CapabilityAgentSessions:            true,
+	CapabilityAgentInteractiveSessions: true,
+	CapabilityLifecycle:                true,
+	CapabilityAgentContext:             true,
+	CapabilitySbx:                      true,
+	CapabilityLongRunning:              true,
 }
 
 // argvContains reports whether any argv element contains the substring
@@ -526,6 +527,13 @@ func validateCapabilityBlock(d *Descriptor) error {
 
 	deferCrossChecks := false
 	invalidCredentials := map[int]bool{}
+	// lifecycle's interactive tail and agent-interactive-sessions'
+	// newSession name the same launch, so a Kit stating both states it
+	// once. Captured from the literal entries; a parameterized entry
+	// defers decoding and is judged on the effective descriptor, as is a
+	// lifecycle inside a group once one is selected.
+	var newSession, interactive []string
+	newSessionAt, interactiveAt := -1, -1
 	for i, n := range needs {
 		path := fmt.Sprintf("capabilities[%d]", i)
 		if _, keys := environmentReferences(n.Config); keys {
@@ -780,12 +788,35 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if len(a.Resume) > 0 && !argvContains(a.Resume, SessionIDPlaceholder) {
 				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
 			}
+		case CapabilityAgentInteractiveSessions:
+			var a AgentInteractiveSessions
+			if err := DecodeCapabilityConfig(n, &a); err != nil {
+				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				continue
+			}
+			// Presence, not length: an empty tail is a verb ("the launch
+			// argv alone"), so a declaration holding only newSession: []
+			// says something.
+			if a.Prompt == nil && a.Resume == nil && a.Continue == nil && a.NewSession == nil && a.SessionPicker == nil && len(a.List) == 0 {
+				errs.add(fieldErrorf(path+".config", "capabilities[%d]: agent-interactive-sessions declares no verbs; drop the entry instead", i))
+			}
+			// Same reasoning as agent-sessions: a prompt verb that never
+			// receives the prompt discards the caller's input. Judged on
+			// presence here, so prompt: [] cannot carry it and is refused.
+			if a.Prompt != nil && !argvContains(a.Prompt, SessionPromptPlaceholder) {
+				errs.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
+			}
+			if a.Resume != nil && !argvContains(a.Resume, SessionIDPlaceholder) {
+				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
+			}
+			newSession, newSessionAt = a.NewSession, i
 		case CapabilityLifecycle:
 			var l Lifecycle
 			if err := DecodeCapabilityConfig(n, &l); err != nil {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
 				continue
 			}
+			interactive, interactiveAt = l.Interactive, i
 			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
 			}
@@ -809,6 +840,16 @@ func validateCapabilityBlock(d *Descriptor) error {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].type", two),
 			"capabilities[%d]: %s cannot be declared beside %s at capabilities[%d]; a descriptor states one network-policy version",
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
+	}
+
+	// Compared on literal values only, so an unrelated deferral does not
+	// suppress it. An empty lifecycle tail reads as absent (the lifecycle
+	// merge cannot tell them apart either), so only a stated tail is held
+	// to the same argv as newSession.
+	if newSession != nil && len(interactive) > 0 && !slices.Equal(newSession, interactive) {
+		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
+			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
+			newSessionAt, newSession, interactive, interactiveAt))
 	}
 
 	// The inject⊆allow invariant needs literal domains on both sides;

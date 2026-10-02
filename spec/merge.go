@@ -394,7 +394,7 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // admit one entry, so each has a rule for what several contributors
 // asking at once means: network policies union, lifecycle hooks
 // concatenate, and the types that describe the whole sandbox rather
-// than a grant to it — resources, agent-sessions — admit one author,
+// than a grant to it — resources, agent-sessions, agent-interactive-sessions — admit one author,
 // because two different answers cannot both be the sandbox's.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
@@ -509,6 +509,8 @@ type capabilityMerge struct {
 
 	resources *keyed
 	sessions  *keyed
+
+	interactiveSessions *keyed
 }
 
 type networkAsk struct {
@@ -572,6 +574,11 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 
 	case CapabilityAgentSessions:
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
+
+	case CapabilityAgentInteractiveSessions:
+		// Composed as the original Capability, never re-rendered from the
+		// struct: an empty newSession is a verb, and omitempty would drop it.
+		return mergeSole(&m.interactiveSessions, reference, n, "agent-interactive-sessions")
 	}
 
 	// Everything else unions on the key its type dedups by: the same
@@ -805,6 +812,9 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 	}
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)
+	}
+	if m.interactiveSessions != nil {
+		out = append(out, m.interactiveSessions.capability)
 	}
 
 	if lifecycle, err := m.mergedLifecycle(); err != nil {

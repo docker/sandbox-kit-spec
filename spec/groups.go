@@ -141,7 +141,7 @@ func Supported(types ...string) SelectCapability {
 func KnownCapabilities() []string {
 	return []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
 		CapabilityVolume, CapabilityPort, CapabilityUSBDevice, CapabilityResources,
-		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentSessions,
+		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentSessions, CapabilityAgentInteractiveSessions,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry}
 }
 

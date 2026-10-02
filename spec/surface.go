@@ -166,7 +166,7 @@ func SurfaceOf(d *Descriptor) Surface {
 			// Session-independent lifetime grants no access across the boundary.
 		case CapabilityAgentSkill:
 			// Bundled instructions expose only content already carried by the image.
-		case CapabilityAgentSessions, CapabilityLifecycle, CapabilityAgentContext, CapabilitySbx:
+		case CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityLifecycle, CapabilityAgentContext, CapabilitySbx:
 			// Content-trust declarations, not grants: session verbs,
 			// lifecycle hooks, and files run inside the sandbox on the
 			// entrypoint's trust plane, and agent context is instruction
