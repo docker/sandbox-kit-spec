@@ -446,6 +446,10 @@ func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
 			require.True(t, blank.MatchString("ls ids"))
 		case "array":
 			require.EqualValues(t, 1, branch["minItems"], "list: [] must fail")
+			// argv[0] is the executable: only it is constrained non-blank.
+			first := branch["items"].([]any)[0].(map[string]any)
+			require.False(t, regexp.MustCompile(first["pattern"].(string)).MatchString(" "), `list: [""] must fail`)
+			require.Equal(t, "string", at(t, branch, "additionalItems")["type"])
 		default:
 			t.Fatalf("unexpected list branch %v", branch)
 		}

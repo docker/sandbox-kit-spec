@@ -610,6 +610,12 @@ capabilities:
       continue: [--continue]
       list: ""
 `,
+		"blank executable in a list command": `
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      continue: [--continue]
+      list: [""]
+`,
 		"blank string list command beside a verb": `
   - type: com.docker.sandbox/agent-interactive-sessions@1
     config:

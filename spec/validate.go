@@ -486,15 +486,21 @@ func hasNull(v any) bool {
 }
 
 // emptyCommand reports whether an authored command (string or list form)
-// names nothing: an empty or blank string, or an empty list.
+// names nothing: an empty or blank string, or a list that is empty or
+// whose executable is blank.
 func emptyCommand(v any) bool {
 	switch c := v.(type) {
 	case string:
 		return strings.TrimSpace(c) == ""
 	case []any:
-		return len(c) == 0
+		if len(c) == 0 {
+			return true
+		}
+		// argv[0] is the executable: an empty one cannot run.
+		first, ok := c[0].(string)
+		return ok && strings.TrimSpace(first) == ""
 	case []string:
-		return len(c) == 0
+		return len(c) == 0 || strings.TrimSpace(c[0]) == ""
 	}
 	return false
 }
