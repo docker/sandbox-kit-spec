@@ -62,9 +62,10 @@ means the agent supports the operation and an **absent** key means it
 does not. A present empty list means the launch argv alone: for most
 agents the bare interactive launch *is* the launch argv, so
 `continue: []` or `sessionPicker: []` are as meaningful as any other
-tail. This differs
-deliberately from agent-sessions@1, where an empty tail reads as absent;
-agent-sessions@1 is unchanged. A consumer therefore tells `[]` from an
+tail. `prompt` and `resume` are the exceptions, since each has to carry
+its placeholder and so cannot be empty. This differs deliberately from
+agent-sessions@1, where an empty tail reads as absent; agent-sessions@1
+is unchanged. A consumer therefore tells `[]` from an
 omitted key, and anything that re-renders the declaration between
 authoring and consumption has to keep an empty list (see
 [Composition](#composition)).

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/agent-interactive-sessions@1",
-  "description": "The workload's interactive session control surface: the argv shapes a human-facing host uses to put the agent's terminal UI in front of a person. prompt, resume, continue, newSession, and sessionPicker are argv tails appended to the launch command and run with a terminal attached; list is a complete command whose stdout enumerates resumable session ids, one per line, most recent first. Every verb is optional, but at least one must be declared. A present key means the verb is supported and an absent key means it is not, except newSession, which defaults to the lifecycle@1 interactive launch; a present empty list means the launch argv alone.",
+  "description": "The workload's interactive session control surface: the argv shapes a human-facing host uses to put the agent's terminal UI in front of a person. prompt, resume, continue, newSession, and sessionPicker are argv tails appended to the launch command and run with a terminal attached; list is a complete command whose stdout enumerates resumable session ids, one per line, most recent first. Every verb is optional, but at least one must be declared. A present key means the verb is supported and an absent key means it is not, except newSession, which defaults to the lifecycle@1 interactive launch; a present empty list means the launch argv alone for continue, newSession and sessionPicker (prompt and resume must carry their placeholders, so they cannot be empty).",
   "type": "object",
   "additionalProperties": false,
   "minProperties": 1,

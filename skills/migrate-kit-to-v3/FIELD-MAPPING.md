@@ -489,8 +489,9 @@ reference `{{.SessionID}}`), `continue`, `sessionPicker` and `list`.
 
 Presence is the semantics here, unlike `agent-sessions@1`: a present key means
 supported, an absent key means unsupported, and a present empty list means the
-launch argv alone. Leave a verb out when the agent has no such operation rather
-than writing `[]`. `newSession` is the exception: omit it when a bare launch
+launch argv alone for `continue`, `newSession` and `sessionPicker` (`prompt` and
+`resume` carry their placeholders, so they are never empty). Leave a verb out
+when the agent has no such operation rather than writing `[]`. `newSession` is the exception: omit it when a bare launch
 opens the TUI, because omitted it defaults to the `lifecycle@1` interactive
 launch (the launch argv plus `interactive`, or the launch argv alone). When a
 kit states both `newSession` and `lifecycle@1.interactive` they must be the
