@@ -949,8 +949,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 
 	// Compared on literal values only, so an unrelated deferral does not
 	// suppress it. An empty lifecycle tail reads as absent (the lifecycle
-	// merge cannot tell them apart either), so only a stated tail is held
-	// to the same argv as newSession.
+	// merge drops it from its rendered output), so only a non-empty tail is
+	// held to the same argv as newSession.
 	if newSession != nil && len(interactive) > 0 && !slices.Equal(newSession, interactive) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",

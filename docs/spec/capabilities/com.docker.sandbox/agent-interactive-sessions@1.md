@@ -48,8 +48,8 @@ this capability.
 Every verb is optional, but a declaration with no keys at all says
 nothing and is invalid. A present `list` must name a command: an empty
 list or an empty string is invalid here. agent-sessions@1 is unchanged
-(its grammar has shipped), and this does not make a valid Kit differ
-between the two.
+(its grammar has shipped), and no Kit whose `list` names a command
+differs between the two.
 
 The *launch argv* on this page is the workload argv that the
 [lifecycle@1](lifecycle@1.md) interactive launch appends its
