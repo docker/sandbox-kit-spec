@@ -410,8 +410,6 @@ func keys(m map[string]string) []string {
 	return out
 }
 
-// TestSchemaPatternsCompileAsRE2 keeps every schema regex loadable by
-// the yaml-language-server's engine (which, like Go, has no lookarounds).
 // The tests here read the schema's structure rather than run a validator,
 // so each pin is the keyword that makes the case pass or fail: a verb that
 // must carry a placeholder cannot be empty, an empty tail is a verb for
@@ -462,6 +460,8 @@ func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
 	}
 }
 
+// TestSchemaPatternsCompileAsRE2 keeps every schema regex loadable by
+// the yaml-language-server's engine (which, like Go, has no lookarounds).
 func TestSchemaPatternsCompileAsRE2(t *testing.T) {
 	paths := []string{
 		"../schema/kit.schema.json",
