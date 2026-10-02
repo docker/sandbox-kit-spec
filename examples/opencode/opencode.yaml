@@ -223,8 +223,8 @@ capabilities:
   # Interactive verbs, for a host that puts a person at the terminal. Tails
   # append to the entrypoint and run with a terminal attached. The bare
   # command is the TUI, where headless is `run`, so newSession is omitted.
-  # opencode has no flag that opens a session picker, and its session list
-  # is a table or JSON, not one id per line, so there is no sessionPicker or list.
+  # There is no sessionPicker (no flag opens one) and no list (the session
+  # list is a table or JSON, not one id per line).
   - type: com.docker.sandbox/agent-interactive-sessions@1
     config:
       prompt: ["--prompt", "{{.Prompt}}"]
