@@ -592,9 +592,9 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
 
 	case CapabilityAgentInteractiveSessions:
-		// The first author's decoded newSession is remembered for the
-		// agreement check in finish: it needs stated-ness, which the
-		// rendered lifecycle drops for an empty tail.
+		// The first author's decoded newSession and list are remembered
+		// for the agreement checks in finish, which compare them with the
+		// other contributions' asks and name both contributors.
 		if m.interactiveSessions == nil {
 			var a AgentInteractiveSessions
 			if err := decodeForMerge(reference, n, &a); err != nil {

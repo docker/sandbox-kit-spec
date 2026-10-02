@@ -472,10 +472,9 @@ capabilities:
 	require.Len(t, same.Capabilities, 1, "an identical restatement is the same ask")
 }
 
-// The agreement rule runs at composition too, with stated-ness intact: a
-// mixin contributes the lifecycle tail, and the merged lifecycle drops an
-// empty one from its output, so the effective descriptor alone could not
-// tell a stated bare launch from no tail.
+// The agreement rule runs at composition too: a mixin contributes the
+// lifecycle tail, so the check compares the decoded asks of the workload
+// and the mixin and names both Kits.
 func TestComposedInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 	workload := func(newSession string) Contribution {
 		return contribute(t, "agent", `schemaVersion: "3"
