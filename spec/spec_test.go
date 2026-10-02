@@ -698,6 +698,8 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 
 // Configs built in code can hold typed slices rather than the []any a
 // decoder produces; null and empty-command checks must read them alike.
+func ptrTo[T any](v T) *T { return &v }
+
 func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {
 	for name, config := range map[string]map[string]any{
 		"nil []string tail":      {"continue": []string(nil), "newSession": []string{}},
@@ -710,6 +712,11 @@ func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {
 		"nil element in array":   {"continue": [2]any{"--continue", nil}},
 		"nil pointer element":    {"continue": []*string{nil}},
 		"nil pointer in any":     {"continue": []any{"--continue", (*string)(nil)}},
+		"nil pointer tail":       {"continue": (*[]string)(nil), "newSession": []string{}},
+		"pointer to nil slice":   {"continue": new([]string), "newSession": []string{}},
+		"pointer to empty list":  {"continue": []string{"--continue"}, "list": &CommandLine{}},
+		"pointer to blank list":  {"continue": []string{"--continue"}, "list": &CommandLine{" "}},
+		"pointer blank argv0":    {"continue": []string{"--continue"}, "list": []any{ptrTo(" "), "x"}},
 		"blank array list":       {"continue": []string{"--continue"}, "list": [1]string{" "}},
 	} {
 		t.Run(name, func(t *testing.T) {

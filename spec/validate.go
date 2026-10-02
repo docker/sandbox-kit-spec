@@ -474,33 +474,43 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLongRunning:              true,
 }
 
+// deref unwraps pointer and interface layers, the way JSON marshaling
+// does, and reports whether it reached a null: a nil pointer, interface,
+// map or slice.
+func deref(v reflect.Value) (reflect.Value, bool) {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v, true
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map:
+		if v.IsNil() {
+			return v, true
+		}
+	case reflect.Invalid:
+		return v, true
+	}
+	return v, false
+}
+
 // hasNull reports whether an authored config value is null or a list
 // holding a null element. Configs built in code can carry typed slices
-// (a nil []string or CommandLine marshals to null), so slices are read by
-// kind rather than by one concrete type; arrays marshal to lists too.
+// and pointers (a nil []string, CommandLine or *string marshals to null),
+// so values are read by kind after unwrapping, not by one concrete type;
+// arrays marshal to lists too.
 func hasNull(v any) bool {
-	if v == nil {
+	rv, null := deref(reflect.ValueOf(v))
+	if null {
 		return true
 	}
-	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return false
 	}
-	if rv.Kind() == reflect.Slice && rv.IsNil() {
-		return true
-	}
 	for i := range rv.Len() {
-		// An interface wrapping a nil pointer, map or slice marshals to
-		// null as well, so unwrap before asking whether the element is nil.
-		e := rv.Index(i)
-		for e.Kind() == reflect.Interface && !e.IsNil() {
-			e = e.Elem()
-		}
-		switch e.Kind() {
-		case reflect.Interface, reflect.Pointer, reflect.Map, reflect.Slice:
-			if e.IsNil() {
-				return true
-			}
+		if _, null := deref(rv.Index(i)); null {
+			return true
 		}
 	}
 	return false
@@ -508,25 +518,26 @@ func hasNull(v any) bool {
 
 // emptyCommand reports whether an authored command (string or list form)
 // names nothing: an empty or blank string, or a list that is empty or
-// whose executable is blank. Lists are read by kind, as in hasNull, so a
-// CommandLine or []string built in code is judged like a decoded []any.
+// whose executable is blank. Values are unwrapped and read by kind, as in
+// hasNull, so a CommandLine, []string or pointer built in code is judged
+// like a decoded []any.
 func emptyCommand(v any) bool {
-	if s, ok := v.(string); ok {
-		return strings.TrimSpace(s) == ""
-	}
-	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+	rv, null := deref(reflect.ValueOf(v))
+	if null {
 		return false
 	}
-	if rv.Len() == 0 {
-		return true
+	switch rv.Kind() {
+	case reflect.String:
+		return strings.TrimSpace(rv.String()) == ""
+	case reflect.Slice, reflect.Array:
+		if rv.Len() == 0 {
+			return true
+		}
+		// argv[0] is the executable: an empty one cannot run.
+		first, null := deref(rv.Index(0))
+		return !null && first.Kind() == reflect.String && strings.TrimSpace(first.String()) == ""
 	}
-	// argv[0] is the executable: an empty one cannot run.
-	first := rv.Index(0)
-	if first.Kind() == reflect.Interface {
-		first = first.Elem()
-	}
-	return first.Kind() == reflect.String && strings.TrimSpace(first.String()) == ""
+	return false
 }
 
 // argvContains reports whether any argv element contains the substring
