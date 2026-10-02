@@ -80,6 +80,7 @@ func (s *hostMountTestScope) cleanup() {
 		listed[target.kit], errorsByKit[target.kit] = s.e.Adapter.HostMounts(cleanupCtx, s.e.Fixtures(target.kit))
 	}
 	removed := map[string]bool{}
+	observed := map[hostMountTarget]bool{}
 	for _, target := range s.targets {
 		if err := errorsByKit[target.kit]; err != nil {
 			s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s at %s: %v", target.kit, target.path, err))
@@ -91,6 +92,7 @@ func (s *hostMountTestScope) cleanup() {
 				continue
 			}
 			found = true
+			observed[target] = true
 			if removed[mount.ID] {
 				continue
 			}
@@ -101,6 +103,28 @@ func (s *hostMountTestScope) cleanup() {
 		}
 		if !found && s.provisioned[target] {
 			s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s at %s: provisioned directory is not listed; no removal handle available", target.kit, target.path))
+		}
+	}
+	// A broken adapter can reuse an opaque handle across distinct Kits.
+	// Deduplication avoids removing a real alias twice, but only fresh
+	// listings can establish that each targeted directory is gone.
+	remaining := map[string][]adapter.HostMount{}
+	verificationErrors := map[string]error{}
+	for _, target := range s.targets {
+		if !observed[target] {
+			continue
+		}
+		if _, verified := remaining[target.kit]; !verified {
+			remaining[target.kit], verificationErrors[target.kit] = s.e.Adapter.HostMounts(cleanupCtx, s.e.Fixtures(target.kit))
+		}
+		if err := verificationErrors[target.kit]; err != nil {
+			s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s at %s: verify removal: %v", target.kit, target.path, err))
+			continue
+		}
+		for _, mount := range remaining[target.kit] {
+			if mount.Path == target.path {
+				s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s at %s: directory still listed after cleanup (handle %s)", target.kit, target.path, mount.ID))
+			}
 		}
 	}
 }

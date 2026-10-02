@@ -11,6 +11,7 @@ verb, state, claims, broken, *args = sys.argv[1:]
 state = Path(state)
 store = state / '.host-mounts'
 supported = 'com.docker.sandbox/host-mount@1' in claims.split(',')
+reused_handle = 'hm-' + '0' * 64
 
 
 def fixtures(kits):
@@ -28,6 +29,12 @@ def repository_identity(kit):
 def directory(handle):
     if not re.fullmatch(r'hm-[0-9a-f]{64}', handle):
         raise ValueError('invalid host-directory handle')
+    if broken == 'host-mount-reused-handle' and handle == reused_handle and store.exists():
+        # Distinct directories expose one ambiguous opaque handle. Each
+        # removal affects only one, so deduplication cannot prove cleanup.
+        for location in sorted(store.iterdir()):
+            if (location / 'record.json').exists():
+                return location
     return store / handle
 
 
@@ -39,7 +46,10 @@ def records(kit):
             if metadata.exists():
                 record = json.loads(metadata.read_text())
                 if repository_identity(record['kit']) == repository_identity(kit) or broken == 'host-mount-uses-display-identity':
-                    result.append({key: record[key] for key in ['id', 'path', 'hostPath']})
+                    entry = {key: record[key] for key in ['id', 'path', 'hostPath']}
+                    if broken == 'host-mount-reused-handle':
+                        entry['id'] = reused_handle
+                    result.append(entry)
     return result
 
 

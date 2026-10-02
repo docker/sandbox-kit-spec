@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,6 +52,36 @@ func TestHostMountCleanupReportsHiddenProvision(t *testing.T) {
 	scope.cleanup()
 	require.Len(t, e.hostMountLeaks, 1, "a hidden provisioned directory cannot be treated as removed")
 	require.Contains(t, e.hostMountLeaks[0], scope.path)
+}
+
+func TestHostMountCleanupReportsReusedHandleSurvivor(t *testing.T) {
+	e := hostMountTestEnv(t, "host-mount-reused-handle")
+	scope := hostMountScope(t.Context(), e, "host-mount", "host-mount-other")
+	cleanup := sync.OnceFunc(scope.cleanup)
+	defer cleanup()
+	for _, kit := range []string{"host-mount", "host-mount-other"} {
+		_, remove, err := scope.create(kit, nil)
+		require.NoError(t, err)
+		remove()
+	}
+	first, err := e.Adapter.HostMounts(t.Context(), e.Fixtures("host-mount"))
+	require.NoError(t, err)
+	other, err := e.Adapter.HostMounts(t.Context(), e.Fixtures("host-mount-other"))
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.Len(t, other, 1)
+	require.Equal(t, first[0].ID, other[0].ID, "the adapter reuses a removal handle across Kits")
+	require.NotEqual(t, first[0].HostPath, other[0].HostPath, "the listings refer to independent directories")
+	cleanup()
+	require.Len(t, e.hostMountLeaks, 1, "deduplicating the shared handle must still report the surviving directory")
+	require.Contains(t, e.hostMountLeaks[0], scope.path)
+	remaining := 0
+	for _, kit := range []string{"host-mount", "host-mount-other"} {
+		mounts, err := e.Adapter.HostMounts(t.Context(), e.Fixtures(kit))
+		require.NoError(t, err)
+		remaining += len(mounts)
+	}
+	require.Equal(t, 1, remaining, "the reused handle removed only one of the directories")
 }
 
 func TestHostMountCleanupWithoutProvision(t *testing.T) {
