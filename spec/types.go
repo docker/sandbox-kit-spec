@@ -877,9 +877,9 @@ type AgentSessions struct {
 // where nil means the agent has no such operation. NewSession is the one
 // exception: omitted, it defaults to the lifecycle interactive launch,
 // and validation holds a stated one to the same argv as a stated
-// lifecycle tail. The declaration must also reach a consumer as the
-// original Capability, never re-rendered through CapabilityWithConfig or
-// toConfigMap, where omitempty would erase an empty tail.
+// lifecycle tail. The type round-trips presence: MarshalJSON writes every
+// non-nil tail, empty or not, so re-rendering it through
+// CapabilityWithConfig keeps an empty tail a verb.
 type AgentInteractiveSessions struct {
 	Prompt        []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Resume        []string    `json:"resume,omitempty" yaml:"resume,omitempty"`
@@ -887,6 +887,27 @@ type AgentInteractiveSessions struct {
 	NewSession    []string    `json:"newSession,omitempty" yaml:"newSession,omitempty"`
 	SessionPicker []string    `json:"sessionPicker,omitempty" yaml:"sessionPicker,omitempty"`
 	List          CommandLine `json:"list,omitempty" yaml:"list,omitempty"`
+}
+
+// MarshalJSON writes presence, not length: omitempty would drop a non-nil
+// empty tail, and an empty newSession is a verb, so the tags above only
+// serve the decoders and every non-nil field is written here. Both the
+// config map (toConfigMap) and any JSON consumer go through this.
+func (a AgentInteractiveSessions) MarshalJSON() ([]byte, error) {
+	out := map[string]any{}
+	for key, value := range map[string][]string{
+		"prompt":        a.Prompt,
+		"resume":        a.Resume,
+		"continue":      a.Continue,
+		"newSession":    a.NewSession,
+		"sessionPicker": a.SessionPicker,
+		"list":          a.List,
+	} {
+		if value != nil {
+			out[key] = value
+		}
+	}
+	return json.Marshal(out)
 }
 
 // Arg declares one installer-supplied value. Private by default: it reaches

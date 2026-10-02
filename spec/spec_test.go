@@ -707,6 +707,8 @@ func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {
 		"blank []string list":    {"continue": []string{"--continue"}, "list": []string{""}},
 		"nil element":            {"continue": []any{"--continue", nil}},
 		"nil element in array":   {"continue": [2]any{"--continue", nil}},
+		"nil pointer element":    {"continue": []*string{nil}},
+		"nil pointer in any":     {"continue": []any{"--continue", (*string)(nil)}},
 		"blank array list":       {"continue": []string{"--continue"}, "list": [1]string{" "}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -720,6 +722,51 @@ func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {
 		"continue": []string{"--continue"}, "newSession": []string{}, "list": CommandLine{"ls", "ids"},
 	}}}
 	require.NoError(t, validateCapabilityBlock(ok))
+}
+
+// MarshalJSON writes presence, so a decode, re-render and decode cycle
+// (what CapabilityWithConfig does) keeps an empty tail a verb and an
+// absent one absent.
+func TestAgentInteractiveSessionsRoundTripsPresence(t *testing.T) {
+	d := decodeValid(t, `schemaVersion: "3"
+kind: workload
+provides: ["claude@2.1.0"]
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      newSession: []
+      continue: []
+      resume: [--resume, "{{.SessionID}}"]
+      list: "ls ids"
+`)
+	first, err := AgentInteractiveSessionsOf(d.Capabilities)
+	require.NoError(t, err)
+
+	rendered, err := CapabilityWithConfig(d.Capabilities[0], first)
+	require.NoError(t, err)
+	require.Contains(t, rendered.Config, "newSession")
+	require.Contains(t, rendered.Config, "continue")
+	require.NotContains(t, rendered.Config, "sessionPicker")
+	require.NotContains(t, rendered.Config, "prompt")
+
+	again, err := AgentInteractiveSessionsOf([]Capability{*rendered})
+	require.NoError(t, err)
+	require.NotNil(t, again.NewSession)
+	require.Empty(t, again.NewSession)
+	require.NotNil(t, again.Continue)
+	require.Empty(t, again.Continue)
+	require.Nil(t, again.SessionPicker)
+	require.Nil(t, again.Prompt)
+	require.Equal(t, first.Resume, again.Resume)
+	require.Equal(t, first.List, again.List)
+
+	// A pointer marshals the same way, and an empty struct writes no keys.
+	raw, err := json.Marshal(&AgentInteractiveSessions{NewSession: []string{}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"newSession":[]}`, string(raw))
+	raw, err = json.Marshal(AgentInteractiveSessions{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(raw))
 }
 
 // list names the same sessions whichever mode opened them, so a Kit that

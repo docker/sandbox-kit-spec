@@ -490,8 +490,17 @@ func hasNull(v any) bool {
 		return true
 	}
 	for i := range rv.Len() {
-		if e := rv.Index(i); e.Kind() == reflect.Interface && e.IsNil() {
-			return true
+		// An interface wrapping a nil pointer, map or slice marshals to
+		// null as well, so unwrap before asking whether the element is nil.
+		e := rv.Index(i)
+		for e.Kind() == reflect.Interface && !e.IsNil() {
+			e = e.Elem()
+		}
+		switch e.Kind() {
+		case reflect.Interface, reflect.Pointer, reflect.Map, reflect.Slice:
+			if e.IsNil() {
+				return true
+			}
 		}
 	}
 	return false
