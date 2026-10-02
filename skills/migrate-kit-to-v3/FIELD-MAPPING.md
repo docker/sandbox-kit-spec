@@ -493,9 +493,9 @@ launch argv alone. Leave a verb out when the agent has no such operation rather
 than writing `[]`. `newSession` is the exception: omit it when a bare launch
 opens the TUI, because omitted it defaults to the `lifecycle@1` interactive
 launch (the launch argv plus `interactive`, or the launch argv alone). When a
-kit states `newSession` and a non-empty `lifecycle@1.interactive` they must be
-the same argv (an empty `interactive` is not compared), so a v2 `sandbox.command.interactive` becomes `lifecycle@1`
-`interactive` and `newSession` stays omitted. `list` is the same command as in
+kit states both `newSession` and `lifecycle@1.interactive` they must be the
+same argv, an explicit `[]` included, so a v2 `sandbox.command.interactive`
+becomes `lifecycle@1` `interactive` and `newSession` stays omitted. `list` is the same command as in
 `agent-sessions@1`; repeat it there verbatim, and omit it where the agent has no
 command that prints session ids one per line.
 
