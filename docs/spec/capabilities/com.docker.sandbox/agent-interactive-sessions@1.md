@@ -7,30 +7,30 @@ one. Not a grant: the host consumes it to operate the agent, the way it
 consumes the image config's entrypoint.
 
 This is the interactive sibling of
-[agent-sessions@1](agent-sessions@1.md), which carries the headless verbs
-a harness drives. An agent Kit whose CLI has both a headless and an
-interactive mode declares **both** capabilities: agent-sessions@1 for the
-headless verbs a harness drives, agent-interactive-sessions@1 for the TUI
-verbs a human-facing host launches. An agent with no interactive mode
-declares only agent-sessions@1, and one with no headless mode only this
-capability.
+[agent-sessions@1](agent-sessions@1.md), which carries the headless
+verbs a harness drives. An agent Kit whose CLI has both a headless and
+an interactive mode declares **both** capabilities: agent-sessions@1 for
+the headless verbs a harness drives, agent-interactive-sessions@1 for
+the TUI verbs a human-facing host launches. An agent with no interactive
+mode declares only agent-sessions@1, and one with no headless mode only
+this capability.
 
-- **Shape**: singleton. Workload Kits in practice — the agent the verbs
-  drive is the workload's.
-- **Permission surface**: **no** — a declaration about the workload's own
-  CLI, on the entrypoint's trust plane.
+- **Shape**: singleton. Workload Kits in practice — the agent the
+  verbs drive is the workload's.
+- **Permission surface**: **no** — a declaration about the workload's
+  own CLI, on the entrypoint's trust plane.
 
 ## Config
 
 ```yaml
 - type: com.docker.sandbox/agent-interactive-sessions@1
   config:
-    prompt: ["{{.Prompt}}"]                # start a session seeded with a prompt
-    resume: [--resume, "{{.SessionID}}"]   # reopen a named session
-    continue: [--continue]                 # reopen the most recent session
-    newSession: []                         # fresh session: the launch argv alone
-    sessionPicker: [--resume]              # start on the agent's session picker
-    list:                                  # enumerate resumable session ids
+    prompt: ["{{.Prompt}}"]               # seeded with a prompt
+    resume: [--resume, "{{.SessionID}}"]  # reopen a named session
+    continue: [--continue]                # reopen the most recent one
+    newSession: []                        # fresh: the launch argv alone
+    sessionPicker: [--resume]             # the agent's session picker
+    list:                                 # resumable session ids
       - sh
       - -c
       - claude-sessions --format ids
@@ -50,11 +50,12 @@ nothing and is invalid.
 
 ### Presence
 
-For every argv-tail verb here except `newSession`, a **present** key means
-the agent supports the operation and an **absent** key means it does not.
-A present empty list means the launch argv alone: for most agents the
-bare interactive launch *is* the launch argv, so `continue: []` or
-`sessionPicker: []` are as meaningful as any other tail. This differs
+For every argv-tail verb here except `newSession`, a **present** key
+means the agent supports the operation and an **absent** key means it
+does not. A present empty list means the launch argv alone: for most
+agents the bare interactive launch *is* the launch argv, so
+`continue: []` or `sessionPicker: []` are as meaningful as any other
+tail. This differs
 deliberately from agent-sessions@1, where an empty tail reads as absent;
 agent-sessions@1 is unchanged. A consumer therefore tells `[]` from an
 omitted key, and anything that re-renders the declaration between
@@ -70,15 +71,18 @@ declaration and an empty `config` is not.
 
 ### Agreement with lifecycle@1
 
-[lifecycle@1](lifecycle@1.md)'s `interactive` field is the argv tail for
-the engine's TTY launch mode, and `newSession` names the same invocation.
+[lifecycle@1](lifecycle@1.md)'s `interactive` field is the argv tail
+for the engine's TTY launch mode, and `newSession` names the same
+invocation.
 
 A Kit declaring both **MUST** give them the same argv; validation rejects <!-- tck: agent-interactive-sessions@1/new-session-matches-lifecycle-interactive -->
 a mismatch, so the default (omitted `newSession`) and the explicit
-spelling can never disagree. A Kit declaring only one is not in conflict:
-an omitted `newSession` takes the lifecycle tail, and a stated one
-governs the new-session invocation on its own. An empty lifecycle `interactive`
-is indistinguishable from an omitted one, so it never conflicts.
+spelling can never disagree. A Kit declaring only one is not in
+conflict: an omitted `newSession` takes the lifecycle tail, and a stated
+one governs the new-session invocation on its own. Composition drops an
+empty lifecycle `interactive` from the effective descriptor, so the
+rule compares only a non-empty tail, which gives the same verdict
+before and after composition.
 
 ### Placeholders
 
@@ -96,8 +100,8 @@ A conforming runtime (or host):
 
 - **MUST** build each interactive invocation as the workload's launch <!-- tck: agent-interactive-sessions@1/interactive-from-launch-argv -->
   argv (image `Entrypoint` + `Cmd`) plus the verb's tail, with
-  placeholders substituted — the same way user-supplied args append. Verb
-  tails never replace the launch command.
+  placeholders substituted — the same way user-supplied args append.
+  Verb tails never replace the launch command.
 - **MUST** start a new interactive session, when `newSession` is absent, <!-- tck: agent-interactive-sessions@1/absent-new-session-is-lifecycle-launch -->
   exactly as the [lifecycle@1](lifecycle@1.md) interactive launch mode
   does.

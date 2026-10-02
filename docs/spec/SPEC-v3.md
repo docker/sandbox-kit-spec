@@ -558,7 +558,8 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `kit-registry@1`, `agent-sessions@1`, `agent-interactive-sessions@1`,
-`lifecycle@1`, `agent-context@1`, `sbx@1`, `long-running@1`, `git-identity@1`.
+`lifecycle@1`, `agent-context@1`, `sbx@1`, `long-running@1`,
+`git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -736,11 +737,11 @@ candidate's against it:
 - `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-sessions@1`,
   `agent-interactive-sessions@1`, and `sbx@1` contribute nothing to the
   surface: resource limits constrain the Kit rather than grant it
-  anything, the next four run inside the sandbox
-  on the entrypoint's trust plane, and `sbx@1` asks the host to launch the
-  workload a particular way and to read an identity the image already
-  states (see their pages). `long-running@1` likewise grants no access;
-  it keeps the workload running independently of attached sessions.
+  anything, the next four run inside the sandbox on the entrypoint's
+  trust plane, and `sbx@1` asks the host to launch the workload a
+  particular way and to read an identity the image already states (see
+  their pages). `long-running@1` likewise grants no access; it keeps the
+  workload running independently of attached sessions.
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
@@ -765,9 +766,9 @@ With no `interactive` declared, both modes run the image config as-is. See
 the headless prompt/resume verbs, which append after the launch argv the
 same way user-supplied args do, and
 [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md)
-for the interactive verbs (new session, prompt, resume, continue, session
-picker), which append the same way and run with a terminal attached; its
-`newSession` names this interactive launch.
+for the interactive verbs (new session, prompt, resume, continue,
+session picker), which append the same way and run with a terminal
+attached; its `newSession` names this interactive launch.
 
 ---
 
