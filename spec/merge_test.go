@@ -472,6 +472,39 @@ capabilities:
 	require.Len(t, same.Capabilities, 1, "an identical restatement is the same ask")
 }
 
+// The agreement rule is judged on the composed descriptor too: a mixin
+// contributes the lifecycle tail, and the workload's newSession has to
+// agree with it once the two are one declaration block.
+func TestComposedInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
+	workload := func(newSession string) Contribution {
+		return contribute(t, "agent", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {newSession: `+newSession+`}
+`)
+	}
+	mixin := contribute(t, "tui", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: {interactive: [--tui]}
+`)
+	validate := func(c Contribution) error {
+		composed, err := Compose([]Contribution{c, mixin})
+		require.NoError(t, err)
+		raw, err := json.Marshal(composed)
+		require.NoError(t, err)
+		_, err = ValidateEffective(raw, composed)
+		return err
+	}
+	require.NoError(t, validate(workload("[--tui]")))
+	require.ErrorContains(t, validate(workload("[--other]")), "disagrees with lifecycle interactive")
+	require.ErrorContains(t, validate(workload("[]")), "disagrees with lifecycle interactive")
+}
+
 // The profile belongs to the workload; the bodies become one staged
 // file, which the descriptor cannot carry and the caller has to write.
 func TestMergeCollectsAgentContextBodies(t *testing.T) {

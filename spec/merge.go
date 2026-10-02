@@ -394,8 +394,9 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // admit one entry, so each has a rule for what several contributors
 // asking at once means: network policies union, lifecycle hooks
 // concatenate, and the types that describe the whole sandbox rather
-// than a grant to it — resources, agent-sessions, agent-interactive-sessions — admit one author,
-// because two different answers cannot both be the sandbox's.
+// than a grant to it — resources, agent-sessions,
+// agent-interactive-sessions — admit one author, because two different
+// answers cannot both be the sandbox's.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
 		byKey:    map[string]keyed{},

@@ -856,32 +856,19 @@ type AgentSessions struct {
 	List     CommandLine `json:"list,omitempty" yaml:"list,omitempty"`
 }
 
-// AgentInteractiveSessions is CapabilityAgentInteractiveSessions's config.
-// Prompt, Resume, Continue, NewSession, and SessionPicker are argv tails
-// appended to the workload's launch command; the host runs each with a
-// terminal attached. Prompt starts a session seeded with a prompt and must
-// reference {{.Prompt}}; Resume reopens a named session and must reference
-// {{.SessionID}}; Continue reopens the most recent session; NewSession
-// starts a fresh session with no prompt; SessionPicker starts the agent
-// on its own session chooser. List is the same complete command, with the
-// same meaning, as AgentSessions.List: stdout enumerates resumable session
-// ids, one per line, most recent first.
+// AgentInteractiveSessions is CapabilityAgentInteractiveSessions's config:
+// the interactive twin of AgentSessions, with the same List command. Each
+// tail is an argv tail the host appends to the launch command and runs
+// with a terminal attached; the capability page carries the rest.
 //
-// Presence, not length, says whether a tail is supported. For the bare
-// interactive launch of most agents the launch argv alone is the whole
-// command, so NewSession: [] is a real verb meaning "launch with no
-// tail", and only nil means the agent has no such operation. NewSession
-// is the one exception to "absent is unsupported": every agent can start
-// a new session, so when it is omitted the new-session launch is the
-// lifecycle interactive launch (the launch argv plus lifecycle's
-// interactive tail, or the launch argv alone), and validation holds a
-// stated NewSession to the same argv as a stated lifecycle tail so the
-// default and the explicit spelling cannot disagree. That is why every
-// tail is read as != nil, never len > 0, and why a declaration of
-// this type must reach a consumer as the original Capability: re-rendering
-// the struct through CapabilityWithConfig or toConfigMap would let
-// omitempty erase an empty tail and turn "supported" into "unsupported".
-// A declaration with no verbs at all says nothing and is invalid.
+// Presence says whether a tail is supported, so read every one as
+// != nil, never len > 0: NewSession: [] means "the launch argv alone",
+// where nil means the agent has no such operation. NewSession is the one
+// exception: omitted, it defaults to the lifecycle interactive launch,
+// and validation holds a stated one to the same argv as a stated
+// lifecycle tail. The declaration must also reach a consumer as the
+// original Capability, never re-rendered through CapabilityWithConfig or
+// toConfigMap, where omitempty would erase an empty tail.
 type AgentInteractiveSessions struct {
 	Prompt        []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Resume        []string    `json:"resume,omitempty" yaml:"resume,omitempty"`

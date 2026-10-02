@@ -412,6 +412,27 @@ func keys(m map[string]string) []string {
 
 // TestSchemaPatternsCompileAsRE2 keeps every schema regex loadable by
 // the yaml-language-server's engine (which, like Go, has no lookarounds).
+// The tests here read the schema's structure rather than run a validator,
+// so each pin is the keyword that makes the case pass or fail: a verb that
+// must carry a placeholder cannot be empty, an empty tail is a verb for
+// the others, and an empty config says nothing.
+func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentInteractiveSessions))
+	require.Equal(t, false, schema["additionalProperties"])
+	require.EqualValues(t, 1, schema["minProperties"], "{} must fail: no verbs")
+
+	for _, verb := range []string{"prompt", "resume"} {
+		prop := at(t, schema, "properties", verb)
+		require.Equal(t, "array", prop["type"])
+		require.EqualValues(t, 1, prop["minItems"], "%s: [] cannot carry its placeholder", verb)
+	}
+	for _, verb := range []string{"continue", "newSession", "sessionPicker"} {
+		prop := at(t, schema, "properties", verb)
+		require.Equal(t, "array", prop["type"])
+		require.NotContains(t, prop, "minItems", "%s: [] is a verb, the launch argv alone", verb)
+	}
+}
+
 func TestSchemaPatternsCompileAsRE2(t *testing.T) {
 	paths := []string{
 		"../schema/kit.schema.json",
