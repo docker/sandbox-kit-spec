@@ -233,6 +233,7 @@ var waived = map[string]string{
 	"agent-interactive-sessions@1/prompt-placeholder-required":               "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-interactive-sessions@1/session-id-placeholder-required":           "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-interactive-sessions@1/new-session-matches-lifecycle-interactive": "grammar rule, judged by the spec package's validator",
+	"agent-interactive-sessions@1/list-matches-agent-sessions":               "grammar rule, judged by the spec package's validator",
 	"credential@1/one-of-apikey-oauth":                                       "grammar rule, judged by the spec package's validators and schema tests",
 	"credential@1/name-or-inject":                                            "grammar rule, judged by the spec package's validators and schema tests",
 	"credential@1/inject-domain-in-allow":                                    "grammar rule, judged by the spec package's validators and schema tests",

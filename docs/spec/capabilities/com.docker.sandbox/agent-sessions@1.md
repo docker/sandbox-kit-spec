@@ -12,6 +12,8 @@ whose CLI has both a headless and an interactive mode declares **both**
 capabilities: agent-sessions@1 for the headless verbs a harness drives,
 agent-interactive-sessions@1 for the TUI verbs a human-facing host
 launches. A non-interactive-only agent declares only agent-sessions@1.
+A `list` declared on both capabilities is the same command in both, and
+validation rejects a mismatch.
 
 - **Shape**: singleton. Workload Kits in practice — the agent the verbs
   drive is the workload's.

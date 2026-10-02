@@ -43,7 +43,7 @@ this capability.
 | `continue` | list\<string\> | Argv tail; reopens the most recent session interactively. No placeholder. |
 | `newSession` | list\<string\> | Argv tail; starts a fresh interactive session with no prompt. No placeholder. Often `[]`. **Omitted, it defaults to the [lifecycle@1](lifecycle@1.md) interactive launch**: the launch argv as lifecycle@1 defines it for interactive sessions, plus its `interactive` tail when one is declared. |
 | `sessionPicker` | list\<string\> | Argv tail; starts the agent on its own session picker. No placeholder. |
-| `list` | string \| list | A **complete command** (not a tail) whose stdout enumerates resumable session ids, one per line, most recent first. The same type and meaning as agent-sessions@1's `list`: a Kit declaring both capabilities repeats the same command in both. |
+| `list` | string \| list | A **complete command** (not a tail) whose stdout enumerates resumable session ids, one per line, most recent first. The same type and meaning as agent-sessions@1's `list`; a Kit declaring it on both capabilities [states one command](#agreement-with-agent-sessions1). |
 
 Every verb is optional, but a declaration with no keys at all says
 nothing and is invalid. A present `list` must name a command: an empty
@@ -89,6 +89,16 @@ one governs the new-session invocation on its own. Composition drops an
 empty lifecycle `interactive` from the effective descriptor, so the
 rule compares only a non-empty tail, which gives the same verdict
 before and after composition.
+
+### Agreement with agent-sessions@1
+
+Both capabilities enumerate the same sessions, whichever mode opened
+them, so their `list` is one command.
+
+A Kit declaring `list` on both **MUST** give them the same command; <!-- tck: agent-interactive-sessions@1/list-matches-agent-sessions -->
+validation rejects a mismatch, comparing the decoded argv, so a string
+and its `[sh, -c, ...]` spelling are equal. A Kit may still declare
+`list` on only one of them.
 
 ### Placeholders
 
