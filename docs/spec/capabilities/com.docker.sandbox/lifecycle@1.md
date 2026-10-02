@@ -64,6 +64,12 @@ last client disconnecting declares [long-running@1](long-running@1.md).
 A lifecycle entry declaring no hooks, no files, and no interactive tail is
 invalid — drop the entry instead.
 
+`interactive` names the same launch as the `newSession` verb of
+[agent-interactive-sessions@1](agent-interactive-sessions@1.md); a Kit
+declaring both gives them the same argv, and validation rejects a
+mismatch. `agent-interactive-sessions@1` `newSession` defaults to this
+tail when omitted.
+
 ## Runtime behavior
 
 A conforming runtime:

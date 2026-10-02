@@ -228,14 +228,17 @@ var waived = map[string]string{
 	"SPEC-v3 §6/required-arg-supplied":     "grammar rule, judged by the spec package's expansion tests",
 	"SPEC-v3 §6/references-declared":       "grammar rule, judged by the spec package's expansion tests",
 
-	"agent-sessions@1/prompt-placeholder-required":     "grammar rule, judged by the spec package's validators and schema tests",
-	"agent-sessions@1/session-id-placeholder-required": "grammar rule, judged by the spec package's validators and schema tests",
-	"credential@1/one-of-apikey-oauth":                 "grammar rule, judged by the spec package's validators and schema tests",
-	"credential@1/name-or-inject":                      "grammar rule, judged by the spec package's validators and schema tests",
-	"credential@1/inject-domain-in-allow":              "grammar rule, judged by the spec package's validators and schema tests",
-	"network-policy@1/inject-domain-in-allow":          "grammar rule, judged by the spec package's validators and schema tests",
-	"network-policy@2/inject-domain-in-allow":          "grammar rule, judged by the spec package's validators and schema tests",
-	"network-policy@2/bounded-allow-hosts-literal":     "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-sessions@1/prompt-placeholder-required":                           "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-sessions@1/session-id-placeholder-required":                       "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-interactive-sessions@1/prompt-placeholder-required":               "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-interactive-sessions@1/session-id-placeholder-required":           "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-interactive-sessions@1/new-session-matches-lifecycle-interactive": "grammar rule, judged by the spec package's validators and schema tests",
+	"credential@1/one-of-apikey-oauth":                                       "grammar rule, judged by the spec package's validators and schema tests",
+	"credential@1/name-or-inject":                                            "grammar rule, judged by the spec package's validators and schema tests",
+	"credential@1/inject-domain-in-allow":                                    "grammar rule, judged by the spec package's validators and schema tests",
+	"network-policy@1/inject-domain-in-allow":                                "grammar rule, judged by the spec package's validators and schema tests",
+	"network-policy@2/inject-domain-in-allow":                                "grammar rule, judged by the spec package's validators and schema tests",
+	"network-policy@2/bounded-allow-hosts-literal":                           "grammar rule, judged by the spec package's validators and schema tests",
 
 	// Kit-author obligations bind kit authors, not the runtime under
 	// test; there is no runtime behavior to probe.
@@ -269,6 +272,14 @@ var waived = map[string]string{
 	"agent-sessions@1/list-parses-stdout":         "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-sessions@1/absent-verb-unsupported":    "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-sessions@1/declaration-grants-nothing": "grammar only; nothing consumes it yet, so there is no behavior to judge",
+
+	"agent-interactive-sessions@1/interactive-from-launch-argv":           "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-interactive-sessions@1/absent-new-session-is-lifecycle-launch": "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-interactive-sessions@1/terminal-attached":                      "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-interactive-sessions@1/raw-value-substitution":                 "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-interactive-sessions@1/list-parses-stdout":                     "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-interactive-sessions@1/absent-verb-unsupported":                "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-interactive-sessions@1/declaration-grants-nothing":             "grammar only; nothing consumes it yet, so there is no behavior to judge",
 
 	"credential@1/resolved-from-host-store":         "host-internal: which store the value came from has no in-sandbox symptom",
 	"credential@1/oauth-token-endpoint-intercepted": "needs an OAuth fixture service the suite does not run yet",

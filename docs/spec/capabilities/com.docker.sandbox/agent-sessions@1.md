@@ -5,6 +5,14 @@ drive the agent — run one prompt headlessly, list past sessions, resume or
 continue one. Not a grant: the host consumes it to operate the agent, the
 way it consumes the image config's entrypoint.
 
+This is the headless side of an agent's session surface; its interactive
+sibling is [agent-interactive-sessions@1](agent-interactive-sessions@1.md),
+which carries the TUI verbs a human-facing host launches. An agent Kit
+whose CLI has both a headless and an interactive mode declares **both**
+capabilities: agent-sessions@1 for the headless verbs a harness drives,
+agent-interactive-sessions@1 for the TUI verbs a human-facing host
+launches. A non-interactive-only agent declares only agent-sessions@1.
+
 - **Shape**: singleton. Workload Kits in practice — the agent the verbs
   drive is the workload's.
 - **Permission surface**: **no** — a declaration about the workload's own
