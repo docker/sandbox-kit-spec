@@ -695,6 +695,31 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 	}
 }
 
+// Configs built in code can hold typed slices rather than the []any a
+// decoder produces; null and empty-command checks must read them alike.
+func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {
+	for name, config := range map[string]map[string]any{
+		"nil []string tail":      {"continue": []string(nil), "newSession": []string{}},
+		"nil []any tail":         {"continue": []any(nil), "newSession": []any{}},
+		"nil CommandLine list":   {"continue": []string{"--continue"}, "list": CommandLine(nil)},
+		"empty CommandLine list": {"continue": []string{"--continue"}, "list": CommandLine{}},
+		"blank CommandLine list": {"continue": []string{"--continue"}, "list": CommandLine{" ", "x"}},
+		"blank []string list":    {"continue": []string{"--continue"}, "list": []string{""}},
+		"nil element":            {"continue": []any{"--continue", nil}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := &Descriptor{SchemaVersion: "3", Kind: KindWorkload, Provides: []string{"claude@2.1.0"}}
+			d.Capabilities = []Capability{{Type: CapabilityAgentInteractiveSessions, Config: config}}
+			require.Error(t, validateCapabilityBlock(d))
+		})
+	}
+	ok := &Descriptor{SchemaVersion: "3", Kind: KindWorkload, Provides: []string{"claude@2.1.0"}}
+	ok.Capabilities = []Capability{{Type: CapabilityAgentInteractiveSessions, Config: map[string]any{
+		"continue": []string{"--continue"}, "newSession": []string{}, "list": CommandLine{"ls", "ids"},
+	}}}
+	require.NoError(t, validateCapabilityBlock(ok))
+}
+
 // list names the same sessions whichever mode opened them, so a Kit that
 // declares it on both session capabilities states one command. The two
 // spellings of one command decode to the same argv and are equal.

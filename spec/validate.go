@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/url"
 	"path"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -474,35 +475,49 @@ var singletonCapabilities = map[string]bool{
 }
 
 // hasNull reports whether an authored config value is null or a list
-// holding a null element.
+// holding a null element. Configs built in code can carry typed slices
+// (a nil []string or CommandLine marshals to null), so slices are read by
+// kind rather than by one concrete type.
 func hasNull(v any) bool {
 	if v == nil {
 		return true
 	}
-	if list, ok := v.([]any); ok {
-		return slices.ContainsFunc(list, func(e any) bool { return e == nil })
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		return false
+	}
+	if rv.IsNil() {
+		return true
+	}
+	for i := range rv.Len() {
+		if e := rv.Index(i); e.Kind() == reflect.Interface && e.IsNil() {
+			return true
+		}
 	}
 	return false
 }
 
 // emptyCommand reports whether an authored command (string or list form)
 // names nothing: an empty or blank string, or a list that is empty or
-// whose executable is blank.
+// whose executable is blank. Lists are read by kind, as in hasNull, so a
+// CommandLine or []string built in code is judged like a decoded []any.
 func emptyCommand(v any) bool {
-	switch c := v.(type) {
-	case string:
-		return strings.TrimSpace(c) == ""
-	case []any:
-		if len(c) == 0 {
-			return true
-		}
-		// argv[0] is the executable: an empty one cannot run.
-		first, ok := c[0].(string)
-		return ok && strings.TrimSpace(first) == ""
-	case []string:
-		return len(c) == 0 || strings.TrimSpace(c[0]) == ""
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s) == ""
 	}
-	return false
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		return false
+	}
+	if rv.Len() == 0 {
+		return true
+	}
+	// argv[0] is the executable: an empty one cannot run.
+	first := rv.Index(0)
+	if first.Kind() == reflect.Interface {
+		first = first.Elem()
+	}
+	return first.Kind() == reflect.String && strings.TrimSpace(first.String()) == ""
 }
 
 // argvContains reports whether any argv element contains the substring
