@@ -160,6 +160,7 @@ capabilities)
 create)
   kits=()
   mount_path=/var/tmp/kit-tck-host
+  mount_mode=0700
   greeting=""
   greeting_override=""
   greeting_override_set=no
@@ -177,7 +178,7 @@ create)
   while [ $# -gt 0 ]; do
     case "$1" in
     --arg)
-      case "$2" in mount_path=*) mount_path="${2#mount_path=}" ;; directory=*) context_directory="${2#directory=}" ;; greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
+      case "$2" in mount_path=*) mount_path="${2#mount_path=}" ;; mount_mode=*) mount_mode="${2#mount_mode=}" ;; directory=*) context_directory="${2#directory=}" ;; greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
       shift 2
       ;;
     --env)
@@ -861,7 +862,7 @@ create)
     fi
   fi
   if [ "$host_requested" = yes ]; then
-    python3 "$host_mount_helper" create "$state" "$claims" "$broken" "$id" "$mount_path" "${kits[@]}"
+    python3 "$host_mount_helper" create "$state" "$claims" "$broken" "$id" "$mount_path" "$mount_mode" "${kits[@]}"
   fi
   echo "$id"
   ;;

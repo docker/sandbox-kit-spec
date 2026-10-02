@@ -145,6 +145,17 @@ in-container `path`, and the host location `hostPath` a user can find.
 There is one record per path; an empty listing is `[]`, not `null`.
 Listing is an observation and **MUST NOT** allocate storage.
 
+The `host-mount-version-v1` and `host-mount-version-v2` fixtures exercise
+updates within one published Kit identity. Adapters claiming
+`host-mount@1` **MUST** publish or import them as distinct versions of one
+suite-owned repository, resolving their supplied fixture references to
+those versions for `create` and `host-mounts`. Distinct tags or digests
+identify the versions; neither version may be substituted with the
+other. The suite writes through the first version, removes its sandbox,
+and reads through the second, then verifies writes from the second are
+visible when reopening the first. Testing two unrelated local Kit
+identities cannot establish this repository identity guarantee.
+
 `host-mount-read` **MUST** read from the host directory independently of
 sandbox exec. The suite passes only a relative fixture filename; an
 absent file returns a nonzero status. `host-mount-rm` **MUST** remove the

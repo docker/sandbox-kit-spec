@@ -35,11 +35,14 @@ A conforming runtime:
 - **MUST** key the directory on the declaring Kit's identity and the <!-- tck: host-mount@1/isolated-by-kit -->
   cleaned `path`, so sandboxes composing the same Kit share storage,
   while another Kit declaring that path does not inherit it.
+- **MUST** keep distinct destinations of the same Kit in separate <!-- tck: host-mount@1/isolated-by-path -->
+  directories. A Kit's identity alone is not the storage key.
 - **MUST** use a Kit identity another Kit cannot claim. A published <!-- tck: host-mount@1/identity-not-self-declared -->
   repository can supply that identity; descriptor display metadata and
   `source` attribution cannot. Identity for unpublished Kits is
-  runtime-owned. A tag or digest update within one Kit identity does
-  not allocate a new directory.
+  runtime-owned.
+- **MUST** reuse the directory across tag or digest updates within one <!-- tck: host-mount@1/survives-kit-update -->
+  Kit identity. Updating a Kit does not allocate fresh storage.
 - **MUST** mount the directory at `path` before lifecycle hooks run. <!-- tck: host-mount@1/mounted-before-hooks -->
 - **MUST** allow concurrent sandboxes of the same Kit to read and write <!-- tck: host-mount@1/shared-concurrently -->
   the directory. Kits coordinate access; the grant promises no locking

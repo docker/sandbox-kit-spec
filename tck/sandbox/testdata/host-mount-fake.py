@@ -17,6 +17,14 @@ def fixtures(kits):
     return [kit for kit in kits if Path(kit).name.startswith('host-mount') and Path(kit).name != 'host-mount-volume']
 
 
+def repository_identity(kit):
+    if broken != 'host-mount-keys-full-reference' and Path(kit).name in ['host-mount-version-v1', 'host-mount-version-v2']:
+        # These fixture inputs stand for two published versions of one
+        # suite-owned repository, as required by the adapter contract.
+        return str(Path(kit).parent / 'host-mount-version')
+    return kit
+
+
 def directory(handle):
     if not re.fullmatch(r'hm-[0-9a-f]{64}', handle):
         raise ValueError('invalid host-directory handle')
@@ -30,7 +38,7 @@ def records(kit):
             metadata = location / 'record.json'
             if metadata.exists():
                 record = json.loads(metadata.read_text())
-                if record['kit'] == kit or broken == 'host-mount-uses-display-identity':
+                if repository_identity(record['kit']) == repository_identity(kit) or broken == 'host-mount-uses-display-identity':
                     result.append({key: record[key] for key in ['id', 'path', 'hostPath']})
     return result
 
@@ -51,7 +59,7 @@ if verb == 'preflight':
             print('refusing: optional host mount', file=sys.stderr)
             sys.exit(2)
 elif verb == 'create':
-    sandbox, mount_path, *kits = args
+    sandbox, mount_path, mount_mode, *kits = args
     requested = fixtures(kits)
     if not requested:
         sys.exit(0)
@@ -62,17 +70,18 @@ elif verb == 'create':
         skipped = [] if broken == 'host-mount-omits-skip' else [record]
         (root / 'selection.json').write_text(json.dumps({'selection': {'selected': [], 'skipped': skipped}, 'surface': {}}))
         sys.exit(0)
-    identity = 'display-label' if broken == 'host-mount-uses-display-identity' else kit
+    identity = 'display-label' if broken == 'host-mount-uses-display-identity' else repository_identity(kit)
     if broken == 'host-mount-per-sandbox':
         identity += sandbox
-    handle = 'hm-' + hashlib.sha256((identity + '\0' + mount_path).encode()).hexdigest()
+    key_path = '' if broken == 'host-mount-ignores-path' else mount_path
+    handle = 'hm-' + hashlib.sha256((identity + '\0' + key_path).encode()).hexdigest()
     location = directory(handle)
     fresh = not location.exists()
     location.mkdir(parents=True, exist_ok=True)
     data = location / 'data'
     data.mkdir(exist_ok=True)
     if fresh or broken == 'host-mount-resets-mode':
-        data.chmod(0o755 if broken == 'host-mount-ignores-mode' else 0o700)
+        data.chmod(0o755 if broken == 'host-mount-ignores-mode' else int(mount_mode, 8))
     record = {'id': handle, 'kit': kit, 'path': mount_path, 'hostPath': str(data)}
     (location / 'record.json').write_text(json.dumps(record))
     (root / 'host-mount.json').write_text(json.dumps(record))
@@ -109,6 +118,9 @@ elif verb == 'probe':
     elif operation == 'mode':
         print(format(data.stat().st_mode & 0o7777, 'o'))
     elif operation == 'set-mode':
+        if broken == 'host-mount-no-guest-chmod':
+            print('host-backed filesystem does not support guest chmod', file=sys.stderr)
+            sys.exit(1)
         data.chmod(int(value, 8))
     else:
         raise ValueError('unknown probe operation')
@@ -127,6 +139,16 @@ elif verb == 'remove':
     if broken == 'host-mount-removes-metadata-only':
         (directory(args[0]) / 'record.json').unlink(missing_ok=True)
     else:
+        if broken == 'host-mount-removes-other-kit':
+            metadata = directory(args[0]) / 'record.json'
+            if metadata.exists():
+                removed = json.loads(metadata.read_text())
+                for location in list(store.iterdir()):
+                    other_metadata = location / 'record.json'
+                    if other_metadata.exists():
+                        other = json.loads(other_metadata.read_text())
+                        if other['path'] == removed['path'] and repository_identity(other['kit']) != repository_identity(removed['kit']):
+                            shutil.rmtree(location)
         shutil.rmtree(directory(args[0]), ignore_errors=True)
         if store.exists() and not any(store.iterdir()):
             store.rmdir()

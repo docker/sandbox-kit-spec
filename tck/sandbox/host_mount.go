@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 
@@ -15,26 +16,91 @@ import (
 
 const capHostMount = spec.CapabilityHostMount
 
-// Fresh destinations prevent a previous run's cache from satisfying a
-// persistence check and bound cleanup to directories this run requested.
-func hostMountScope(ctx context.Context, e *Env, kits ...string) (string, func()) {
-	path := "/var/tmp/kit-tck-host-" + rand.Text()
-	return path, func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-		defer cancel()
-		for _, kit := range kits {
-			mounts, err := e.Adapter.HostMounts(cleanupCtx, e.Fixtures(kit))
-			if err != nil {
-				e.hostMountLeaks = append(e.hostMountLeaks, fmt.Sprintf("%s at %s: %v", kit, path, err))
+type hostMountTarget struct {
+	kit, path string
+}
+
+type hostMountTestScope struct {
+	ctx         context.Context
+	e           *Env
+	path        string
+	targets     []hostMountTarget
+	provisioned map[hostMountTarget]bool
+}
+
+// Fresh destinations prevent old data from satisfying a check. Tracking
+// successful creates distinguishes a hidden retained directory from a
+// conflict that refused before provisioning, or an explicit removal.
+func hostMountScope(ctx context.Context, e *Env, kits ...string) *hostMountTestScope {
+	s := &hostMountTestScope{ctx: ctx, e: e, path: "/var/tmp/kit-tck-host-" + rand.Text(), provisioned: map[hostMountTarget]bool{}}
+	for _, kit := range kits {
+		s.track(kit, s.path, false)
+	}
+	return s
+}
+
+func (s *hostMountTestScope) track(kit, path string, provisioned bool) {
+	target := hostMountTarget{kit, path}
+	if _, exists := s.provisioned[target]; !exists {
+		s.targets = append(s.targets, target)
+	}
+	s.provisioned[target] = provisioned
+}
+
+func (s *hostMountTestScope) create(kit string, args map[string]string) (string, func(), error) {
+	params := maps.Clone(args)
+	if params == nil {
+		params = map[string]string{}
+	}
+	if _, supplied := params["mount_path"]; !supplied {
+		params["mount_path"] = s.path
+	}
+	id, remove, err := s.e.sandbox(s.ctx, []string{fixtureWorkload, kit}, params)
+	if err == nil {
+		s.track(kit, params["mount_path"], true)
+	}
+	return id, sync.OnceFunc(remove), err
+}
+
+func (s *hostMountTestScope) forget(kit, path string) {
+	s.track(kit, path, false)
+}
+
+func (s *hostMountTestScope) cleanup() {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), cleanupTimeout)
+	defer cancel()
+	// Snapshot all aliases before removing anything: two revisions of one
+	// Kit legitimately list the same handle, which must be removed once.
+	listed := map[string][]adapter.HostMount{}
+	errorsByKit := map[string]error{}
+	for _, target := range s.targets {
+		if _, seen := listed[target.kit]; seen {
+			continue
+		}
+		listed[target.kit], errorsByKit[target.kit] = s.e.Adapter.HostMounts(cleanupCtx, s.e.Fixtures(target.kit))
+	}
+	removed := map[string]bool{}
+	for _, target := range s.targets {
+		if err := errorsByKit[target.kit]; err != nil {
+			s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s at %s: %v", target.kit, target.path, err))
+			continue
+		}
+		found := false
+		for _, mount := range listed[target.kit] {
+			if mount.Path != target.path {
 				continue
 			}
-			for _, mount := range mounts {
-				if mount.Path == path {
-					if err := e.Adapter.RemoveHostMount(cleanupCtx, mount.ID); err != nil {
-						e.hostMountLeaks = append(e.hostMountLeaks, fmt.Sprintf("%s: %v", mount.ID, err))
-					}
-				}
+			found = true
+			if removed[mount.ID] {
+				continue
 			}
+			removed[mount.ID] = true
+			if err := s.e.Adapter.RemoveHostMount(cleanupCtx, mount.ID); err != nil {
+				s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s: %v", mount.ID, err))
+			}
+		}
+		if !found && s.provisioned[target] {
+			s.e.hostMountLeaks = append(s.e.hostMountLeaks, fmt.Sprintf("%s at %s: provisioned directory is not listed; no removal handle available", target.kit, target.path))
 		}
 	}
 }
@@ -66,9 +132,10 @@ func hostMountRecord(ctx context.Context, e *Env, kit, path string) (*adapter.Ho
 }
 
 func hostMountHooks(ctx context.Context, e *Env) []report.Finding {
-	path, cleanup := hostMountScope(ctx, e, "host-mount-hooks")
-	defer cleanup()
-	id, remove, err := hostSandbox(ctx, e, "host-mount-hooks", path)
+	scope := hostMountScope(ctx, e, "host-mount-hooks")
+	defer scope.cleanup()
+	path := scope.path
+	id, remove, err := scope.create("host-mount-hooks", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
@@ -95,14 +162,15 @@ func hostMountHooks(ctx context.Context, e *Env) []report.Finding {
 }
 
 func hostMountShared(ctx context.Context, e *Env) []report.Finding {
-	path, cleanup := hostMountScope(ctx, e, "host-mount")
-	defer cleanup()
-	first, removeFirst, err := hostSandbox(ctx, e, "host-mount", path)
+	scope := hostMountScope(ctx, e, "host-mount")
+	defer scope.cleanup()
+	path := scope.path
+	first, removeFirst, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("first create: %v", err)}
 	}
 	defer removeFirst()
-	second, removeSecond, err := hostSandbox(ctx, e, "host-mount", path)
+	second, removeSecond, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("concurrent create: %v", err)}
 	}
@@ -121,9 +189,10 @@ func hostMountShared(ctx context.Context, e *Env) []report.Finding {
 }
 
 func hostMountSurvivesRemoval(ctx context.Context, e *Env) []report.Finding {
-	path, cleanup := hostMountScope(ctx, e, "host-mount")
-	defer cleanup()
-	first, removeFirst, err := hostSandbox(ctx, e, "host-mount", path)
+	scope := hostMountScope(ctx, e, "host-mount")
+	defer scope.cleanup()
+	path := scope.path
+	first, removeFirst, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("first create: %v", err)}
 	}
@@ -132,7 +201,7 @@ func hostMountSurvivesRemoval(ctx context.Context, e *Env) []report.Finding {
 		return findings
 	}
 	removeFirst()
-	second, removeSecond, err := hostSandbox(ctx, e, "host-mount", path)
+	second, removeSecond, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("create after last sandbox removed: %v", err)}
 	}
@@ -141,9 +210,10 @@ func hostMountSurvivesRemoval(ctx context.Context, e *Env) []report.Finding {
 }
 
 func hostMountIsolated(ctx context.Context, e *Env) []report.Finding {
-	path, cleanup := hostMountScope(ctx, e, "host-mount", "host-mount-other")
-	defer cleanup()
-	first, removeFirst, err := hostSandbox(ctx, e, "host-mount", path)
+	scope := hostMountScope(ctx, e, "host-mount", "host-mount-other")
+	defer scope.cleanup()
+	path := scope.path
+	first, removeFirst, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("first Kit: %v", err)}
 	}
@@ -154,7 +224,7 @@ func hostMountIsolated(ctx context.Context, e *Env) []report.Finding {
 	removeFirst()
 	// Both fixtures carry the same display label and source attribution;
 	// their resolved Kit references supply distinct identities.
-	other, removeOther, err := hostSandbox(ctx, e, "host-mount-other", path)
+	other, removeOther, err := scope.create("host-mount-other", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("second Kit: %v", err)}
 	}
@@ -163,9 +233,10 @@ func hostMountIsolated(ctx context.Context, e *Env) []report.Finding {
 }
 
 func hostMountListedAndRemovable(ctx context.Context, e *Env) []report.Finding {
-	path, cleanup := hostMountScope(ctx, e, "host-mount")
-	defer cleanup()
-	id, remove, err := hostSandbox(ctx, e, "host-mount", path)
+	scope := hostMountScope(ctx, e, "host-mount", "host-mount-other")
+	defer scope.cleanup()
+	path := scope.path
+	id, remove, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
@@ -182,8 +253,26 @@ func hostMountListedAndRemovable(ctx context.Context, e *Env) []report.Finding {
 	if err != nil || res.ExitCode != 0 || res.Stdout != "host-visible" {
 		return []report.Finding{report.Failf("sandbox writes not visible on host: %+v, %v", res, err)}
 	}
+	other, removeOther, err := scope.create("host-mount-other", nil)
+	if err != nil {
+		return []report.Finding{report.Failf("create other Kit at the same path: %v", err)}
+	}
+	defer removeOther()
+	if findings := hostProbe(ctx, e, other, "write", path, "marker", "other-kit-retained", ""); len(findings) > 0 {
+		return findings
+	}
+	removeOther()
 	if err := e.Adapter.RemoveHostMount(ctx, mount.ID); err != nil {
 		return []report.Finding{report.Failf("remove retained directory: %v", err)}
+	}
+	scope.forget("host-mount", path)
+	otherMount, err := hostMountRecord(ctx, e, "host-mount-other", path)
+	if err != nil {
+		return []report.Finding{report.Failf("removal lost another Kit's same-path directory: %v", err)}
+	}
+	res, err = e.Adapter.ReadHostMount(ctx, otherMount.ID, "marker")
+	if err != nil || res.ExitCode != 0 || res.Stdout != "other-kit-retained" {
+		return []report.Finding{report.Failf("removal changed another Kit's data: %+v, %v", res, err)}
 	}
 	if remaining, err := e.Adapter.HostMounts(ctx, e.Fixtures("host-mount")); err != nil {
 		return []report.Finding{report.Failf("list after removal: %v", err)}
@@ -194,7 +283,7 @@ func hostMountListedAndRemovable(ctx context.Context, e *Env) []report.Finding {
 			}
 		}
 	}
-	fresh, removeFresh, err := hostSandbox(ctx, e, "host-mount", path)
+	fresh, removeFresh, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("create after directory removal: %v", err)}
 	}
@@ -204,9 +293,10 @@ func hostMountListedAndRemovable(ctx context.Context, e *Env) []report.Finding {
 
 func hostMountRoot(operation, value, want string) func(context.Context, *Env) []report.Finding {
 	return func(ctx context.Context, e *Env) []report.Finding {
-		path, cleanup := hostMountScope(ctx, e, "host-mount")
-		defer cleanup()
-		id, remove, err := hostSandbox(ctx, e, "host-mount", path)
+		scope := hostMountScope(ctx, e, "host-mount")
+		defer scope.cleanup()
+		path := scope.path
+		id, remove, err := scope.create("host-mount", nil)
 		if err != nil {
 			return []report.Finding{report.Failf("create: %v", err)}
 		}
@@ -217,24 +307,39 @@ func hostMountRoot(operation, value, want string) func(context.Context, *Env) []
 		if operation != "mode" {
 			return nil
 		}
-		if findings := hostProbe(ctx, e, id, "set-mode", path, "", "750", ""); len(findings) > 0 {
+		if findings := hostProbe(ctx, e, id, "write", path, "marker", "retained", ""); len(findings) > 0 {
 			return findings
 		}
 		remove()
-		fresh, removeFresh, err := hostSandbox(ctx, e, "host-mount", path)
+		// A host filesystem may reject guest chmod. Changing the requested
+		// initial mode on reopen tests retention without requiring it.
+		fresh, removeFresh, err := scope.create("host-mount", map[string]string{"mount_mode": "0750"})
 		if err != nil {
 			return []report.Finding{report.Failf("reopen: %v", err)}
 		}
 		defer removeFresh()
-		return hostProbe(ctx, e, fresh, "mode", path, "", "", "750\n")
+		if findings := hostProbe(ctx, e, fresh, "mode", path, "", "", want); len(findings) > 0 {
+			return findings
+		}
+		return hostProbe(ctx, e, fresh, "read", path, "marker", "", "retained")
 	}
 }
 
 func hostMountConflict(secondKit string) func(context.Context, *Env) []report.Finding {
 	return func(ctx context.Context, e *Env) []report.Finding {
-		path, cleanup := hostMountScope(ctx, e, "host-mount")
-		defer cleanup()
+		scope := hostMountScope(ctx, e, "host-mount")
+		defer scope.cleanup()
+		path := scope.path
+		if secondKit != "host-mount-volume" {
+			scope.track(secondKit, path, false)
+		}
 		_, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "host-mount", secondKit}, map[string]string{"mount_path": path})
+		if err == nil {
+			scope.track("host-mount", path, true)
+			if secondKit != "host-mount-volume" {
+				scope.track(secondKit, path, true)
+			}
+		}
 		remove()
 		var refused *adapter.RefusedError
 		if !errors.As(err, &refused) {
@@ -245,9 +350,10 @@ func hostMountConflict(secondKit string) func(context.Context, *Env) []report.Fi
 }
 
 func hostMountSurface(ctx context.Context, e *Env) []report.Finding {
-	path, cleanup := hostMountScope(ctx, e, "host-mount")
-	defer cleanup()
-	id, remove, err := hostSandbox(ctx, e, "host-mount", path)
+	scope := hostMountScope(ctx, e, "host-mount")
+	defer scope.cleanup()
+	path := scope.path
+	id, remove, err := scope.create("host-mount", nil)
 	if err != nil {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
@@ -298,6 +404,8 @@ var hostMountChecks = []check{
 	{requirement: "host-mount@1/shared-concurrently", capability: capHostMount, run: hostMountShared},
 	{requirement: "host-mount@1/survives-sandbox-removal", capability: capHostMount, run: hostMountSurvivesRemoval},
 	{requirement: "host-mount@1/isolated-by-kit", capability: capHostMount, run: hostMountIsolated},
+	{requirement: "host-mount@1/isolated-by-path", capability: capHostMount, run: hostMountPathsIsolated},
+	{requirement: "host-mount@1/survives-kit-update", capability: capHostMount, run: hostMountSurvivesKitUpdate},
 	{requirement: "host-mount@1/listed-and-removable", capability: capHostMount, run: hostMountListedAndRemovable},
 	{requirement: "host-mount@1/agent-writable-root", capability: capHostMount, run: hostMountRoot("writable", "written-as-agent", "1000\n")},
 	{requirement: "host-mount@1/initial-mode-applied", capability: capHostMount, run: hostMountRoot("mode", "", "700\n")},
