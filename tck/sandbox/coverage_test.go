@@ -28,6 +28,8 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"host-mount@1/isolated-by-kit":                {"host-mount@1/identity-not-self-declared"},
+	"host-mount@1/host-volume-conflict":           {"host-mount@1/no-silent-merge"},
 	"agent-skill@1/host-conflict":                 {"agent-skill@1/existing-conflict"},
 	"git-identity@1/global-defaults":              {"git-identity@1/runtime-provided"},
 	"git-identity@1/unavailable-refuses-required": {"git-identity@1/runtime-provided"},
@@ -104,6 +106,7 @@ var kitCovers = map[string][]string{
 	// decodes, and refuses the authoring-only kind: set — a published
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
+		"host-mount@1/runtime-owned-location",
 		"agent-skill@1/name-valid",
 		"agent-skill@1/source-literal",
 		"long-running@1/no-config",
@@ -172,6 +175,7 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"volume@1/reattach-checks-kit-identity":       "the adapter exposes recreate for an existing sandbox, but no input for assigning the same sandbox identity to a different Kit after removal; cross-Kit removal and reattachment cannot be observed with this contract",
 	"git-identity@1/source-private":               "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
 	"SPEC-v3 §7.1.1/selection-before-application": "the adapter exposes only final files, records, and grants, not an effect trace during selection; effects applied before selection and then rolled back cannot be observed",
 	"SPEC-v3 §7.1.1/conflicts-before-application": "a refused create returns no sandbox ID and the adapter exposes no failed-create effect trace; the suite can observe conflict refusal but cannot inspect files or hooks applied before that refusal",

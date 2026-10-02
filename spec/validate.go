@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
-	"path"
+	containerpath "path"
 	"reflect"
 	"regexp"
 	"slices"
@@ -21,7 +21,7 @@ import (
 // evade duplicate detection and could claim a second mode for a path
 // already declared.
 func canonicalAbsPath(p string) bool {
-	return strings.HasPrefix(p, "/") && p == path.Clean(p)
+	return strings.HasPrefix(p, "/") && p == containerpath.Clean(p)
 }
 
 // Size limits for the published descriptor. OCI puts no limit on annotation
@@ -105,8 +105,8 @@ func validateRecipe(d *Descriptor) error {
 	if d.Dockerfile == "" {
 		return errs.err()
 	}
-	cleaned := path.Clean(d.Dockerfile)
-	if path.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+	cleaned := containerpath.Clean(d.Dockerfile)
+	if containerpath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		errs.add(fieldErrorf("dockerfile", "dockerfile: %q must be a relative path inside the descriptor's directory — that directory is the build's dockerfile context, so nothing outside it can be read", d.Dockerfile))
 	}
 	return errs.err()
@@ -477,16 +477,16 @@ var singletonCapabilities = map[string]bool{
 // hasNull reports whether an authored config value is null or a list
 // holding a null element. Configs built in code can carry typed slices
 // (a nil []string or CommandLine marshals to null), so slices are read by
-// kind rather than by one concrete type.
+// kind rather than by one concrete type; arrays marshal to lists too.
 func hasNull(v any) bool {
 	if v == nil {
 		return true
 	}
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Slice {
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return false
 	}
-	if rv.IsNil() {
+	if rv.Kind() == reflect.Slice && rv.IsNil() {
 		return true
 	}
 	for i := range rv.Len() {
@@ -506,7 +506,7 @@ func emptyCommand(v any) bool {
 		return strings.TrimSpace(s) == ""
 	}
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Slice {
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return false
 	}
 	if rv.Len() == 0 {
@@ -568,6 +568,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 	seenCredential := map[string]int{}
 	seenSSHAgent := map[string]int{}
 	seenVolume := map[string]int{}
+	seenHostMount := map[string]int{}
 	seenSkills := map[string]int{}
 	seenBundledSkills := map[string]int{}
 	seenPort := map[string]int{}
@@ -740,6 +741,30 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume for %q already declared at capabilities[%d]", i, v.Path, prev))
 			}
 			seenVolume[v.Path] = i
+			if prev, dup := seenHostMount[containerpath.Clean(v.Path)]; dup {
+				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q conflicts with host mount at capabilities[%d]", i, v.Path, prev))
+			}
+		case CapabilityHostMount:
+			var mount HostMount
+			if err := DecodeCapabilityConfig(n, &mount); err != nil {
+				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				continue
+			}
+			if mount.Path == "/" || !canonicalAbsPath(mount.Path) || strings.ContainsRune(mount.Path, '\x00') {
+				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q must be absolute and canonical, without NUL or root /", i, mount.Path))
+			}
+			if _, stated := n.Config["mode"]; stated && !octalMode.MatchString(mount.Mode) {
+				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
+			}
+			if prev, dup := seenHostMount[mount.Path]; dup {
+				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount for %q already declared at capabilities[%d]", i, mount.Path, prev))
+			}
+			seenHostMount[mount.Path] = i
+			for volumePath, prev := range seenVolume {
+				if containerpath.Clean(volumePath) == mount.Path {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q conflicts with volume at capabilities[%d]", i, mount.Path, prev))
+				}
+			}
 		case CapabilityAgentSkill:
 			key, err := validateBundledSkill(path, n)
 			if err != nil {

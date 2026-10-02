@@ -243,8 +243,17 @@ config, such as a credential's `apiKey.name` environment variable.
 Each entry is a typed request the host answers. `optional: true` means the kit
 degrades gracefully without it; the default is required, which fails resolution
 closed. Policy-shaped types are singletons; instance-shaped types appear once
-per thing requested (`credential@1` per (service, phase), `volume@1` per path,
+per thing requested (`credential@1` per (service, phase), `volume@1` and
+`host-mount@1` on a shared storage path key,
 `port@1` per (container, transport), `agent-skills@1` per path).
+
+Use `volume@1` for private persistent or tmpfs storage. For a cache,
+dataset, or artifact directory that must be shared with the host and
+across sandboxes of one Kit, use `host-mount@1`. It has only a canonical
+in-container `path` and optional octal `mode`; the runtime owns its host
+location. A v2 user-supplied host path is not copied into the descriptor.
+Make the request optional, or group it with its setup, when host sharing
+is not available on every runtime. See `examples/shared-cache`.
 
 ### network-policy@1
 

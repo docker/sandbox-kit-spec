@@ -47,6 +47,11 @@ type Surface struct {
 
 	StoragePaths []string `json:"storagePaths,omitempty"`
 
+	// HostMountPaths grant access to host-shared directories. Keeping
+	// them apart from sandbox storage makes a change to host sharing a
+	// widening even when the in-container destination stays the same.
+	HostMountPaths []string `json:"hostMountPaths,omitempty"`
+
 	// SkillsPaths are the in-container paths the host's shared skills
 	// store is asked for. Kept apart from StoragePaths because the two
 	// grant different things: a volume is storage the sandbox is given,
@@ -139,6 +144,13 @@ func SurfaceOf(d *Descriptor) Surface {
 				continue
 			}
 			s.StoragePaths = append(s.StoragePaths, v.Path)
+		case CapabilityHostMount:
+			var mount HostMount
+			if err := DecodeCapabilityConfig(n, &mount); err != nil {
+				s.Services = append(s.Services, capabilitySurfaceEntry(n))
+				continue
+			}
+			s.HostMountPaths = append(s.HostMountPaths, mount.Path)
 		case CapabilityPort:
 			var p Port
 			if err := DecodeCapabilityConfig(n, &p); err != nil {
@@ -191,6 +203,7 @@ func SurfaceOf(d *Descriptor) Surface {
 	s.CredentialsRuntime = normalized(s.CredentialsRuntime)
 	s.SSHAgent = normalized(s.SSHAgent)
 	s.StoragePaths = normalized(s.StoragePaths)
+	s.HostMountPaths = normalized(s.HostMountPaths)
 	s.SkillsPaths = normalized(s.SkillsPaths)
 	s.SkillsWritePaths = normalized(s.SkillsWritePaths)
 	s.Ports = normalized(s.Ports)
@@ -319,6 +332,7 @@ func DiffWidenings(granted, candidate Surface) []Widening {
 	add("credentials.runtime", missingFrom(granted.CredentialsRuntime, candidate.CredentialsRuntime))
 	add("ssh-agent", sshAgentWidenings(granted.SSHAgent, candidate.SSHAgent))
 	add("storage", missingFrom(granted.StoragePaths, candidate.StoragePaths))
+	add("host-mount", missingFrom(granted.HostMountPaths, candidate.HostMountPaths))
 	add("skills", missingFrom(granted.SkillsPaths, candidate.SkillsPaths))
 	add("skills.write", missingFrom(granted.SkillsWritePaths, candidate.SkillsWritePaths))
 	add("ports", missingFrom(granted.Ports, candidate.Ports))

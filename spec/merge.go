@@ -596,6 +596,13 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		m.optional[key] = n.Optional
 		return nil
 	}
+	// A host directory belongs to one declaring Kit, so even an identical
+	// restatement cannot collapse: doing so would silently choose whose
+	// shared data the other Kit receives. Volumes occupy the same mount
+	// destination and cannot substitute for this host-sharing grant.
+	if n.Type == CapabilityHostMount || prev.capability.Type == CapabilityHostMount {
+		return fmt.Errorf("merge: %s and %s both declare storage at the same path; a host mount has one owner", prev.reference, reference)
+	}
 	// A credential does not union the way the rest do, identical
 	// configs included. Resolve refuses two kits declaring one
 	// (service, phase) outright — one credential, one owner — so
@@ -699,6 +706,12 @@ func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, e
 		// the text would emit both and leave a runtime to reconcile
 		// sizes nobody agreed on.
 		return n.Type + "\x00" + path.Clean(v.Path), nil
+	case CapabilityHostMount:
+		var mount HostMount
+		if err := decodeForMerge(reference, n, &mount); err != nil {
+			return "", err
+		}
+		return CapabilityVolume + "\x00" + path.Clean(mount.Path), nil
 	case CapabilityAgentSkill:
 		var s AgentSkill
 		if err := decodeForMerge(reference, n, &s); err != nil {

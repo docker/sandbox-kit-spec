@@ -1,0 +1,16 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Shared host directory
+args:
+  mount_path:
+    default: /var/tmp/kit-tck-host
+    description: A fresh destination supplied by the conformance suite
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    source:
+      kit: registry.example/shared:latest
+      path: capabilities[0]
+    config:
+      path: "${{ kit.args.mount_path }}"
+      mode: "0700"

@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/host-mount@1",
+  "description": "Config schema for a runtime-owned host directory shared with the host and across sandboxes of one Kit. Instance-shaped, keyed by the cleaned in-container path, sharing its storage identity key with volume@1. No Kit-supplied host path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^(/([^./\\x00][^/\\x00]*|\\.[^./\\x00][^/\\x00]*|\\.\\.[^/\\x00]+))+$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[0-7]{3,4}$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    }
+  }
+}

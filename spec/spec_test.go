@@ -706,6 +706,8 @@ func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {
 		"blank CommandLine list": {"continue": []string{"--continue"}, "list": CommandLine{" ", "x"}},
 		"blank []string list":    {"continue": []string{"--continue"}, "list": []string{""}},
 		"nil element":            {"continue": []any{"--continue", nil}},
+		"nil element in array":   {"continue": [2]any{"--continue", nil}},
+		"blank array list":       {"continue": []string{"--continue"}, "list": [1]string{" "}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := &Descriptor{SchemaVersion: "3", Kind: KindWorkload, Provides: []string{"claude@2.1.0"}}
