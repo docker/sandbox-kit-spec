@@ -534,6 +534,49 @@ capabilities:
 	})
 }
 
+// The two session capabilities enumerate the same sessions, so composing
+// Kits that declare different list commands is refused with both refs
+// named, not left to a caller that happens to validate the output.
+func TestComposedSessionListsAgree(t *testing.T) {
+	headless := func(list string) Contribution {
+		return contribute(t, "headless", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-sessions@1
+    config: {list: `+list+`}
+`)
+	}
+	interactive := func(list string) Contribution {
+		return contribute(t, "tui", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {list: `+list+`}
+`)
+	}
+	_, err := Compose([]Contribution{headless(`[ls, ids]`), interactive(`[ls, ids]`)})
+	require.NoError(t, err)
+	_, err = Compose([]Contribution{headless(`"a b"`), interactive(`[sh, -c, "a b"]`)})
+	require.NoError(t, err, "the string and list spellings of one command are equal")
+
+	_, err = Compose([]Contribution{headless(`[ls, ids]`), interactive(`[ls, all]`)})
+	require.ErrorContains(t, err, "differs from agent-interactive-sessions list")
+	require.ErrorContains(t, err, "headless capabilities[0]")
+	require.ErrorContains(t, err, "tui capabilities[0]")
+
+	oneSided := contribute(t, "tui", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {continue: [--continue]}
+`)
+	_, err = Compose([]Contribution{headless(`[ls, ids]`), oneSided})
+	require.NoError(t, err, "list on one capability only is fine")
+}
+
 // A stated empty interactive tail is the launch argv with nothing
 // appended: an entry holding only that is valid, and composition keeps it
 // rather than letting omitempty turn it into absence.

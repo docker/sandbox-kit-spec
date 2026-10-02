@@ -515,6 +515,9 @@ type capabilityMerge struct {
 	interactiveSessions *keyed
 	newSession          []string
 	newSessionFrom      string
+	interactiveList     CommandLine
+	headlessList        CommandLine
+	headlessListFrom    string
 }
 
 type networkAsk struct {
@@ -577,6 +580,14 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return mergeSole(&m.resources, reference, n, "resources")
 
 	case CapabilityAgentSessions:
+		// Remembered for the list agreement in finish.
+		if m.sessions == nil {
+			var a AgentSessions
+			if err := decodeForMerge(reference, n, &a); err != nil {
+				return err
+			}
+			m.headlessList, m.headlessListFrom = a.List, reference
+		}
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
 
 	case CapabilityAgentInteractiveSessions:
@@ -589,9 +600,10 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 				return err
 			}
 			m.newSession, m.newSessionFrom = a.NewSession, reference
+			m.interactiveList = a.List
 		}
-		// Composed as the original Capability, never re-rendered from the
-		// struct: an empty newSession is a verb, and omitempty would drop it.
+		// Composed as the original Capability, kept as authored rather
+		// than re-rendered from the struct.
 		return mergeSole(&m.interactiveSessions, reference, n, "agent-interactive-sessions")
 	}
 
@@ -1029,18 +1041,24 @@ func hostsOf(entries []NetworkEntry) []string {
 }
 
 // checkInteractiveAgreement holds newSession to lifecycle's interactive
-// tail whenever both are stated, an empty tail included. It runs here,
+// tail whenever both are stated, an empty tail included, and the two
+// session capabilities' list commands to one command. It runs here,
 // where the decoded asks still know what was stated, so the rule has one
 // home for composition whatever the rendered descriptor keeps.
 func (m *capabilityMerge) checkInteractiveAgreement() error {
-	if m.newSession == nil {
-		return nil
-	}
-	for _, ask := range m.lifecycle {
-		if ask.lifecycle.Interactive != nil && !slices.Equal(m.newSession, ask.lifecycle.Interactive) {
-			return fmt.Errorf("merge: %s and %s: newSession %q disagrees with lifecycle interactive %q; they name the same launch",
-				m.newSessionFrom, ask.reference, m.newSession, ask.lifecycle.Interactive)
+	if m.newSession != nil {
+		for _, ask := range m.lifecycle {
+			if ask.lifecycle.Interactive != nil && !slices.Equal(m.newSession, ask.lifecycle.Interactive) {
+				return fmt.Errorf("merge: %s and %s: newSession %q disagrees with lifecycle interactive %q; they name the same launch",
+					m.newSessionFrom, ask.reference, m.newSession, ask.lifecycle.Interactive)
+			}
 		}
+	}
+	// Both session capabilities enumerate the same sessions, so a list
+	// declared on both is one command.
+	if len(m.headlessList) > 0 && len(m.interactiveList) > 0 && !slices.Equal(m.headlessList, m.interactiveList) {
+		return fmt.Errorf("merge: %s and %s: agent-sessions list %q differs from agent-interactive-sessions list %q; both enumerate the same sessions, so they name one command",
+			m.headlessListFrom, m.interactiveSessions.reference, []string(m.headlessList), []string(m.interactiveList))
 	}
 	return nil
 }
