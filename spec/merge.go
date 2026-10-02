@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -394,8 +395,9 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // admit one entry, so each has a rule for what several contributors
 // asking at once means: network policies union, lifecycle hooks
 // concatenate, and the types that describe the whole sandbox rather
-// than a grant to it — resources, agent-sessions — admit one author,
-// because two different answers cannot both be the sandbox's.
+// than a grant to it — resources, agent-sessions,
+// agent-interactive-sessions — admit one author, because two different
+// answers cannot both be the sandbox's.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
 		byKey:    map[string]keyed{},
@@ -509,6 +511,13 @@ type capabilityMerge struct {
 
 	resources *keyed
 	sessions  *keyed
+
+	interactiveSessions *keyed
+	newSession          []string
+	newSessionFrom      string
+	interactiveList     CommandLine
+	headlessList        CommandLine
+	headlessListFrom    string
 }
 
 type networkAsk struct {
@@ -571,7 +580,32 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return mergeSole(&m.resources, reference, n, "resources")
 
 	case CapabilityAgentSessions:
+		// Remembered for the list agreement in finish. This type was never
+		// decoded at merge before, so a config that does not decode here is
+		// left to validation rather than turned into a new merge failure.
+		if m.sessions == nil {
+			var a AgentSessions
+			if err := DecodeCapabilityConfig(n, &a); err == nil {
+				m.headlessList, m.headlessListFrom = a.List, reference
+			}
+		}
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
+
+	case CapabilityAgentInteractiveSessions:
+		// The first author's decoded newSession and list are remembered
+		// for the agreement checks in finish, which compare them with the
+		// other contributions' asks and name both contributors.
+		if m.interactiveSessions == nil {
+			var a AgentInteractiveSessions
+			if err := decodeForMerge(reference, n, &a); err != nil {
+				return err
+			}
+			m.newSession, m.newSessionFrom = a.NewSession, reference
+			m.interactiveList = a.List
+		}
+		// Composed as the original Capability, kept as authored rather
+		// than re-rendered from the struct.
+		return mergeSole(&m.interactiveSessions, reference, n, "agent-interactive-sessions")
 	}
 
 	// Everything else unions on the key its type dedups by: the same
@@ -819,7 +853,13 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)
 	}
+	if m.interactiveSessions != nil {
+		out = append(out, m.interactiveSessions.capability)
+	}
 
+	if err := m.checkInteractiveAgreement(); err != nil {
+		return nil, nil, err
+	}
 	if lifecycle, err := m.mergedLifecycle(); err != nil {
 		return nil, nil, err
 	} else if lifecycle != nil {
@@ -999,6 +1039,40 @@ func hostsOf(entries []NetworkEntry) []string {
 		}
 	}
 	return out
+}
+
+// checkInteractiveAgreement holds newSession to lifecycle's interactive
+// tail whenever both are stated, an empty tail included, and the two
+// session capabilities' list commands to one command. It runs here,
+// where the decoded asks still know what was stated, so the rule has one
+// home for composition whatever the rendered descriptor keeps.
+func (m *capabilityMerge) checkInteractiveAgreement() error {
+	if m.newSession != nil {
+		for _, ask := range m.lifecycle {
+			if ask.lifecycle.Interactive != nil && !hasReference(m.newSession) && !hasReference(ask.lifecycle.Interactive) &&
+				!slices.Equal(m.newSession, ask.lifecycle.Interactive) {
+				return fmt.Errorf("merge: %s and %s: newSession %q disagrees with lifecycle interactive %q; they name the same launch",
+					m.newSessionFrom, ask.reference, m.newSession, ask.lifecycle.Interactive)
+			}
+		}
+	}
+	// Both session capabilities enumerate the same sessions, so a list
+	// declared on both is one command.
+	if len(m.headlessList) > 0 && len(m.interactiveList) > 0 &&
+		!hasReference(m.headlessList) && !hasReference(m.interactiveList) &&
+		!slices.Equal(m.headlessList, m.interactiveList) {
+		return fmt.Errorf("merge: %s and %s: agent-sessions list %q differs from agent-interactive-sessions list %q; both enumerate the same sessions, so they name one command",
+			m.headlessListFrom, m.interactiveSessions.reference, []string(m.headlessList), []string(m.interactiveList))
+	}
+	return nil
+}
+
+// hasReference reports whether any element still carries an unresolved
+// arg or environment reference. Two spellings that differ only in such a
+// reference may resolve to the same argv, so the agreement checks leave
+// them to the descriptor that has been expanded.
+func hasReference(argv []string) bool {
+	return slices.ContainsFunc(argv, func(a string) bool { return ContainsArgRef(a) || ContainsEnvRef(a) })
 }
 
 // mergedLifecycle concatenates the contributors' hooks in composition

@@ -446,6 +446,15 @@ const (
 	// practice — the agent the verbs drive is the workload's.
 	CapabilityAgentSessions = "com.docker.sandbox/agent-sessions@1"
 
+	// CapabilityAgentInteractiveSessions is agent-sessions' interactive
+	// sibling: the argv shapes a human-facing host uses to put the agent's
+	// terminal UI in front of a person — start one, seed it with a prompt,
+	// reopen or pick a past session. An agent whose CLI has both a headless
+	// and an interactive mode declares both capabilities; each is read by a
+	// different kind of host. Not a grant, for the same reason
+	// agent-sessions is not.
+	CapabilityAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
+
 	// CapabilitySbx declares that a workload targets the sandbox agent
 	// platform: the host launches the agent rather than letting the image
 	// entrypoint be PID 1, honors the identity the image config states,
@@ -858,6 +867,49 @@ type AgentSessions struct {
 	List     CommandLine `json:"list,omitempty" yaml:"list,omitempty"`
 }
 
+// AgentInteractiveSessions is CapabilityAgentInteractiveSessions's config:
+// the interactive twin of AgentSessions, with the same List command. Each
+// tail is an argv tail the host appends to the launch command and runs
+// with a terminal attached; the capability page carries the rest.
+//
+// Presence says whether a tail is supported, so read every one as
+// != nil, never len > 0: NewSession: [] means "the launch argv alone",
+// where nil means the agent has no such operation. NewSession is the one
+// exception: omitted, it defaults to the lifecycle interactive launch,
+// and validation holds a stated one to the same argv as a stated
+// lifecycle tail, an empty one included. The type round-trips presence: MarshalJSON writes every
+// non-nil tail, empty or not, so re-rendering it through
+// CapabilityWithConfig keeps an empty tail a verb.
+type AgentInteractiveSessions struct {
+	Prompt        []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Resume        []string    `json:"resume,omitempty" yaml:"resume,omitempty"`
+	Continue      []string    `json:"continue,omitempty" yaml:"continue,omitempty"`
+	NewSession    []string    `json:"newSession,omitempty" yaml:"newSession,omitempty"`
+	SessionPicker []string    `json:"sessionPicker,omitempty" yaml:"sessionPicker,omitempty"`
+	List          CommandLine `json:"list,omitempty" yaml:"list,omitempty"`
+}
+
+// MarshalJSON writes presence, not length: omitempty would drop a non-nil
+// empty tail, and an empty newSession is a verb, so the tags above only
+// serve the decoders and every non-nil field is written here. Both the
+// config map (toConfigMap) and any JSON consumer go through this.
+func (a AgentInteractiveSessions) MarshalJSON() ([]byte, error) {
+	out := map[string]any{}
+	for key, value := range map[string][]string{
+		"prompt":        a.Prompt,
+		"resume":        a.Resume,
+		"continue":      a.Continue,
+		"newSession":    a.NewSession,
+		"sessionPicker": a.SessionPicker,
+		"list":          a.List,
+	} {
+		if value != nil {
+			out[key] = value
+		}
+	}
+	return json.Marshal(out)
+}
+
 // Arg declares one installer-supplied value. Private by default: it reaches
 // the running container only through Env, and the build only through
 // BuildArg. The two are mutually exclusive because they resolve in different
@@ -978,8 +1030,28 @@ type Lifecycle struct {
 	// runtime config the image config has no native slot for (Cmd is
 	// single-valued). It lives in the lifecycle capability because the
 	// engine consumes it the way it consumes the hooks: behavior across
-	// the sandbox's life, not a grant.
+	// the sandbox's life, not a grant. Presence is the statement: an empty
+	// non-nil tail is the launch argv with nothing appended.
 	Interactive []string `json:"interactive,omitempty" yaml:"interactive,omitempty"`
+}
+
+// MarshalJSON writes a stated empty Interactive as [] and leaves every
+// other field as omitempty writes it. omitempty alone would drop a
+// non-nil empty tail, and that is a statement (the launch argv with
+// nothing appended), so re-rendering the typed config through
+// CapabilityWithConfig has to keep it.
+func (l Lifecycle) MarshalJSON() ([]byte, error) {
+	type plain Lifecycle
+	out := struct {
+		plain
+		// Shadows the embedded field: a non-nil pointer is written even
+		// when the slice it points to is empty.
+		Interactive *[]string `json:"interactive,omitempty"`
+	}{plain: plain(l)}
+	if l.Interactive != nil {
+		out.Interactive = &l.Interactive
+	}
+	return json.Marshal(out)
 }
 
 // AgentContext is CapabilityAgentContext's config: instruction content

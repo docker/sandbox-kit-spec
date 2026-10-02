@@ -66,7 +66,7 @@ func allCapabilityTypes() []string {
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKitRegistry,
-		CapabilityAgentSessions, CapabilityLifecycle, CapabilityAgentContext,
+		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityLifecycle, CapabilityAgentContext,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity,
 	}
 }
@@ -417,6 +417,56 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// The tests here read the schema's structure rather than run a validator,
+// so each pin is the keyword that makes the case pass or fail: a verb that
+// must carry a placeholder cannot be empty, an empty tail is a verb for
+// the others, and an empty config says nothing.
+func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentInteractiveSessions))
+	require.Equal(t, false, schema["additionalProperties"])
+	require.EqualValues(t, 1, schema["minProperties"], "{} must fail: no verbs")
+
+	for verb, placeholder := range map[string]string{"prompt": SessionPromptPlaceholder, "resume": SessionIDPlaceholder} {
+		prop := at(t, schema, "properties", verb)
+		require.Equal(t, "array", prop["type"])
+		require.EqualValues(t, 1, prop["minItems"], "%s: [] cannot carry its placeholder", verb)
+		// The validator refuses a tail without the placeholder, so the
+		// schema must too: contains is the keyword that judges it.
+		pattern := regexp.MustCompile(at(t, prop, "contains")["pattern"].(string))
+		require.True(t, pattern.MatchString("--flag="+placeholder), "%s: a placeholder inside a token counts", verb)
+		require.False(t, pattern.MatchString("--flag"), "%s: a tail without it fails", verb)
+	}
+	// A present list must name a command, in either spelling.
+	list := at(t, schema, "properties", "list")
+	branches, ok := list["oneOf"].([]any)
+	require.True(t, ok)
+	require.Len(t, branches, 2)
+	for _, b := range branches {
+		branch := b.(map[string]any)
+		switch branch["type"] {
+		case "string":
+			require.EqualValues(t, 1, branch["minLength"], "list: \"\" must fail")
+			blank := regexp.MustCompile(branch["pattern"].(string))
+			require.False(t, blank.MatchString("  \t"), "a blank list string names no command")
+			require.True(t, blank.MatchString("ls ids"))
+		case "array":
+			require.EqualValues(t, 1, branch["minItems"], "list: [] must fail")
+			// argv[0] is the executable: only it is constrained non-blank.
+			first := branch["items"].([]any)[0].(map[string]any)
+			require.False(t, regexp.MustCompile(first["pattern"].(string)).MatchString(" "), `list: [""] must fail`)
+			require.Equal(t, "string", at(t, branch, "additionalItems")["type"])
+		default:
+			t.Fatalf("unexpected list branch %v", branch)
+		}
+	}
+
+	for _, verb := range []string{"continue", "newSession", "sessionPicker"} {
+		prop := at(t, schema, "properties", verb)
+		require.Equal(t, "array", prop["type"])
+		require.NotContains(t, prop, "minItems", "%s: [] is a verb, the launch argv alone", verb)
+	}
 }
 
 // TestSchemaPatternsCompileAsRE2 keeps every schema regex loadable by

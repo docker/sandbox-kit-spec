@@ -342,6 +342,10 @@ create)
       *skills*) need="com.docker.sandbox/agent-skills@1" ;;
       *port*) need="com.docker.sandbox/port@1" ;;
       *usb-device*) need="com.docker.sandbox/usb-device@1" ;;
+      # Spelled out beside agent-sessions: the *agent-sessions* glob does
+      # not match this name ("agent-" and "sessions" are not adjacent), and
+      # this one does not match that.
+      *agent-interactive-sessions*) need="com.docker.sandbox/agent-interactive-sessions@1" ;;
       *agent-sessions*) need="com.docker.sandbox/agent-sessions@1" ;;
       *kit-registry*) need="com.docker.sandbox/kit-registry@1" ;;
       esac

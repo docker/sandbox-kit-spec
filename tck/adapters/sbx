@@ -71,10 +71,11 @@ marker_line="Placed by tck/adapters/sbx"
 #   fresh create, does discard the writable layer that check needs
 #   discarded, so the type becomes claimable the day the mount arrives.
 #
-#   port@1, usb-device@1, agent-sessions@1 and kit-registry@1 are absent
-#   because the contract gives the suite no host-side observation for
-#   them; they are skipped either way, and claiming a type nothing can
-#   judge states more than a report can support.
+#   port@1, usb-device@1, agent-sessions@1, agent-interactive-sessions@1
+#   and kit-registry@1 are absent because the contract gives the suite no
+#   host-side observation for them; they are skipped either way, and
+#   claiming a type nothing can judge states more than a report can
+#   support.
 #
 #   ssh-agent@1 is present because a v3 kit set reaches the host agent
 #   only through its grant: the daemon decides the phase grants at

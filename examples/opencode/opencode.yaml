@@ -220,6 +220,18 @@ capabilities:
     config:
       prompt: ["run", "{{.Prompt}}"]
 
+  # Interactive verbs, for a host that puts a person at the terminal. Tails
+  # append to the entrypoint and run with a terminal attached. The bare
+  # command is the TUI, where headless is `run`, so newSession is omitted.
+  # There is no sessionPicker (no flag opens one) and no list (the session
+  # list is a table or JSON, not one id per line).
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      # `--prompt=` binds the value: a prompt starting with `-` stays one.
+      prompt: ["--prompt={{.Prompt}}"]
+      continue: ["--continue"]
+      resume: ["--session", "{{.SessionID}}"]
+
   # Where opencode reads shared skills, so the host's store reaches it.
   # The runtime also exposes selected agent-skill@1 bundles here, even
   # when host sharing is off or the user has no host skills.

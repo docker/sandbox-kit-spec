@@ -557,8 +557,9 @@ serialization. An empty string is equivalent to an omitted label.
 declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
-`kit-registry@1`, `agent-sessions@1`, `lifecycle@1`, `agent-context@1`,
-`sbx@1`, `long-running@1`, `git-identity@1`.
+`kit-registry@1`, `agent-sessions@1`, `agent-interactive-sessions@1`,
+`lifecycle@1`, `agent-context@1`, `sbx@1`, `long-running@1`,
+`git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -694,6 +695,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | singleton |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
+| `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
 | `com.docker.sandbox/agent-skill@1` | [agent-skill@1](capabilities/com.docker.sandbox/agent-skill@1.md) | per effective name |
 | `com.docker.sandbox/git-identity@1` | [git-identity@1](capabilities/com.docker.sandbox/git-identity@1.md) | singleton, config-less |
@@ -734,13 +736,14 @@ candidate's against it:
   stop for approval.
 - `optional` does not change the surface: it changes what happens when the
   host cannot provide, not what is granted when it can.
-- `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-sessions@1`, and
-  `sbx@1` contribute nothing to the surface: resource limits constrain the
-  Kit rather than grant it anything, the next three run inside the sandbox
-  on the entrypoint's trust plane, and `sbx@1` asks the host to launch the
-  workload a particular way and to read an identity the image already
-  states (see their pages). `long-running@1` likewise grants no access;
-  it keeps the workload running independently of attached sessions.
+- `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-sessions@1`,
+  `agent-interactive-sessions@1`, and `sbx@1` contribute nothing to the
+  surface: resource limits constrain the Kit rather than grant it
+  anything, the next four run inside the sandbox on the entrypoint's
+  trust plane, and `sbx@1` asks the host to launch the workload a
+  particular way and to read an identity the image already states (see
+  their pages). `long-running@1` likewise grants no access; it keeps the
+  workload running independently of attached sessions.
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
@@ -763,7 +766,11 @@ capability's `interactive` field. The effective argv per mode:
 With no `interactive` declared, both modes run the image config as-is. See
 [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) for
 the headless prompt/resume verbs, which append after the launch argv the
-same way user-supplied args do.
+same way user-supplied args do, and
+[agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md)
+for the interactive verbs (new session, prompt, resume, continue,
+session picker), which run with a terminal attached on the launch argv
+plus the verb's tail; its `newSession` names that interactive launch.
 
 ---
 
@@ -911,7 +918,7 @@ error. In that order they reconcile into one descriptor:
 | Instance-shaped capabilities | Union, deduplicated on the type's own key ([§7.1](#71-arity)). Two different configs under one key is an error. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
-| `resources@1`, `agent-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
+| `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles conflict. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file, since the type is a singleton and a sandbox surfaces one profile. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
 | `optional` | An entry any of them requires is required in the merged kit: `optional` says its asker degrades without it, and one that does not degrade decides for the set. |
