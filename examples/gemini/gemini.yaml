@@ -108,7 +108,8 @@ capabilities:
   # its --list-sessions output is not one id per line, so there is no list.
   - type: com.docker.sandbox/agent-interactive-sessions@1
     config:
-      prompt: ["-i", "{{.Prompt}}"]
+      # `-i=` binds the value: a prompt starting with `-` stays a prompt.
+      prompt: ["-i={{.Prompt}}"]
       continue: ["--resume", "latest"]
       resume: ["--resume", "{{.SessionID}}"]
 

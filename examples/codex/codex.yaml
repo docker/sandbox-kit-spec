@@ -209,7 +209,8 @@ capabilities:
   # prints no session list a command can read, so there is no list.
   - type: com.docker.sandbox/agent-interactive-sessions@1
     config:
-      prompt: ["{{.Prompt}}"]
+      # `--` ends the options: a prompt starting with `-` stays a prompt.
+      prompt: ["--", "{{.Prompt}}"]
       continue: ["resume", "--last"]
       resume: ["resume", "{{.SessionID}}"]
       sessionPicker: ["resume"]

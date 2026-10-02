@@ -127,7 +127,8 @@ capabilities:
   # describes `ls` as resuming a chat, not as printing ids.
   - type: com.docker.sandbox/agent-interactive-sessions@1
     config:
-      prompt: ["{{.Prompt}}"]
+      # `--` ends the options: a prompt starting with `-` stays a prompt.
+      prompt: ["--", "{{.Prompt}}"]
       continue: ["--continue"]
       resume: ["--resume", "{{.SessionID}}"]
       sessionPicker: ["--resume"]
