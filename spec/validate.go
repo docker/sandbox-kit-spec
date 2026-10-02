@@ -585,8 +585,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 	deferCrossChecks := false
 	invalidCredentials := map[int]bool{}
 	// lifecycle's interactive tail and agent-interactive-sessions'
-	// newSession name the same launch, so a Kit stating both states it
-	// once. Captured from the literal entries; a parameterized entry
+	// newSession name the same launch, so a Kit stating both (a non-empty
+	// lifecycle tail) states it once. Captured from the literal entries; a parameterized entry
 	// defers decoding and is judged on the effective descriptor, as is a
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string

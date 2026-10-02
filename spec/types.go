@@ -876,7 +876,7 @@ type AgentSessions struct {
 // != nil, never len > 0: NewSession: [] means "the launch argv alone",
 // where nil means the agent has no such operation. NewSession is the one
 // exception: omitted, it defaults to the lifecycle interactive launch,
-// and validation holds a stated one to the same argv as a stated
+// and validation holds a stated one to the same argv as a non-empty
 // lifecycle tail. The type round-trips presence: MarshalJSON writes every
 // non-nil tail, empty or not, so re-rendering it through
 // CapabilityWithConfig keeps an empty tail a verb.

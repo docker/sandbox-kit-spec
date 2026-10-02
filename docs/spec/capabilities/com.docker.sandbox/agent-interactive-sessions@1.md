@@ -82,14 +82,15 @@ declaration and an empty `config` is not.
 for the engine's TTY launch mode, and `newSession` names the same
 invocation.
 
-A Kit declaring both **MUST** give them the same argv; validation rejects <!-- tck: agent-interactive-sessions@1/new-session-matches-lifecycle-interactive -->
-a mismatch, so the default (omitted `newSession`) and the explicit
-spelling can never disagree. A Kit declaring only one is not in
-conflict: an omitted `newSession` takes the lifecycle tail, and a stated
-one governs the new-session invocation on its own. Composition drops an
-empty lifecycle `interactive` from the effective descriptor, so the
-rule compares only a non-empty tail, which gives the same verdict
-before and after composition.
+A Kit declaring `newSession` and a non-empty lifecycle `interactive` <!-- tck: agent-interactive-sessions@1/new-session-matches-lifecycle-interactive -->
+**MUST** give them the same argv; validation rejects a mismatch, so the
+default (omitted `newSession`) and the explicit spelling can never
+disagree. A Kit declaring only one is not in conflict: an omitted
+`newSession` takes the lifecycle tail, and a stated one governs the
+new-session invocation on its own. Composition drops an empty lifecycle
+`interactive` from the effective descriptor, so the rule compares only a
+non-empty tail, which gives the same verdict before and after
+composition; an explicit `interactive: []` is not compared.
 
 ### Agreement with agent-sessions@1
 

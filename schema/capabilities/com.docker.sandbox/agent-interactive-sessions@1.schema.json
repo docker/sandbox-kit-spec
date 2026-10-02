@@ -42,7 +42,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Argv tail that starts a fresh interactive session with no prompt. Often empty: the launch argv alone. When omitted, a new session starts as lifecycle@1's interactive launch does. When the Kit also declares lifecycle's interactive tail, the two must be the same argv."
+      "description": "Argv tail that starts a fresh interactive session with no prompt. Often empty: the launch argv alone. When omitted, a new session starts as lifecycle@1's interactive launch does. When the Kit also declares a non-empty lifecycle interactive tail, the two must be the same argv."
     },
     "sessionPicker": {
       "type": "array",
