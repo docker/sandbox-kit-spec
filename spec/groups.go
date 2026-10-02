@@ -140,7 +140,7 @@ func Supported(types ...string) SelectCapability {
 // Understanding a schema is not a claim that a runtime implements it.
 func KnownCapabilities() []string {
 	return []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
-		CapabilityVolume, CapabilityPort, CapabilityUSBDevice, CapabilityResources,
+		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityUSBDevice, CapabilityResources,
 		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentSessions,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry}
 }

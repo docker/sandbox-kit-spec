@@ -395,6 +395,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/host-mount@1"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/host-mount@1.schema.json"
+              }
+            },
+            "required": [
+              "config"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/port@1"
               }
             },

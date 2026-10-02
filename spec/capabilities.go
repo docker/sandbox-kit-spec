@@ -312,6 +312,25 @@ func VolumesOf(needs []Capability) ([]Volume, error) {
 	return out, nil
 }
 
+// HostMountsOf returns every selected host-directory request, in declaration order.
+func HostMountsOf(needs []Capability) ([]HostMount, error) {
+	var out []HostMount
+	for _, n := range needs {
+		if n.Group != nil {
+			return nil, fmt.Errorf("host mounts: select groups first")
+		}
+		if n.Type != CapabilityHostMount {
+			continue
+		}
+		var mount HostMount
+		if err := DecodeCapabilityConfig(n, &mount); err != nil {
+			return nil, err
+		}
+		out = append(out, mount)
+	}
+	return out, nil
+}
+
 // PortsOf returns every port request, in declaration order.
 func PortsOf(needs []Capability) ([]Port, error) {
 	var out []Port

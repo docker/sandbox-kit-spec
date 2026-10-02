@@ -84,6 +84,23 @@ fi
 exit 0
 HTTPPROBE
 
+# A probe operating on the mounted path, so host sharing is observed
+# through real filesystem operations rather than an adapter assertion.
+COPY --chmod=0755 <<'HOSTMOUNT' /usr/local/bin/kit-tck-host-mount
+#!/bin/sh
+set -eu
+operation="$1"; root="$2"; name="${3:-}"; value="${4:-}"
+case "$operation" in
+write) printf '%s' "$value" >"$root/$name" ;;
+read) cat "$root/$name" ;;
+absent) test ! -e "$root/$name" ;;
+writable) printf '%s' "$value" >"$root/$name"; id -u ;;
+mode) stat -c '%a' "$root" ;;
+set-mode) chmod "$value" "$root" ;;
+*) exit 1 ;;
+esac
+HOSTMOUNT
+
 # Writes a file, so volume persistence is observable without a shell
 # redirect the adapter would have to quote.
 COPY --chmod=0755 <<'WRITE' /usr/local/bin/kit-tck-write

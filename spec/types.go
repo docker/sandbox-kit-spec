@@ -363,7 +363,7 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 func (c Capability) ConfigStated() bool { return c.configSet || c.Config != nil }
 
 // Well-known capability types. Policy-shaped types appear at most once
-// per descriptor; instance-shaped types (credential, volume, port,
+// per descriptor; instance-shaped types (credential, volume, host-mount, port,
 // usb-device, agent-skills) appear once per thing requested.
 const (
 	// CapabilityNetworkPolicy is the phase-scoped egress policy; config
@@ -393,6 +393,10 @@ const (
 	// CapabilityVolume is one persistent (or tmpfs) path; config decodes to
 	// Volume. Instance-shaped, keyed by path.
 	CapabilityVolume = "com.docker.sandbox/volume@1"
+
+	// CapabilityHostMount shares a runtime-owned host directory across
+	// sandboxes of one Kit. Its path key is shared with CapabilityVolume.
+	CapabilityHostMount = "com.docker.sandbox/host-mount@1"
 
 	// CapabilityPort is one in-container port to publish; config decodes to
 	// Port. Instance-shaped, keyed by container port/transport.
@@ -798,6 +802,13 @@ type Volume struct {
 	// Tmpfs makes the path a tmpfs mount instead of a block volume.
 	Tmpfs bool `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
 	// Mode is an octal permission string, e.g. "1777".
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
+}
+
+// HostMount requests host-shared storage at an in-container path. The
+// host location and provisioning mechanism belong to the runtime.
+type HostMount struct {
+	Path string `json:"path" yaml:"path"`
 	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 

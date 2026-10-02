@@ -28,6 +28,9 @@ type Env struct {
 	// leaked records sandboxes cleanup could not remove, so a suite that
 	// left state behind says so instead of hiding it.
 	leaked []string
+	// Host-directory cleanup is accounted for separately from sandbox rm:
+	// the capability intentionally keeps these directories after rm.
+	hostMountLeaks []string
 }
 
 // The suite arranges three known values before it judges anything, because
@@ -235,6 +238,9 @@ func runChecks(ctx context.Context, e *Env, selected []check) (rep report.Report
 			// incomplete however its checks went.
 			rep.Add("cleanup", "conformance.md §2.4",
 				report.Failf("a sandbox could not be removed: %s", l))
+		}
+		for _, l := range e.hostMountLeaks {
+			rep.Add("cleanup", "conformance.md §2.4", report.Failf("a host directory could not be removed: %s", l))
 		}
 	}()
 	for _, c := range selected {

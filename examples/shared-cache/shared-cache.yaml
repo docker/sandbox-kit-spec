@@ -1,0 +1,24 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: mixin
+displayName: Shared pip cache
+description: Reuse pip downloads across sandboxes of this Kit and the host
+capabilities:
+  - group:
+      name: Host-shared pip cache
+      description: Share cache files across sandboxes and retain them after removal
+      optional: true
+      capabilities:
+        - type: com.docker.sandbox/host-mount@1
+          config:
+            path: /home/agent/.cache/pip
+            mode: "0755"
+        - type: com.docker.sandbox/lifecycle@1
+          config:
+            files:
+              - path: /home/agent/.config/pip/pip.conf
+                overwrite: false
+                content: |
+                  [global]
+                  cache-dir = /home/agent/.cache/pip

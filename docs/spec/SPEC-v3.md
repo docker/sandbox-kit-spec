@@ -567,7 +567,8 @@ other.
 
 **Instance-shaped types appear once per thing requested**, deduplicated on
 their own key: `credential@1` on (service, phase), with each listed phase
-participating independently, `volume@1` on path,
+participating independently, `volume@1` and `host-mount@1` on a shared
+cleaned storage path key,
 `agent-skills@1` on path,
 `agent-skill@1` on effective name, `port@1` on (container, transport),
 `ssh-agent@1` on each phase it names.
@@ -684,6 +685,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/credential@1` | [credential@1](capabilities/com.docker.sandbox/credential@1.md) | per (service, phase) |
 | `com.docker.sandbox/ssh-agent@1` | [ssh-agent@1](capabilities/com.docker.sandbox/ssh-agent@1.md) | per phase (one entry may name both) |
 | `com.docker.sandbox/volume@1` | [volume@1](capabilities/com.docker.sandbox/volume@1.md) | per path |
+| `com.docker.sandbox/host-mount@1` | [host-mount@1](capabilities/com.docker.sandbox/host-mount@1.md) | per path; shared storage key with volume@1 |
 | `com.docker.sandbox/port@1` | [port@1](capabilities/com.docker.sandbox/port@1.md) | per (container, transport) |
 | `com.docker.sandbox/usb-device@1` | [usb-device@1](capabilities/com.docker.sandbox/usb-device@1.md) | instance |
 | `com.docker.sandbox/resources@1` | [resources@1](capabilities/com.docker.sandbox/resources@1.md) | singleton |
