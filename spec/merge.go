@@ -1030,9 +1030,8 @@ func hostsOf(entries []NetworkEntry) []string {
 
 // checkInteractiveAgreement holds newSession to lifecycle's interactive
 // tail whenever both are stated, an empty tail included. It runs here,
-// where the decoded asks still know what was stated, because the merged
-// lifecycle is rendered with omitempty and drops an empty tail, so the
-// composed descriptor alone cannot tell "bare launch" from "no tail".
+// where the decoded asks still know what was stated, so the rule has one
+// home for composition whatever the rendered descriptor keeps.
 func (m *capabilityMerge) checkInteractiveAgreement() error {
 	if m.newSession == nil {
 		return nil
@@ -1094,6 +1093,12 @@ func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
 	c, err := capabilityFrom(CapabilityLifecycle, merged)
 	if err != nil {
 		return nil, err
+	}
+	// A stated empty tail is the launch argv with nothing appended, which is
+	// a statement, not an absence: omitempty would drop it from the render,
+	// so put it back.
+	if merged.Interactive != nil && len(merged.Interactive) == 0 {
+		c.Config["interactive"] = []any{}
 	}
 	c.Optional = optional
 	c.Name = name

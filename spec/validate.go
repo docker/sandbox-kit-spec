@@ -933,7 +933,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 				continue
 			}
 			interactive, interactiveAt = l.Interactive, i
-			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
+			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && l.Interactive == nil {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
 			}
 			errs.add(validateLifecycle(path, i, &l))
@@ -962,8 +962,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 	// suppress it. Whenever both are stated the argvs must agree, an empty
 	// tail included: newSession: [--tui] beside interactive: [] would
 	// launch two different ways. Composition makes the same comparison
-	// (see checkInteractiveAgreement), since the merged lifecycle drops
-	// an empty tail from its rendered output.
+	// (see checkInteractiveAgreement) on the decoded asks.
 	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",

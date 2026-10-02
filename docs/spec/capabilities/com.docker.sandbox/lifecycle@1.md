@@ -62,7 +62,9 @@ last client disconnecting declares [long-running@1](long-running@1.md).
 | `interactive` | list\<string\> | Argv tail appended to the workload's launch command (image `Entrypoint` + `Cmd` is the headless mode) for an interactive (TTY) session. The image config's `Cmd` is single-valued, so the interactive variant has no native slot; it rides here because the engine consumes it like the hooks — behavior, not a grant. Meaningful on workload kits: the launch command it modifies is the workload's. |
 
 A lifecycle entry declaring no hooks, no files, and no interactive tail is
-invalid — drop the entry instead.
+invalid — drop the entry instead. An explicit `interactive: []` is a
+stated empty tail, the launch argv with nothing appended, so an entry
+holding only that is valid, and composition preserves it.
 
 `interactive` names the same launch as the `newSession` verb of
 [agent-interactive-sessions@1](agent-interactive-sessions@1.md); a Kit

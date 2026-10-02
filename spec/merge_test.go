@@ -492,7 +492,7 @@ kind: mixin
 version: "1.0.0"
 capabilities:
   - type: com.docker.sandbox/lifecycle@1
-    config: {interactive: `+interactive+`, startup: [{command: echo ready}]}
+    config: {interactive: `+interactive+`}
 `)
 	}
 	for _, tc := range []struct {
@@ -532,6 +532,43 @@ capabilities:
 		_, err := Compose([]Contribution{workload("[--tui]"), noTail})
 		require.NoError(t, err)
 	})
+}
+
+// A stated empty interactive tail is the launch argv with nothing
+// appended: an entry holding only that is valid, and composition keeps it
+// rather than letting omitempty turn it into absence.
+func TestLifecycleKeepsAStatedEmptyInteractiveTail(t *testing.T) {
+	lifecycleOf := func(t *testing.T, config string) *Capability {
+		t.Helper()
+		c := contribute(t, "kit", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: `+config+`
+`)
+		composed, err := Compose([]Contribution{c})
+		require.NoError(t, err)
+		require.Len(t, composed.Capabilities, 1)
+		raw, err := json.Marshal(composed)
+		require.NoError(t, err)
+		_, err = ValidateEffective(raw, composed)
+		require.NoError(t, err)
+		return &composed.Capabilities[0]
+	}
+
+	empty := lifecycleOf(t, "{interactive: []}")
+	require.Contains(t, empty.Config, "interactive")
+	require.Empty(t, empty.Config["interactive"])
+	l, err := LifecycleOf([]Capability{*empty})
+	require.NoError(t, err)
+	require.NotNil(t, l.Interactive)
+
+	absent := lifecycleOf(t, "{startup: [{command: echo ready}]}")
+	require.NotContains(t, absent.Config, "interactive")
+
+	tail := lifecycleOf(t, "{interactive: [--tui]}")
+	require.Equal(t, []any{"--tui"}, tail.Config["interactive"])
 }
 
 // A lifecycle tail inside a selected group reaches composition as a plain

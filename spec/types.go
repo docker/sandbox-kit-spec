@@ -1030,7 +1030,8 @@ type Lifecycle struct {
 	// runtime config the image config has no native slot for (Cmd is
 	// single-valued). It lives in the lifecycle capability because the
 	// engine consumes it the way it consumes the hooks: behavior across
-	// the sandbox's life, not a grant.
+	// the sandbox's life, not a grant. Presence is the statement: an empty
+	// non-nil tail is the launch argv with nothing appended.
 	Interactive []string `json:"interactive,omitempty" yaml:"interactive,omitempty"`
 }
 

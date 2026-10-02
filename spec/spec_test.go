@@ -656,6 +656,31 @@ capabilities:
 	require.NoError(t, err)
 }
 
+// A lifecycle entry says something when any hook, file or interactive
+// tail is stated, and a stated empty tail is a tail: the launch argv with
+// nothing appended. Only an entry stating none of them is empty.
+func TestLifecycleEntryStatesSomething(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:\n  - type: com.docker.sandbox/lifecycle@1\n    config: "
+	for config, ok := range map[string]bool{
+		"{interactive: []}":                     true,
+		"{interactive: [--tui]}":                true,
+		"{startup: [{command: echo ready}]}":    true,
+		"{}":                                    false,
+		"{install: [], startup: [], files: []}": false,
+	} {
+		t.Run(config, func(t *testing.T) {
+			d, err := Decode([]byte(head + config + "\n"))
+			require.NoError(t, err)
+			_, err = Validate(d)
+			if ok {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "lifecycle declares no hooks")
+		})
+	}
+}
+
 // newSession and lifecycle's interactive tail name the same launch, so a
 // Kit that states both states one argv. Absence on either side is not a
 // disagreement: newSession omitted falls back to the lifecycle tail.
@@ -672,14 +697,14 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 		needs string
 		ok    bool
 	}{
-		{"both empty", sessions("newSession: []") + lifecycle("interactive: [], startup: [{command: echo ready}]"), true},
+		{"both empty", sessions("newSession: []") + lifecycle("interactive: []"), true},
 		{"newSession empty, lifecycle absent", sessions("newSession: []") + lifecycle("startup: [{command: echo ready}]"), true},
 		{"same tail", sessions("newSession: [--tui]") + lifecycle("interactive: [--tui]"), true},
 		{"newSession absent, lifecycle tail", sessions("continue: [--continue]") + lifecycle("interactive: [--tui]"), true},
 		{"newSession tail, no lifecycle", sessions("newSession: [--tui]"), true},
 		{"newSession tail, lifecycle without tail", sessions("newSession: [--tui]") + lifecycle("startup: [{command: echo ready}]"), true},
 		{"newSession empty, lifecycle tail", sessions("newSession: []") + lifecycle("interactive: [--tui]"), false},
-		{"newSession tail, lifecycle empty", sessions("newSession: [--tui]") + lifecycle("interactive: [], startup: [{command: echo ready}]"), false},
+		{"newSession tail, lifecycle empty", sessions("newSession: [--tui]") + lifecycle("interactive: []"), false},
 		{"different tails", sessions("newSession: [--tui]") + lifecycle("interactive: [--other]"), false},
 	}
 	for _, tc := range cases {
