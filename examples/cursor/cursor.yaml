@@ -120,6 +120,18 @@ capabilities:
     config:
       prompt: ["-p", "--trust", "{{.Prompt}}"]
 
+  # Interactive verbs, for a host that puts a person at the terminal. Tails
+  # append to the entrypoint and run with a terminal attached. The bare
+  # command is the TUI, so newSession is omitted. `--resume` without a chat
+  # id is cursor-agent's session picker. There is no list: its help
+  # describes `ls` as resuming a chat, not as printing ids.
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: ["{{.Prompt}}"]
+      continue: ["--continue"]
+      resume: ["--resume", "{{.SessionID}}"]
+      sessionPicker: ["--resume"]
+
   # Where cursor reads shared skills, so the host's store reaches it.
   # The runtime also exposes selected agent-skill@1 bundles here, even
   # when host sharing is off or the user has no host skills.

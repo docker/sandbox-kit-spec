@@ -201,6 +201,19 @@ capabilities:
       prompt: ["exec", "{{.Prompt}}"]
       resume: ["resume", "{{.SessionID}}"]
 
+  # Interactive verbs, for a host that puts a person at the terminal. Tails
+  # append to the entrypoint (whose global flags precede the subcommand) and
+  # run with a terminal attached. The bare launch is the TUI, so newSession
+  # is omitted and takes the lifecycle@1 interactive launch. `resume` is the
+  # interactive subcommand here; the headless one above is `exec`. codex
+  # prints no session list a command can read, so there is no list.
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: ["{{.Prompt}}"]
+      continue: ["resume", "--last"]
+      resume: ["resume", "{{.SessionID}}"]
+      sessionPicker: ["resume"]
+
   # Where codex reads shared skills, so the host's store reaches it.
   # The runtime also exposes selected agent-skill@1 bundles here, even
   # when host sharing is off or the user has no host skills.
