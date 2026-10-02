@@ -41,7 +41,7 @@ this capability.
 | `prompt` | list\<string\> | Argv **tail** appended to the workload's launch command; starts an interactive session seeded with the prompt. MUST reference `{{.Prompt}}`. | <!-- tck: agent-interactive-sessions@1/prompt-placeholder-required -->
 | `resume` | list\<string\> | Argv tail; reopens a named session interactively. MUST reference `{{.SessionID}}`. | <!-- tck: agent-interactive-sessions@1/session-id-placeholder-required -->
 | `continue` | list\<string\> | Argv tail; reopens the most recent session interactively. No placeholder. |
-| `newSession` | list\<string\> | Argv tail; starts a fresh interactive session with no prompt. No placeholder. Often `[]`. **Omitted, it defaults to the [lifecycle@1](lifecycle@1.md) interactive launch**: the launch argv as lifecycle@1 defines it for interactive sessions, plus its `interactive` tail when one is declared. |
+| `newSession` | list\<string\> | Argv tail; starts a fresh interactive session with no prompt. No placeholder. Often `[]`. **Omitted, it defaults to the [lifecycle@1](lifecycle@1.md) interactive launch**: the launch argv plus lifecycle's `interactive` tail when one is declared. Stated, it is authoritative for the new-session invocation. |
 | `sessionPicker` | list\<string\> | Argv tail; starts the agent on its own session picker. No placeholder. |
 | `list` | string \| list | A **complete command** (not a tail) whose stdout enumerates resumable session ids, one per line, most recent first. The same type and meaning as agent-sessions@1's `list`; a Kit declaring it on both capabilities [states one command](#agreement-with-agent-sessions1). |
 
@@ -51,8 +51,9 @@ list or an empty string is invalid here. agent-sessions@1 is unchanged
 (its grammar has shipped), and this does not make a valid Kit differ
 between the two.
 
-The *launch argv* on this page is the one [lifecycle@1](lifecycle@1.md)
-defines for interactive sessions; the page does not restate it.
+The *launch argv* on this page is the workload argv that the
+[lifecycle@1](lifecycle@1.md) interactive launch appends its
+`interactive` tail to; the page does not restate it.
 
 ### Presence
 
@@ -114,10 +115,9 @@ discarded, and the references are validation requirements.
 
 A conforming runtime (or host):
 
-- **MUST** build each interactive invocation as the launch argv, as <!-- tck: agent-interactive-sessions@1/interactive-from-launch-argv -->
-  lifecycle@1 defines it for interactive sessions, plus the verb's
-  tail, with placeholders substituted. Verb tails never replace the
-  launch command.
+- **MUST** build each interactive invocation as the launch argv plus <!-- tck: agent-interactive-sessions@1/interactive-from-launch-argv -->
+  the verb's tail, with placeholders substituted. Verb tails never
+  replace the launch command.
 - **MUST** start a new interactive session, when `newSession` is absent, <!-- tck: agent-interactive-sessions@1/absent-new-session-is-lifecycle-launch -->
   exactly as the [lifecycle@1](lifecycle@1.md) interactive launch mode
   does.

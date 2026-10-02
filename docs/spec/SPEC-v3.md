@@ -768,8 +768,7 @@ same way user-supplied args do, and
 [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md)
 for the interactive verbs (new session, prompt, resume, continue,
 session picker), which run with a terminal attached on the launch argv
-as lifecycle@1 defines it for interactive sessions, plus the verb's
-tail; its `newSession` names that interactive launch.
+plus the verb's tail; its `newSession` names that interactive launch.
 
 ---
 
