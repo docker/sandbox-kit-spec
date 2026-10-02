@@ -72,6 +72,9 @@ An adapter **MUST NOT** require interactive input.
 | `rm` | `<id>` | — | Discard the sandbox |
 | `wait-idle` | `<id>` | — | Disconnect the final client session and wait beyond the normal auto-stop grace period |
 | `status` | `<id>` | `running` or `stopped` | Observe sandbox state without starting it or attaching a session |
+| `host-mounts` | `<kit-ref>` | JSON array of `{id, path, hostPath}` | List retained host directories for the resolved Kit identity |
+| `host-mount-read` | `<mount-id> <relative-path>` | the file's bytes | Observe sandbox writes from the host |
+| `host-mount-rm` | `<mount-id>` | — | Remove a runtime-owned directory by its opaque listing handle |
 
 `create --env name=value` supplies a container environment override.
 Adapters **MUST** apply it after image defaults and Kit argument exports,
@@ -126,6 +129,31 @@ finished stopping; a missing sandbox or a failed observation is an error,
 not a stopped state. The suite reads status before probing the background
 process, so an exec that implicitly starts a stopped sandbox cannot hide
 auto-stop, and reads it again after explicit stop.
+
+### Host-shared directory observation
+
+The `host-mount-*` verbs are required only for adapters claiming
+`com.docker.sandbox/host-mount@1`. They use the runtime's ordinary user
+interfaces for discovering, reading, and removing host directories.
+Adapters **MUST NOT** manufacture storage outside the runtime's
+provisioning path to satisfy these checks.
+
+`host-mounts` resolves the Kit reference to the same identity used by
+`create`, and returns its retained directories even with no live sandbox.
+Each record **MUST** contain a nonempty opaque `id`, its canonical
+in-container `path`, and the host location `hostPath` a user can find.
+There is one record per path; an empty listing is `[]`, not `null`.
+Listing is an observation and **MUST NOT** allocate storage.
+
+`host-mount-read` **MUST** read from the host directory independently of
+sandbox exec. The suite passes only a relative fixture filename; an
+absent file returns a nonzero status. `host-mount-rm` **MUST** remove the
+listed directory and its contents so a later create starts empty.
+
+The suite uses fresh in-container paths for each check. It removes only
+directories at those paths for the fixture Kits, after removing their
+sandboxes; adapters **MUST NOT** interpret cleanup as a request to remove
+other Kit directories or user content.
 
 ### Git identity binding
 

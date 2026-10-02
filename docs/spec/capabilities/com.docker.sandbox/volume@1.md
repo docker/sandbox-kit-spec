@@ -44,10 +44,22 @@ A conforming runtime:
   [lifecycle](lifecycle@1.md) startup hook (a fresh mount may come up
   root-owned).
 
+Whether removing a sandbox and later creating one with the same name
+counts as a recreate is runtime-owned. Removal may delete its storage
+or retain it for a later sandbox.
+
+A runtime reattaching storage across sandbox removal **MUST** check <!-- tck: volume@1/reattach-checks-kit-identity -->
+the Kit identity before attaching it, so a different Kit cannot inherit
+the data. Descriptor display metadata and `source` attribution are not
+sufficient identity evidence.
+
 ## Composition
 
 Paths union across the set. Two Kits declaring the same path is a
 composition conflict — a runtime MUST NOT silently merge them. <!-- tck: volume@1/no-silent-merge -->
+
+The cleaned path also conflicts with a
+[host-mount@1](host-mount@1.md) declaration at that destination.
 
 ## Gate
 

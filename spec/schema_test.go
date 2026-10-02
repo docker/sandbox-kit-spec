@@ -64,7 +64,7 @@ func at(t *testing.T, m map[string]any, path ...string) map[string]any {
 func allCapabilityTypes() []string {
 	return []string{
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
-		CapabilityVolume, CapabilityPort,
+		CapabilityVolume, CapabilityHostMount, CapabilityPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityLifecycle, CapabilityAgentContext,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity,
@@ -257,6 +257,15 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	assertAcceptsKitArg(t, at(t, volume, "properties", "mode"), "bearing")
 	assertAcceptsKitArg(t, at(t, volume, "properties", "path"), "bearing")
 	assertAcceptsKitArg(t, at(t, volume, "properties", "tmpfs"), "whole")
+
+	hostMount := loadJSON(t, perTypeSchemaPath(CapabilityHostMount))
+	require.Equal(t, octalMode.String(), literalPattern(t, at(t, hostMount, "properties", "mode")))
+	assertAcceptsKitArg(t, at(t, hostMount, "properties", "mode"), "bearing")
+	assertAcceptsKitArg(t, at(t, hostMount, "properties", "path"), "bearing")
+	hostPath := regexp.MustCompile(literalPattern(t, at(t, hostMount, "properties", "path")))
+	for _, p := range []string{"/cache", "/a/.hidden", "/a/..b", "/a/ space", "/", "", "relative", "/cache/", "//cache", "/a/../cache", "/a/./cache", "/a\x00b"} {
+		require.Equal(t, p != "/" && canonicalAbsPath(p) && !strings.ContainsRune(p, '\x00'), hostPath.MatchString(p), "host mount path %q", p)
+	}
 
 	resources := loadJSON(t, perTypeSchemaPath(CapabilityResources))
 	require.Equal(t, sizeBytes.String(), literalPattern(t, at(t, resources, "properties", "memory")))

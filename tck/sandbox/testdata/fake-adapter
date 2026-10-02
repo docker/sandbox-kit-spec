@@ -12,9 +12,15 @@ broken="${KIT_TCK_FAKE_BROKEN:-}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/volume@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
+case "$broken" in
+host-mount-accepts-unclaimed | host-mount-refuses-optional | host-mount-unclaimed-grant | host-mount-omits-skip)
+  claims="${claims//com.docker.sandbox\/host-mount@1/}"
+  ;;
+esac
+host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
 
@@ -153,6 +159,7 @@ capabilities)
 
 create)
   kits=()
+  mount_path=/var/tmp/kit-tck-host
   greeting=""
   greeting_override=""
   greeting_override_set=no
@@ -170,7 +177,7 @@ create)
   while [ $# -gt 0 ]; do
     case "$1" in
     --arg)
-      case "$2" in directory=*) context_directory="${2#directory=}" ;; greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
+      case "$2" in mount_path=*) mount_path="${2#mount_path=}" ;; directory=*) context_directory="${2#directory=}" ;; greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
       shift 2
       ;;
     --env)
@@ -274,6 +281,14 @@ create)
       echo "refusing: host store is $hoststore" >&2
       exit 2
     fi
+  fi
+
+  host_requested=no
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in host-mount*) host_requested=yes ;; esac
+  done
+  if [ "$host_requested" = yes ]; then
+    python3 "$host_mount_helper" preflight "$state" "$claims" "$broken" "$mount_path" "${kits[@]}"
   fi
 
   # A required capability this runtime does not implement is refused,
@@ -845,6 +860,9 @@ create)
       if [ "$broken" = bundle-executes ]; then touch "$dir/var/tmp/bundled-script-executed"; fi
     fi
   fi
+  if [ "$host_requested" = yes ]; then
+    python3 "$host_mount_helper" create "$state" "$claims" "$broken" "$id" "$mount_path" "${kits[@]}"
+  fi
   echo "$id"
   ;;
 
@@ -854,6 +872,9 @@ exec)
   [ "${1:-}" = "--" ] && shift
   dir="$state/$id"
   case "${1:-}" in
+  kit-tck-host-mount)
+    python3 "$host_mount_helper" probe "$state" "$claims" "$broken" "$id" "$2" "$3" "${4:-}" "${5:-}"
+    ;;
   kit-tck-bundled)
     KIT_TCK_BUNDLE_ROOT="$dir" sh "$dir/bundle-probe" "$2"
     ;;
@@ -1315,7 +1336,19 @@ start)
   fi
   ;;
 
+host-mounts)
+  python3 "$host_mount_helper" list "$state" "$claims" "$broken" "$1"
+  ;;
+host-mount-read)
+  python3 "$host_mount_helper" read "$state" "$claims" "$broken" "$1" "$2"
+  ;;
+host-mount-rm)
+  python3 "$host_mount_helper" remove "$state" "$claims" "$broken" "$1"
+  ;;
 rm)
+  if [ -f "$state/$1/host-mount.json" ]; then
+    python3 "$host_mount_helper" sandbox-rm "$state" "$claims" "$broken" "$1"
+  fi
   rm -rf "${state:?}/$1"
   ;;
 
