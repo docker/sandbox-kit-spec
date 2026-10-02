@@ -575,6 +575,11 @@ capabilities:
 `)
 	_, err = Compose([]Contribution{headless(`[ls, ids]`), oneSided})
 	require.NoError(t, err, "list on one capability only is fine")
+
+	// Spellings that differ only in an unresolved reference may resolve to
+	// one command, so they are left to the expanded descriptor.
+	_, err = Compose([]Contribution{headless(`[ls, "${{ kit.args.dir }}"]`), interactive(`[ls, "${{ kit.args.other }}"]`)})
+	require.NoError(t, err)
 }
 
 // A stated empty interactive tail is the launch argv with nothing

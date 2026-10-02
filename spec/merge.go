@@ -580,13 +580,14 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return mergeSole(&m.resources, reference, n, "resources")
 
 	case CapabilityAgentSessions:
-		// Remembered for the list agreement in finish.
+		// Remembered for the list agreement in finish. This type was never
+		// decoded at merge before, so a config that does not decode here is
+		// left to validation rather than turned into a new merge failure.
 		if m.sessions == nil {
 			var a AgentSessions
-			if err := decodeForMerge(reference, n, &a); err != nil {
-				return err
+			if err := DecodeCapabilityConfig(n, &a); err == nil {
+				m.headlessList, m.headlessListFrom = a.List, reference
 			}
-			m.headlessList, m.headlessListFrom = a.List, reference
 		}
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
 
@@ -1048,7 +1049,8 @@ func hostsOf(entries []NetworkEntry) []string {
 func (m *capabilityMerge) checkInteractiveAgreement() error {
 	if m.newSession != nil {
 		for _, ask := range m.lifecycle {
-			if ask.lifecycle.Interactive != nil && !slices.Equal(m.newSession, ask.lifecycle.Interactive) {
+			if ask.lifecycle.Interactive != nil && !hasReference(m.newSession) && !hasReference(ask.lifecycle.Interactive) &&
+				!slices.Equal(m.newSession, ask.lifecycle.Interactive) {
 				return fmt.Errorf("merge: %s and %s: newSession %q disagrees with lifecycle interactive %q; they name the same launch",
 					m.newSessionFrom, ask.reference, m.newSession, ask.lifecycle.Interactive)
 			}
@@ -1056,11 +1058,21 @@ func (m *capabilityMerge) checkInteractiveAgreement() error {
 	}
 	// Both session capabilities enumerate the same sessions, so a list
 	// declared on both is one command.
-	if len(m.headlessList) > 0 && len(m.interactiveList) > 0 && !slices.Equal(m.headlessList, m.interactiveList) {
+	if len(m.headlessList) > 0 && len(m.interactiveList) > 0 &&
+		!hasReference(m.headlessList) && !hasReference(m.interactiveList) &&
+		!slices.Equal(m.headlessList, m.interactiveList) {
 		return fmt.Errorf("merge: %s and %s: agent-sessions list %q differs from agent-interactive-sessions list %q; both enumerate the same sessions, so they name one command",
 			m.headlessListFrom, m.interactiveSessions.reference, []string(m.headlessList), []string(m.interactiveList))
 	}
 	return nil
+}
+
+// hasReference reports whether any element still carries an unresolved
+// arg or environment reference. Two spellings that differ only in such a
+// reference may resolve to the same argv, so the agreement checks leave
+// them to the descriptor that has been expanded.
+func hasReference(argv []string) bool {
+	return slices.ContainsFunc(argv, func(a string) bool { return ContainsArgRef(a) || ContainsEnvRef(a) })
 }
 
 // mergedLifecycle concatenates the contributors' hooks in composition
