@@ -666,6 +666,45 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 	}
 }
 
+// list names the same sessions whichever mode opened them, so a Kit that
+// declares it on both session capabilities states one command. The two
+// spellings of one command decode to the same argv and are equal.
+func TestAgentInteractiveSessionsListMatchesAgentSessions(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:"
+	headless := func(config string) string {
+		return "\n  - type: com.docker.sandbox/agent-sessions@1\n    config: {" + config + "}"
+	}
+	interactive := func(config string) string {
+		return "\n  - type: com.docker.sandbox/agent-interactive-sessions@1\n    config: {" + config + "}"
+	}
+	cases := []struct {
+		name  string
+		needs string
+		ok    bool
+	}{
+		{"same list", headless(`list: [ls, ids]`) + interactive(`list: [ls, ids]`), true},
+		{"string and list spellings of one command", headless(`list: "a b"`) + interactive(`list: [sh, -c, "a b"]`), true},
+		{"both strings", headless(`list: "a b"`) + interactive(`list: "a b"`), true},
+		{"list on the headless side only", headless(`list: [ls, ids]`) + interactive(`continue: [--continue]`), true},
+		{"list on the interactive side only", headless(`continue: [--continue]`) + interactive(`list: [ls, ids]`), true},
+		{"different lists", headless(`list: [ls, ids]`) + interactive(`list: [ls, all]`), false},
+		{"different strings", headless(`list: "a b"`) + interactive(`list: "a c"`), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Decode([]byte(head + tc.needs))
+			require.NoError(t, err)
+			_, err = Validate(d)
+			if tc.ok {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "differs from agent-sessions list")
+			require.ErrorContains(t, err, "capabilities[1].config.list")
+		})
+	}
+}
+
 func decodeValid(t *testing.T, y string) *Descriptor {
 	t.Helper()
 	d, err := Decode([]byte(y))

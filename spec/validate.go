@@ -548,6 +548,12 @@ func validateCapabilityBlock(d *Descriptor) error {
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string
 	newSessionAt, interactiveAt := -1, -1
+	// Both session capabilities enumerate the same sessions whichever
+	// mode opened them, so a Kit declaring list on both states one
+	// command. Compared on the decoded argv, so the string and list
+	// spellings of one command are equal.
+	var headlessList, interactiveList CommandLine
+	interactiveListAt := -1
 	for i, n := range needs {
 		path := fmt.Sprintf("capabilities[%d]", i)
 		if _, keys := environmentReferences(n.Config); keys {
@@ -802,6 +808,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if len(a.Resume) > 0 && !argvContains(a.Resume, SessionIDPlaceholder) {
 				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
 			}
+			headlessList = a.List
 		case CapabilityAgentInteractiveSessions:
 			var a AgentInteractiveSessions
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
@@ -831,6 +838,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config.list", "capabilities[%d]: list must name a command", i))
 			}
 			newSession, newSessionAt = a.NewSession, i
+			interactiveList, interactiveListAt = a.List, i
 		case CapabilityLifecycle:
 			var l Lifecycle
 			if err := DecodeCapabilityConfig(n, &l); err != nil {
@@ -871,6 +879,12 @@ func validateCapabilityBlock(d *Descriptor) error {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
 			newSessionAt, newSession, interactive, interactiveAt))
+	}
+
+	if len(headlessList) > 0 && len(interactiveList) > 0 && !slices.Equal(headlessList, interactiveList) {
+		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.list", interactiveListAt),
+			"capabilities[%d]: list %q differs from agent-sessions list %q; both capabilities enumerate the same sessions, so they name one command",
+			interactiveListAt, []string(interactiveList), []string(headlessList)))
 	}
 
 	// The inject⊆allow invariant needs literal domains on both sides;
