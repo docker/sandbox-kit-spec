@@ -472,9 +472,10 @@ capabilities:
 	require.Len(t, same.Capabilities, 1, "an identical restatement is the same ask")
 }
 
-// The agreement rule is judged on the composed descriptor too: a mixin
-// contributes the lifecycle tail, and the workload's newSession has to
-// agree with it once the two are one declaration block.
+// The agreement rule runs at composition too, with stated-ness intact: a
+// mixin contributes the lifecycle tail, and the merged lifecycle drops an
+// empty one from its output, so the effective descriptor alone could not
+// tell a stated bare launch from no tail.
 func TestComposedInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 	workload := func(newSession string) Contribution {
 		return contribute(t, "agent", `schemaVersion: "3"
@@ -485,24 +486,85 @@ capabilities:
     config: {newSession: `+newSession+`}
 `)
 	}
-	mixin := contribute(t, "tui", `schemaVersion: "3"
+	mixin := func(interactive string) Contribution {
+		return contribute(t, "tui", `schemaVersion: "3"
 kind: mixin
 version: "1.0.0"
 capabilities:
   - type: com.docker.sandbox/lifecycle@1
-    config: {interactive: [--tui]}
+    config: {interactive: `+interactive+`, startup: [{command: echo ready}]}
 `)
-	validate := func(c Contribution) error {
-		composed, err := Compose([]Contribution{c, mixin})
-		require.NoError(t, err)
-		raw, err := json.Marshal(composed)
-		require.NoError(t, err)
-		_, err = ValidateEffective(raw, composed)
-		return err
 	}
-	require.NoError(t, validate(workload("[--tui]")))
-	require.ErrorContains(t, validate(workload("[--other]")), "disagrees with lifecycle interactive")
-	require.ErrorContains(t, validate(workload("[]")), "disagrees with lifecycle interactive")
+	for _, tc := range []struct {
+		name, newSession, interactive string
+		ok                            bool
+	}{
+		{"same tail", "[--tui]", "[--tui]", true},
+		{"both empty", "[]", "[]", true},
+		{"different tails", "[--other]", "[--tui]", false},
+		{"newSession empty, lifecycle tail", "[]", "[--tui]", false},
+		{"newSession tail, lifecycle empty", "[--tui]", "[]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			composed, err := Compose([]Contribution{workload(tc.newSession), mixin(tc.interactive)})
+			if tc.ok {
+				require.NoError(t, err)
+				raw, err := json.Marshal(composed)
+				require.NoError(t, err)
+				_, err = ValidateEffective(raw, composed)
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "disagrees with lifecycle interactive")
+			require.ErrorContains(t, err, "agent capabilities[0]")
+			require.ErrorContains(t, err, "tui capabilities[0]")
+		})
+	}
+
+	t.Run("lifecycle without a tail", func(t *testing.T) {
+		noTail := contribute(t, "hooks", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: {startup: [{command: echo ready}]}
+`)
+		_, err := Compose([]Contribution{workload("[--tui]"), noTail})
+		require.NoError(t, err)
+	})
+}
+
+// A lifecycle tail inside a selected group reaches composition as a plain
+// entry, so the same comparison covers it.
+func TestSelectedGroupLifecycleTailAgreesWithNewSession(t *testing.T) {
+	for name, tc := range map[string]struct {
+		newSession string
+		ok         bool
+	}{"agreeing": {"[--tui]", true}, "disagreeing": {"[--other]", false}} {
+		t.Run(name, func(t *testing.T) {
+			d := decodeValid(t, `schemaVersion: "3"
+kind: workload
+provides: ["claude@2.1.0"]
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {newSession: `+tc.newSession+`}
+  - group:
+      capabilities:
+        - type: com.docker.sandbox/lifecycle@1
+          config: {interactive: [--tui], startup: [{command: echo ready}]}
+`)
+			selected, err := SelectCapabilities(t.Context(), d, Supported(CapabilityAgentInteractiveSessions, CapabilityLifecycle))
+			require.NoError(t, err)
+			effective := *d
+			effective.Capabilities = selected.Capabilities
+			_, err = Compose([]Contribution{{Reference: "agent", Descriptor: &effective}})
+			if tc.ok {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "disagrees with lifecycle interactive")
+		})
+	}
 }
 
 // The profile belongs to the workload; the bodies become one staged

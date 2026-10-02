@@ -585,8 +585,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 	deferCrossChecks := false
 	invalidCredentials := map[int]bool{}
 	// lifecycle's interactive tail and agent-interactive-sessions'
-	// newSession name the same launch, so a Kit stating both (a non-empty
-	// lifecycle tail) states it once. Captured from the literal entries; a parameterized entry
+	// newSession name the same launch, so a Kit stating both states it
+	// once. Captured from the literal entries; a parameterized entry
 	// defers decoding and is judged on the effective descriptor, as is a
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string
@@ -948,10 +948,12 @@ func validateCapabilityBlock(d *Descriptor) error {
 	}
 
 	// Compared on literal values only, so an unrelated deferral does not
-	// suppress it. An empty lifecycle tail reads as absent (the lifecycle
-	// merge drops it from its rendered output), so only a non-empty tail is
-	// held to the same argv as newSession.
-	if newSession != nil && len(interactive) > 0 && !slices.Equal(newSession, interactive) {
+	// suppress it. Whenever both are stated the argvs must agree, an empty
+	// tail included: newSession: [--tui] beside interactive: [] would
+	// launch two different ways. Composition makes the same comparison
+	// (see checkInteractiveAgreement), since the merged lifecycle drops
+	// an empty tail from its rendered output.
+	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
 			newSessionAt, newSession, interactive, interactiveAt))

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -512,6 +513,8 @@ type capabilityMerge struct {
 	sessions  *keyed
 
 	interactiveSessions *keyed
+	newSession          []string
+	newSessionFrom      string
 }
 
 type networkAsk struct {
@@ -577,6 +580,16 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
 
 	case CapabilityAgentInteractiveSessions:
+		// The first author's decoded newSession is remembered for the
+		// agreement check in finish: it needs stated-ness, which the
+		// rendered lifecycle drops for an empty tail.
+		if m.interactiveSessions == nil {
+			var a AgentInteractiveSessions
+			if err := decodeForMerge(reference, n, &a); err != nil {
+				return err
+			}
+			m.newSession, m.newSessionFrom = a.NewSession, reference
+		}
 		// Composed as the original Capability, never re-rendered from the
 		// struct: an empty newSession is a verb, and omitempty would drop it.
 		return mergeSole(&m.interactiveSessions, reference, n, "agent-interactive-sessions")
@@ -831,6 +844,9 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 		out = append(out, m.interactiveSessions.capability)
 	}
 
+	if err := m.checkInteractiveAgreement(); err != nil {
+		return nil, nil, err
+	}
 	if lifecycle, err := m.mergedLifecycle(); err != nil {
 		return nil, nil, err
 	} else if lifecycle != nil {
@@ -1010,6 +1026,24 @@ func hostsOf(entries []NetworkEntry) []string {
 		}
 	}
 	return out
+}
+
+// checkInteractiveAgreement holds newSession to lifecycle's interactive
+// tail whenever both are stated, an empty tail included. It runs here,
+// where the decoded asks still know what was stated, because the merged
+// lifecycle is rendered with omitempty and drops an empty tail, so the
+// composed descriptor alone cannot tell "bare launch" from "no tail".
+func (m *capabilityMerge) checkInteractiveAgreement() error {
+	if m.newSession == nil {
+		return nil
+	}
+	for _, ask := range m.lifecycle {
+		if ask.lifecycle.Interactive != nil && !slices.Equal(m.newSession, ask.lifecycle.Interactive) {
+			return fmt.Errorf("merge: %s and %s: newSession %q disagrees with lifecycle interactive %q; they name the same launch",
+				m.newSessionFrom, ask.reference, m.newSession, ask.lifecycle.Interactive)
+		}
+	}
+	return nil
 }
 
 // mergedLifecycle concatenates the contributors' hooks in composition

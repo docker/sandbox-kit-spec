@@ -679,6 +679,7 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 		{"newSession tail, no lifecycle", sessions("newSession: [--tui]"), true},
 		{"newSession tail, lifecycle without tail", sessions("newSession: [--tui]") + lifecycle("startup: [{command: echo ready}]"), true},
 		{"newSession empty, lifecycle tail", sessions("newSession: []") + lifecycle("interactive: [--tui]"), false},
+		{"newSession tail, lifecycle empty", sessions("newSession: [--tui]") + lifecycle("interactive: [], startup: [{command: echo ready}]"), false},
 		{"different tails", sessions("newSession: [--tui]") + lifecycle("interactive: [--other]"), false},
 	}
 	for _, tc := range cases {
