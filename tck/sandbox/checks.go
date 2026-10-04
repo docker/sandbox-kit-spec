@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"github.com/docker/sandbox-kit-spec/v3/spec"
 	"path"
 	"sort"
 	"strings"
@@ -642,12 +643,17 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 					return []report.Finding{*f}
 				}
 				composed := envVars(composedEnv)
+				exports, err := fixtureEnvironmentExports(fixture)
+				if err != nil {
+					return []report.Finding{report.Failf("read fixture exports: %v", err)}
+				}
 
 				var added []string
 				for name := range composed {
 					_, inA := baselines[0][name]
 					_, inB := baselines[1][name]
-					if !inA && !inB {
+					value, exported := exports[name]
+					if !inA && !inB && (!exported || value != composed[name]) {
 						added = append(added, name)
 					}
 				}
@@ -1404,4 +1410,32 @@ func listsExactly(listing, name string) bool {
 		}
 	}
 	return false
+}
+
+// Fixture argument exports are legitimate workload environment, not credential
+// injection. Compare their values rather than exempting names from leak checks.
+func fixtureEnvironmentExports(name string) (map[string]string, error) {
+	// Suite metadata belongs to the fixture source, not its runtime-facing
+	// reference, which may have been uploaded to a registry by the resolver.
+	raw, err := embeddedFixtures.ReadFile(path.Join(FixtureDir, name, name+".yaml"))
+	if err != nil {
+		return nil, err
+	}
+	descriptor, err := spec.Decode(raw)
+	if err != nil {
+		return nil, err
+	}
+	values, err := spec.KitArgValues(descriptor.Args, nil)
+	if err != nil {
+		return nil, err
+	}
+	exports := map[string]string{}
+	for name, arg := range descriptor.Args {
+		if arg.BuildArg == "" && arg.Env != "" {
+			if value, ok := values[name]; ok {
+				exports[arg.Env] = value
+			}
+		}
+	}
+	return exports, nil
 }
