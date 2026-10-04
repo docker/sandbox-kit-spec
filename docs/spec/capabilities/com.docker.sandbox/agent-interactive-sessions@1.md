@@ -6,14 +6,28 @@ person — start a session, seed it with a prompt, reopen or pick a past
 one. Not a grant: the host consumes it to operate the agent, the way it
 consumes the image config's entrypoint.
 
-This is the interactive sibling of
-[agent-sessions@1](agent-sessions@1.md), which carries the headless
-verbs a harness drives. An agent Kit whose CLI has both a headless and
-an interactive mode declares **both** capabilities: agent-sessions@1 for
-the headless verbs a harness drives, agent-interactive-sessions@1 for
-the TUI verbs a human-facing host launches. An agent with no interactive
-mode declares only agent-sessions@1, and one with no headless mode only
-this capability.
+These are the same verbs as [agent-sessions@1](agent-sessions@1.md),
+launched with a terminal attached. An agent Kit whose CLI has both a
+headless and an interactive mode declares **both** capabilities:
+agent-sessions@1 for the headless verbs a harness drives,
+agent-interactive-sessions@1 for the TUI verbs a human-facing host
+launches. An agent with no interactive mode declares only
+agent-sessions@1, and one with no headless mode only this capability.
+
+A marker on agent-sessions@1 could not carry three things, which is why
+this is its own capability:
+
+- `newSession` and `sessionPicker` exist only interactively: a headless
+  agent has no "open an empty session" or "show the picker".
+  `newSession` is tied to the interactive launch of
+  [lifecycle@1](lifecycle@1.md).
+- An empty tail means the launch argv alone, because most TUIs start
+  bare, which agent-sessions@1's shipped length-based reading cannot
+  express.
+- The interactive argv often differs from the headless one for the same
+  verb (claude takes `-p X` headless and a bare `X` interactively, codex
+  `exec X` and `X`, gemini `-p` and `-i`), so agent-sessions@1 has no
+  place for the TUI argv.
 
 - **Shape**: singleton. Workload Kits in practice — the agent the
   verbs drive is the workload's.
@@ -43,7 +57,7 @@ this capability.
 | `continue` | list\<string\> | Argv tail; reopens the most recent session interactively. No placeholder. |
 | `newSession` | list\<string\> | Argv tail; starts a fresh interactive session with no prompt. No placeholder. Often `[]`. **Omitted, it defaults to the [lifecycle@1](lifecycle@1.md) interactive launch**: the launch argv plus lifecycle's `interactive` tail when one is declared. Stated, it is authoritative for the new-session invocation. |
 | `sessionPicker` | list\<string\> | Argv tail; starts the agent on its own session picker. No placeholder. |
-| `list` | string \| list | A **complete command** (not a tail) whose stdout enumerates resumable session ids, one per line, most recent first. The same type and meaning as agent-sessions@1's `list`; a Kit declaring it on both capabilities [states one command](#agreement-with-agent-sessions1). |
+| `list` | string \| list | A **complete command** (not a tail) whose stdout enumerates resumable session ids, one per line, most recent first. The same type and meaning as agent-sessions@1's `list`: every resumable session whichever mode opened it, and its ids feed `resume` of either capability verbatim. A Kit declaring it on both capabilities [states one command](#agreement-with-agent-sessions1). |
 
 Every verb is optional, but a declaration with no keys at all says
 nothing and is invalid. A present `list` must name a command: an empty
@@ -95,8 +109,11 @@ its own.
 
 ### Agreement with agent-sessions@1
 
-Both capabilities enumerate the same sessions, whichever mode opened
-them, so their `list` is one command.
+A session is the conversation and its state, not the mode that opened
+it. `list` enumerates every resumable session whichever mode opened it,
+and `resume` of either capability reopens any of them in that verb's
+mode, so both capabilities' `list` is one command. A host that wants to
+tell origins apart records the origin itself when it creates a session.
 
 A Kit declaring `list` on both **MUST** give them the same command; <!-- tck: agent-interactive-sessions@1/list-matches-agent-sessions -->
 validation rejects a mismatch, comparing the decoded argv, so a string
@@ -128,7 +145,8 @@ A conforming runtime (or host):
 - **MUST** substitute the raw caller values (no shell re-quoting into the <!-- tck: agent-interactive-sessions@1/raw-value-substitution -->
   argv elements — the tail is exec argv, not a shell string).
 - **MUST** run `list` as its own complete command and parse stdout as ids, <!-- tck: agent-interactive-sessions@1/list-parses-stdout -->
-  one per line, most recent first; ids feed `resume` verbatim.
+  one per line, most recent first, as every resumable session and not
+  only those opened interactively; ids feed `resume` verbatim.
 - **MUST** treat an absent verb other than `newSession` as "operation <!-- tck: agent-interactive-sessions@1/absent-verb-unsupported -->
   unsupported" and surface that, rather than improvising flags.
 - **MUST NOT** treat the declaration as a permission: it grants nothing; <!-- tck: agent-interactive-sessions@1/declaration-grants-nothing -->
