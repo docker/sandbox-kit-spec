@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,91 @@ import (
 	"github.com/docker/sandbox-kit-spec/v3/assemble"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCodexDesktopHookSendsNotificationAndRolloutStatus(t *testing.T) {
+	requireExampleTool(t, "jq")
+	bin := t.TempDir()
+	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
+payload=""; headers=""; method=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data) shift; payload="$1" ;;
+    -D) shift; headers="$1" ;;
+    -X) shift; method="$1" ;;
+  esac
+  shift
+done
+if [ -n "$headers" ]; then
+  printf 'Mcp-Session-Id: test\r\n' > "$headers"
+fi
+case "$payload" in
+  *'"method":"tools/call"'*)
+    printf '%s\n' "$payload" >> "$MOCK_CALLS"
+    printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
+    ;;
+esac
+[ "$method" != DELETE ] || touch "$MOCK_CLOSED"
+`, 0o755)
+	for _, kit := range []string{"codex", "codex-mixin"} {
+		for _, withRollout := range []bool{true, false} {
+			name := "with rollout"
+			if !withRollout {
+				name = "missing rollout"
+			}
+			t.Run(kit+"/"+name, func(t *testing.T) {
+				descriptor, err := os.ReadFile(filepath.Join(kit, kit+".yaml"))
+				require.NoError(t, err)
+				require.Contains(t, string(descriptor), `notify = ["/usr/local/bin/sbx-codex-hook", "codex"]`)
+				tmp := t.TempDir()
+				callsPath := filepath.Join(tmp, "calls")
+				closed := filepath.Join(tmp, "closed")
+				codexStore := filepath.Join(tmp, "custom-codex-home")
+				if withRollout {
+					writeExampleFixture(t, filepath.Join(codexStore, "sessions", "2026", "10", "05",
+						"rollout-2026-10-05T12-00-00-thread-test.jsonl"), `{"type":"session_meta","payload":{"id":"thread-test","cwd":"/rollout/workspace","cli_version":"0.160.0","git":{"branch":"rollout-branch","commit_hash":"1234567890abcdef"}}}
+{"type":"turn_context","payload":{"model":"older-model","effort":"low"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":1000,"last_token_usage":{"total_tokens":10},"total_token_usage":{"input_tokens":20,"output_tokens":3}}}}
+{"type":"turn_context","payload":{"cwd":"/not-a-real-hook-test-workspace","model":"current-model","effort":"high"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":1000,"last_token_usage":{"total_tokens":120},"total_token_usage":{"input_tokens":333,"output_tokens":44}}}}
+`, 0o644)
+				}
+				event := `{"type":"agent-turn-complete","thread-id":"thread-test","cwd":"/event/workspace","last-assistant-message":"Finished the task"}`
+				stdout, stderr, err := runExampleCommand(t, []string{
+					"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"HOME=" + tmp,
+					"CODEX_HOME=" + codexStore,
+					"TMPDIR=" + tmp,
+					"MCP_GATEWAY_URL=http://test.invalid/mcp",
+					"MOCK_CALLS=" + callsPath,
+					"MOCK_CLOSED=" + closed,
+				}, `{"thread-id":"wrong-stdin-thread"}`, "sh", filepath.Join(kit, "scripts", "sbx-agent-hook.sh"), "codex", event)
+				require.NoError(t, err, stderr)
+				require.Empty(t, stdout)
+				require.Empty(t, stderr)
+				require.FileExists(t, closed, "the successful Codex path must close its MCP session")
+				calls, err := os.ReadFile(callsPath)
+				require.NoError(t, err)
+				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+				want := []string{`{"name":"sbx_desktop_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
+				if withRollout {
+					want = append(want, `{"name":"sbx_desktop_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
+				}
+				require.Len(t, lines, len(want))
+				for i, expected := range want {
+					var call struct {
+						ID     int             `json:"id"`
+						Method string          `json:"method"`
+						Params json.RawMessage `json:"params"`
+					}
+					require.NoError(t, json.Unmarshal([]byte(lines[i]), &call))
+					require.Equal(t, i+2, call.ID)
+					require.Equal(t, "tools/call", call.Method)
+					require.JSONEq(t, expected, string(call.Params))
+				}
+			})
+		}
+	}
+}
 
 func TestDesktopHookPathsComposeAcrossAgents(t *testing.T) {
 	hooks := map[string]string{}
@@ -41,7 +127,7 @@ func TestDesktopHookPathsComposeAcrossAgents(t *testing.T) {
 	}
 }
 
-func TestDesktopHookRetriesFailedStatusDelivery(t *testing.T) {
+func TestDesktopHookRetriesFailedClaudeStatusDelivery(t *testing.T) {
 	requireExampleTool(t, "jq")
 	bin := t.TempDir()
 	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
@@ -211,7 +297,7 @@ exit 7
 	}
 }
 
-func TestDesktopHookSerializesConcurrentStatus(t *testing.T) {
+func TestDesktopHookSerializesConcurrentClaudeStatus(t *testing.T) {
 	requireExampleTool(t, "jq")
 	bin := t.TempDir()
 	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
