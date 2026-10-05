@@ -37,16 +37,17 @@ const (
 	fixtureCredentialInjectOnlyInstall = "credential-inject-only-install"
 	// The same policy stated as @2, so the requirements @2 inherits are
 	// judged against a kit declaring it rather than only against @1.
-	fixtureScopedEgressV2 = "scoped-egress-v2"
-	fixtureUnknownNeed    = "unknown-required-capability"
-	fixtureRestrictedEnv  = "restricted-env"
-	fixtureEgress         = "egress"
-	fixtureHTTPEgress     = "http-egress"
-	fixtureCredential     = "credential"
-	fixturePort           = "port"
-	fixtureUSBDevice      = "usb-device"
-	fixtureAgentSessions  = "agent-sessions"
-	fixtureKitRegistry    = "kit-registry"
+	fixtureScopedEgressV2           = "scoped-egress-v2"
+	fixtureUnknownNeed              = "unknown-required-capability"
+	fixtureRestrictedEnv            = "restricted-env"
+	fixtureEgress                   = "egress"
+	fixtureHTTPEgress               = "http-egress"
+	fixtureCredential               = "credential"
+	fixturePort                     = "port"
+	fixtureUSBDevice                = "usb-device"
+	fixtureAgentSessions            = "agent-sessions"
+	fixtureAgentInteractiveSessions = "agent-interactive-sessions"
+	fixtureKitRegistry              = "kit-registry"
 )
 
 // denyByDefault judges the connection-level allow list of whichever
@@ -219,6 +220,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capPort, fixturePort, false},
 				{capUSBDevice, fixtureUSBDevice, false},
 				{capAgentSessions, fixtureAgentSessions, false},
+				{capAgentInteractiveSessions, fixtureAgentInteractiveSessions, false},
 				{capKitRegistry, fixtureKitRegistry, false},
 			} {
 				if e.claims(probe.capability) {
@@ -892,15 +894,16 @@ func envVars(environ string) map[string]string {
 
 // Capability types covered by the checks below.
 const (
-	capAgentContext  = "com.docker.sandbox/agent-context@1"
-	capVolume        = "com.docker.sandbox/volume@1"
-	capResources     = "com.docker.sandbox/resources@1"
-	capPrivileged    = "com.docker.sandbox/privileged@1"
-	capAgentSkills   = "com.docker.sandbox/agent-skills@1"
-	capPort          = "com.docker.sandbox/port@1"
-	capUSBDevice     = "com.docker.sandbox/usb-device@1"
-	capAgentSessions = "com.docker.sandbox/agent-sessions@1"
-	capKitRegistry   = "com.docker.sandbox/kit-registry@1"
+	capAgentContext             = "com.docker.sandbox/agent-context@1"
+	capVolume                   = "com.docker.sandbox/volume@1"
+	capResources                = "com.docker.sandbox/resources@1"
+	capPrivileged               = "com.docker.sandbox/privileged@1"
+	capAgentSkills              = "com.docker.sandbox/agent-skills@1"
+	capPort                     = "com.docker.sandbox/port@1"
+	capUSBDevice                = "com.docker.sandbox/usb-device@1"
+	capAgentSessions            = "com.docker.sandbox/agent-sessions@1"
+	capAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
+	capKitRegistry              = "com.docker.sandbox/kit-registry@1"
 )
 
 const (

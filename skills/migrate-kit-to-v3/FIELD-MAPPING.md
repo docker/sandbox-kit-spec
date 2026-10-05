@@ -314,7 +314,8 @@ unchanged. `phase` also accepts a non-empty list of distinct phases:
 ### lifecycle@1
 
 One entry holding `install:`, `startup:`, `files:` and `interactive:`. Commands,
-`user:` and `description:` carry over verbatim.
+`user:` and `description:` carry over verbatim. `interactive` names the same
+launch as `agent-interactive-sessions@1`'s `newSession`, which defaults to it.
 
 **First ask whether the hook should exist at all.** In v2 a mixin had no content
 mechanism, so an install hook was the only way for one to install anything. v3
@@ -474,6 +475,31 @@ verb tails: `promptArgs: ["-p"]` → `prompt: ["-p", "{{.Prompt}}"]`, plus
 complete command rather than a tail. Where `promptArgs` was deliberately
 omitted, omit the capability — do not invent flags.
 
+### agent-interactive-sessions@1
+
+The interactive sibling of `agent-sessions@1`: the verb tails a host that puts
+a person at the terminal launches, run with a terminal attached. An agent whose
+CLI has both a headless and an interactive mode declares **both** capabilities;
+a headless-only agent declares only `agent-sessions@1`. Same rule as there: add
+only the verbs you have verified against the tool's real CLI (its `--help` or
+official docs), never the verbs a pattern suggests. Fields: `prompt` (must
+reference `{{.Prompt}}`; start a TUI session seeded with a prompt, which is
+usually a positional argument or `-i`, not the headless `-p`), `resume` (must
+reference `{{.SessionID}}`), `continue`, `sessionPicker` and `list`.
+
+Presence is the semantics here, unlike `agent-sessions@1`: a present key means
+supported, an absent key means unsupported, and a present empty list means the
+launch argv alone for `continue`, `newSession` and `sessionPicker` (`prompt` and
+`resume` carry their placeholders, so they are never empty). Leave a verb out
+when the agent has no such operation rather than writing `[]`. `newSession` is the exception: omit it when a bare launch
+opens the TUI, because omitted it defaults to the `lifecycle@1` interactive
+launch (the launch argv plus `interactive`, or the launch argv alone). When a
+kit states both `newSession` and `lifecycle@1.interactive` they must be the
+same argv, an explicit `[]` included, so a v2 `sandbox.command.interactive`
+becomes `lifecycle@1` `interactive` and `newSession` stays omitted. `list` is the same command as in
+`agent-sessions@1`; repeat it there verbatim, and omit it where the agent has no
+command that prints session ids one per line.
+
 ### Bundled skills
 
 `agent-skill@1` declares a skill carried by the Kit: `path` is an absolute
@@ -519,7 +545,8 @@ A workload kit's `-mixin` sibling declares the same credentials, network policy,
 volumes, hooks, args and provides, minus what only the kit that owns the
 environment can carry:
 
-- no `sbx@1` or `agent-sessions@1`; an agent mixin keeps its explicit
+- no `sbx@1`, `agent-sessions@1` or `agent-interactive-sessions@1`; an agent
+  mixin keeps its explicit
   `agent-context@1` directory and filename, while tool mixins carry bodies only
 - no `ENTRYPOINT` — the base workload's launch command stays, and the user runs
   the tool from the shell. Say so in the descriptor's header comment.
@@ -605,7 +632,7 @@ Before calling a migration done:
 - [ ] the install/runtime phase split loses no host from the v2 list
 - [ ] every mixin declaring a context `filename:` also declares its
       explicit discovery `directory:`
-- [ ] no `sbx@1` or `agent-sessions@1` on a mixin
+- [ ] no `sbx@1`, `agent-sessions@1` or `agent-interactive-sessions@1` on a mixin
 - [ ] the mixin's `ENV` is on the recipe's final stage, and profile.d is used
       only for values that collide or that only a shell needs
 - [ ] entrypoint, env, user and workdir live in the recipe, not the descriptor

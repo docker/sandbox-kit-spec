@@ -131,6 +131,7 @@ func TestMergeCapabilityNames(t *testing.T) {
 		{"context", "type: com.docker.sandbox/agent-context@1\n    config: {content: Instructions}", ""},
 		{"resources", "type: com.docker.sandbox/resources@1\n    config: {cpu: 2}", ""},
 		{"sessions", "type: com.docker.sandbox/agent-sessions@1\n    config: {continue: [--continue]}", ""},
+		{"interactive sessions", "type: com.docker.sandbox/agent-interactive-sessions@1\n    config: {newSession: []}", ""},
 		{"port", "type: com.docker.sandbox/port@1\n    config: {container: 8080}", "type: com.docker.sandbox/port@1\n    config: {container: 8080, transport: tcp}"},
 		{"skills", "type: com.docker.sandbox/agent-skills@1\n    config: {path: /skills}", ""},
 		{"ssh agent", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime}", ""},

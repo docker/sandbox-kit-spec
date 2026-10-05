@@ -425,6 +425,262 @@ capabilities:
 	require.Len(t, out.Capabilities, 1, "an identical restatement is the same ask")
 }
 
+// An empty newSession is a verb ("the launch argv alone"), so composing
+// must hand it on as authored: re-rendering the typed config would let
+// omitempty drop it and make the verb read as unsupported.
+func TestMergeKeepsEmptyInteractiveVerbs(t *testing.T) {
+	workload := contribute(t, "agent", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {newSession: [], continue: [--continue]}
+`)
+	mixin := contribute(t, "extra", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/resources@1
+    config: {cpu: 2}
+`)
+	out := mergeOK(t, workload, mixin).Descriptor
+	sessions, err := AgentInteractiveSessionsOf(out.Capabilities)
+	require.NoError(t, err)
+	require.NotNil(t, sessions)
+	require.NotNil(t, sessions.NewSession, "an empty newSession survives composition")
+	require.Empty(t, sessions.NewSession)
+	require.Nil(t, sessions.SessionPicker)
+
+	other := `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {%s}
+`
+	_, err = Merge([]Contribution{workload, contribute(t, "b", fmt.Sprintf(other, "continue: [-c]"))}, MergeOptions{})
+	require.ErrorContains(t, err, "one author")
+	same := mergeOK(t, workload, contribute(t, "b", fmt.Sprintf(other, "newSession: [], continue: [--continue]"))).Descriptor
+	require.Len(t, same.Capabilities, 1, "an identical restatement is the same ask")
+}
+
+// The agreement rule runs at composition too: a mixin contributes the
+// lifecycle tail, so the check compares the decoded asks of the workload
+// and the mixin and names both Kits.
+func TestComposedInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
+	workload := func(newSession string) Contribution {
+		return contribute(t, "agent", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {newSession: `+newSession+`}
+`)
+	}
+	mixin := func(interactive string) Contribution {
+		return contribute(t, "tui", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: {interactive: `+interactive+`, startup: [{command: echo ready}]}
+`)
+	}
+	for _, tc := range []struct {
+		name, newSession, interactive string
+		ok                            bool
+	}{
+		{"same tail", "[--tui]", "[--tui]", true},
+		{"both empty", "[]", "[]", true},
+		{"different tails", "[--other]", "[--tui]", false},
+		{"newSession empty, lifecycle tail", "[]", "[--tui]", false},
+		{"newSession tail, lifecycle empty", "[--tui]", "[]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			composed, err := Compose([]Contribution{workload(tc.newSession), mixin(tc.interactive)})
+			if tc.ok {
+				require.NoError(t, err)
+				raw, err := json.Marshal(composed)
+				require.NoError(t, err)
+				_, err = ValidateEffective(raw, composed)
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "disagrees with lifecycle interactive")
+			require.ErrorContains(t, err, "agent capabilities[0]")
+			require.ErrorContains(t, err, "tui capabilities[0]")
+		})
+	}
+
+	t.Run("lifecycle without a tail", func(t *testing.T) {
+		noTail := contribute(t, "hooks", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: {startup: [{command: echo ready}]}
+`)
+		_, err := Compose([]Contribution{workload("[--tui]"), noTail})
+		require.NoError(t, err)
+	})
+}
+
+// The two session capabilities enumerate the same sessions, so composing
+// Kits that declare different list commands is refused with both refs
+// named, not left to a caller that happens to validate the output.
+func TestComposedSessionListsAgree(t *testing.T) {
+	headless := func(list string) Contribution {
+		return contribute(t, "headless", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-sessions@1
+    config: {list: `+list+`}
+`)
+	}
+	interactive := func(list string) Contribution {
+		return contribute(t, "tui", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {list: `+list+`}
+`)
+	}
+	_, err := Compose([]Contribution{headless(`[ls, ids]`), interactive(`[ls, ids]`)})
+	require.NoError(t, err)
+	_, err = Compose([]Contribution{headless(`"a b"`), interactive(`[sh, -c, "a b"]`)})
+	require.NoError(t, err, "the string and list spellings of one command are equal")
+
+	_, err = Compose([]Contribution{headless(`[ls, ids]`), interactive(`[ls, all]`)})
+	require.ErrorContains(t, err, "differs from agent-interactive-sessions list")
+	require.ErrorContains(t, err, "headless capabilities[0]")
+	require.ErrorContains(t, err, "tui capabilities[0]")
+
+	oneSided := contribute(t, "tui", `schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {continue: [--continue]}
+`)
+	_, err = Compose([]Contribution{headless(`[ls, ids]`), oneSided})
+	require.NoError(t, err, "list on one capability only is fine")
+
+	// Spellings that differ only in an unresolved reference may resolve to
+	// one command, so they are left to the expanded descriptor.
+	_, err = Compose([]Contribution{headless(`[ls, "${{ kit.args.dir }}"]`), interactive(`[ls, "${{ kit.args.other }}"]`)})
+	require.NoError(t, err)
+}
+
+// A stated empty interactive tail is the launch argv with nothing
+// appended, valid beside a hook as it is at @1 today, and composition
+// keeps it rather than letting omitempty turn it into absence.
+func TestLifecycleKeepsAStatedEmptyInteractiveTail(t *testing.T) {
+	lifecycleOf := func(t *testing.T, config string) *Capability {
+		t.Helper()
+		c := contribute(t, "kit", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: `+config+`
+`)
+		composed, err := Compose([]Contribution{c})
+		require.NoError(t, err)
+		require.Len(t, composed.Capabilities, 1)
+		raw, err := json.Marshal(composed)
+		require.NoError(t, err)
+		_, err = ValidateEffective(raw, composed)
+		require.NoError(t, err)
+		return &composed.Capabilities[0]
+	}
+
+	empty := lifecycleOf(t, "{interactive: [], startup: [{command: echo ready}]}")
+	require.Contains(t, empty.Config, "interactive")
+	require.Empty(t, empty.Config["interactive"])
+	l, err := LifecycleOf([]Capability{*empty})
+	require.NoError(t, err)
+	require.NotNil(t, l.Interactive)
+
+	absent := lifecycleOf(t, "{startup: [{command: echo ready}]}")
+	require.NotContains(t, absent.Config, "interactive")
+
+	tail := lifecycleOf(t, "{interactive: [--tui]}")
+	require.Equal(t, []any{"--tui"}, tail.Config["interactive"])
+}
+
+// Lifecycle round-trips a stated empty interactive tail through JSON, the
+// way CapabilityWithConfig re-renders it, and writes every other field as
+// before.
+func TestLifecycleMarshalsAStatedEmptyInteractiveTail(t *testing.T) {
+	raw, err := json.Marshal(Lifecycle{Interactive: []string{}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"interactive":[]}`, string(raw))
+
+	raw, err = json.Marshal(Lifecycle{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(raw))
+
+	raw, err = json.Marshal(Lifecycle{Interactive: []string{"--tui"}})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"interactive":["--tui"]}`, string(raw))
+
+	// Other fields keep omitempty and their order.
+	raw, err = json.Marshal(Lifecycle{Startup: []StartupHook{{Command: CommandLine{"true"}}}, Interactive: []string{}})
+	require.NoError(t, err)
+	require.Equal(t, `{"startup":[{"command":["true"]}],"interactive":[]}`, string(raw))
+
+	d := decodeValid(t, `schemaVersion: "3"
+kind: workload
+provides: ["claude@2.1.0"]
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config: {interactive: [], startup: [{command: echo ready}]}
+`)
+	first, err := LifecycleOf(d.Capabilities)
+	require.NoError(t, err)
+	rendered, err := CapabilityWithConfig(d.Capabilities[0], first)
+	require.NoError(t, err)
+	again, err := LifecycleOf([]Capability{*rendered})
+	require.NoError(t, err)
+	require.NotNil(t, again.Interactive)
+	require.Empty(t, again.Interactive)
+}
+
+// A lifecycle tail inside a selected group reaches composition as a plain
+// entry, so the same comparison covers it.
+func TestSelectedGroupLifecycleTailAgreesWithNewSession(t *testing.T) {
+	for name, tc := range map[string]struct {
+		newSession string
+		ok         bool
+	}{"agreeing": {"[--tui]", true}, "disagreeing": {"[--other]", false}} {
+		t.Run(name, func(t *testing.T) {
+			d := decodeValid(t, `schemaVersion: "3"
+kind: workload
+provides: ["claude@2.1.0"]
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config: {newSession: `+tc.newSession+`}
+  - group:
+      capabilities:
+        - type: com.docker.sandbox/lifecycle@1
+          config: {interactive: [--tui], startup: [{command: echo ready}]}
+`)
+			selected, err := SelectCapabilities(t.Context(), d, Supported(CapabilityAgentInteractiveSessions, CapabilityLifecycle))
+			require.NoError(t, err)
+			effective := *d
+			effective.Capabilities = selected.Capabilities
+			_, err = Compose([]Contribution{{Reference: "agent", Descriptor: &effective}})
+			if tc.ok {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, "disagrees with lifecycle interactive")
+		})
+	}
+}
+
 // The profile belongs to the workload; the bodies become one staged
 // file, which the descriptor cannot carry and the caller has to write.
 func TestMergeCollectsAgentContextBodies(t *testing.T) {

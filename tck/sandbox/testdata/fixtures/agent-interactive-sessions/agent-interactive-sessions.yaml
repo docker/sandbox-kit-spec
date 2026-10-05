@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Required agent interactive sessions
+description: Requires interactive session verbs outright, so refusing it when unclaimed is observable
+capabilities:
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      prompt: ["kit-tck-agent", "{{.Prompt}}"]

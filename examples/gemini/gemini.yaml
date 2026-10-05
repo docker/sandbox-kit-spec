@@ -100,6 +100,19 @@ capabilities:
     config:
       prompt: ["-p", "{{.Prompt}}"]
 
+  # Interactive verbs, for a host that puts a person at the terminal. Tails
+  # append to the entrypoint and run with a terminal attached. -i seeds the
+  # prompt and stays in the TUI, where -p would exit; a bare launch is the
+  # TUI, so newSession is omitted. gemini has no flag that opens its session
+  # browser (that is the in-app /resume), so there is no sessionPicker, and
+  # its --list-sessions output is not one id per line, so there is no list.
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    config:
+      # `-i=` binds the value: a prompt starting with `-` stays a prompt.
+      prompt: ["-i={{.Prompt}}"]
+      continue: ["--resume", "latest"]
+      resume: ["--resume", "{{.SessionID}}"]
+
   # gemini reads its profile as GEMINI.md, not AGENTS.md.
   - type: com.docker.sandbox/agent-context@1
     config:

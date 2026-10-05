@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/url"
 	containerpath "path"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -459,17 +460,84 @@ var needType = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z
 // once per thing requested and dedup on their own key; unknown types
 // dedup on the exact request (type + config).
 var singletonCapabilities = map[string]bool{
-	CapabilityGitIdentity:     true,
-	CapabilityNetworkPolicy:   true,
-	CapabilityNetworkPolicyV2: true,
-	CapabilityResources:       true,
-	CapabilityPrivileged:      true,
-	CapabilityKitRegistry:     true,
-	CapabilityAgentSessions:   true,
-	CapabilityLifecycle:       true,
-	CapabilityAgentContext:    true,
-	CapabilitySbx:             true,
-	CapabilityLongRunning:     true,
+	CapabilityGitIdentity:              true,
+	CapabilityNetworkPolicy:            true,
+	CapabilityNetworkPolicyV2:          true,
+	CapabilityResources:                true,
+	CapabilityPrivileged:               true,
+	CapabilityKitRegistry:              true,
+	CapabilityAgentSessions:            true,
+	CapabilityAgentInteractiveSessions: true,
+	CapabilityLifecycle:                true,
+	CapabilityAgentContext:             true,
+	CapabilitySbx:                      true,
+	CapabilityLongRunning:              true,
+}
+
+// deref unwraps pointer and interface layers, the way JSON marshaling
+// does, and reports whether it reached a null: a nil pointer, interface,
+// map or slice.
+func deref(v reflect.Value) (reflect.Value, bool) {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v, true
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map:
+		if v.IsNil() {
+			return v, true
+		}
+	case reflect.Invalid:
+		return v, true
+	}
+	return v, false
+}
+
+// hasNull reports whether an authored config value is null or a list
+// holding a null element. Configs built in code can carry typed slices
+// and pointers (a nil []string, CommandLine or *string marshals to null),
+// so values are read by kind after unwrapping, not by one concrete type;
+// arrays marshal to lists too.
+func hasNull(v any) bool {
+	rv, null := deref(reflect.ValueOf(v))
+	if null {
+		return true
+	}
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return false
+	}
+	for i := range rv.Len() {
+		if _, null := deref(rv.Index(i)); null {
+			return true
+		}
+	}
+	return false
+}
+
+// emptyCommand reports whether an authored command (string or list form)
+// names nothing: an empty or blank string, or a list that is empty or
+// whose executable is blank. Values are unwrapped and read by kind, as in
+// hasNull, so a CommandLine, []string or pointer built in code is judged
+// like a decoded []any.
+func emptyCommand(v any) bool {
+	rv, null := deref(reflect.ValueOf(v))
+	if null {
+		return false
+	}
+	switch rv.Kind() {
+	case reflect.String:
+		return strings.TrimSpace(rv.String()) == ""
+	case reflect.Slice, reflect.Array:
+		if rv.Len() == 0 {
+			return true
+		}
+		// argv[0] is the executable: an empty one cannot run.
+		first, null := deref(rv.Index(0))
+		return !null && first.Kind() == reflect.String && strings.TrimSpace(first.String()) == ""
+	}
+	return false
 }
 
 // argvContains reports whether any argv element contains the substring
@@ -527,6 +595,19 @@ func validateCapabilityBlock(d *Descriptor) error {
 
 	deferCrossChecks := false
 	invalidCredentials := map[int]bool{}
+	// lifecycle's interactive tail and agent-interactive-sessions'
+	// newSession name the same launch, so a Kit stating both states it
+	// once. Captured from the literal entries; a parameterized entry
+	// defers decoding and is judged on the effective descriptor, as is a
+	// lifecycle inside a group once one is selected.
+	var newSession, interactive []string
+	newSessionAt, interactiveAt := -1, -1
+	// Both session capabilities enumerate the same sessions whichever
+	// mode opened them, so a Kit declaring list on both states one
+	// command. Compared on the decoded argv, so the string and list
+	// spellings of one command are equal.
+	var headlessList, interactiveList CommandLine
+	interactiveListAt := -1
 	for i, n := range needs {
 		path := fmt.Sprintf("capabilities[%d]", i)
 		if _, keys := environmentReferences(n.Config); keys {
@@ -805,12 +886,38 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if len(a.Resume) > 0 && !argvContains(a.Resume, SessionIDPlaceholder) {
 				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
 			}
+			headlessList = a.List
+		case CapabilityAgentInteractiveSessions:
+			var a AgentInteractiveSessions
+			if err := DecodeCapabilityConfig(n, &a); err != nil {
+				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				continue
+			}
+			errs.add(validateInteractiveSessionsAuthored(path, i, n))
+			// Presence, not length: an empty tail is a verb ("the launch
+			// argv alone"), so a declaration holding only newSession: []
+			// says something.
+			if a.Prompt == nil && a.Resume == nil && a.Continue == nil && a.NewSession == nil && a.SessionPicker == nil && len(a.List) == 0 {
+				errs.add(fieldErrorf(path+".config", "capabilities[%d]: agent-interactive-sessions declares no verbs; drop the entry instead", i))
+			}
+			// Same reasoning as agent-sessions: a prompt verb that never
+			// receives the prompt discards the caller's input. Judged on
+			// presence here, so prompt: [] cannot carry it and is refused.
+			if a.Prompt != nil && !argvContains(a.Prompt, SessionPromptPlaceholder) {
+				errs.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
+			}
+			if a.Resume != nil && !argvContains(a.Resume, SessionIDPlaceholder) {
+				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
+			}
+			newSession, newSessionAt = a.NewSession, i
+			interactiveList, interactiveListAt = a.List, i
 		case CapabilityLifecycle:
 			var l Lifecycle
 			if err := DecodeCapabilityConfig(n, &l); err != nil {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
 				continue
 			}
+			interactive, interactiveAt = l.Interactive, i
 			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
 			}
@@ -834,6 +941,23 @@ func validateCapabilityBlock(d *Descriptor) error {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].type", two),
 			"capabilities[%d]: %s cannot be declared beside %s at capabilities[%d]; a descriptor states one network-policy version",
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
+	}
+
+	// Compared on literal values only, so an unrelated deferral does not
+	// suppress it. Whenever both are stated the argvs must agree, an empty
+	// tail included: newSession: [--tui] beside interactive: [] would
+	// launch two different ways. Composition makes the same comparison
+	// (see checkInteractiveAgreement) on the decoded asks.
+	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) {
+		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
+			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
+			newSessionAt, newSession, interactive, interactiveAt))
+	}
+
+	if len(headlessList) > 0 && len(interactiveList) > 0 && !slices.Equal(headlessList, interactiveList) {
+		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.list", interactiveListAt),
+			"capabilities[%d]: list %q differs from agent-sessions list %q; both capabilities enumerate the same sessions, so they name one command",
+			interactiveListAt, []string(interactiveList), []string(headlessList)))
 	}
 
 	// The inject⊆allow invariant needs literal domains on both sides;
@@ -1021,11 +1145,37 @@ func validateNetworkEntry(path string, i int, phase string, r NetworkEntry) erro
 	return errs.err()
 }
 
+// validateInteractiveSessionsAuthored judges the authored values of an
+// agent-interactive-sessions entry whose meaning is presence. The typed
+// decode reads a stated null as absent (and a null element as ""), so a
+// null is refused here rather than silently becoming "unsupported"; and
+// list is a complete command, so a present one must name a command. The
+// string form decodes to ["sh", "-c", s], which a length check would let
+// an empty string slip through as a three-element argv. These do not wait
+// for argument values, so a parameterized entry is checked the same way.
+func validateInteractiveSessionsAuthored(path string, i int, n Capability) error {
+	var errs ValidationErrors
+	for _, key := range []string{"prompt", "resume", "continue", "newSession", "sessionPicker", "list"} {
+		if value, stated := n.Config[key]; stated && hasNull(value) {
+			errs.add(fieldErrorf(path+".config."+key, "capabilities[%d]: %s must not be null or contain null", i, key))
+		}
+	}
+	if list, stated := n.Config["list"]; stated && emptyCommand(list) {
+		errs.add(fieldErrorf(path+".config.list", "capabilities[%d]: list must name a command", i))
+	}
+	return errs.err()
+}
+
 // validatePresenceRules judges what an entry states rather than what
 // it states it as, which is the part of a config a placeholder does
 // not hide.
 func validatePresenceRules(path string, i int, n Capability) error {
 	var errs ValidationErrors
+	if n.Type == CapabilityAgentInteractiveSessions {
+		// Whether a verb is stated is its meaning, so its nulls and its
+		// empty command are judged now, whatever another field defers.
+		return validateInteractiveSessionsAuthored(path, i, n)
+	}
 	if n.Type == CapabilityCredential {
 		phases, err := credentialPhases(n)
 		if err != nil {

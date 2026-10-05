@@ -112,6 +112,22 @@ capabilities:
       resume: ["--resume", "{{.SessionID}}"]
       list: ["claude", "agents", "--json", "--all"]
 
+  # The interactive twin of the block above: the same agent's TUI verbs,
+  # for a host that puts a person at the terminal. Tails append to the
+  # entrypoint and run with a terminal attached. newSession is omitted: a
+  # bare launch opens the TUI, which is the lifecycle@1 interactive launch
+  # it defaults to. The picker is `--resume` without a value. There is no
+  # list: `claude agents --json` prints JSON, not one id per line, so the
+  # command above does not meet the contract and is not repeated here.
+  - type: com.docker.sandbox/agent-interactive-sessions@1
+    description: Open claude's terminal UI on a chosen session
+    config:
+      # `--` ends the options: a prompt starting with `-` stays a prompt.
+      prompt: ["--", "{{.Prompt}}"]
+      continue: ["--continue"]
+      resume: ["--resume", "{{.SessionID}}"]
+      sessionPicker: ["--resume"]
+
   # Volumes persist across container recreation; deterministic naming
   # reattaches the same sandbox name to the same volumes on recreate, so
   # session state survives kit changes. Subdirectories rather than all of
