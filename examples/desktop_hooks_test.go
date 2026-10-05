@@ -40,6 +40,87 @@ func TestDesktopHookPathsComposeAcrossAgents(t *testing.T) {
 	}
 }
 
+func TestDesktopHookRetriesFailedStatusDelivery(t *testing.T) {
+	requireExampleTool(t, "jq")
+	bin := t.TempDir()
+	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
+payload=""; headers=""; method=""; fail_http=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data) shift; payload="$1" ;;
+    -D) shift; headers="$1" ;;
+    -X) shift; method="$1" ;;
+    --fail) fail_http=true ;;
+  esac
+  shift
+done
+if [ -n "$headers" ]; then
+  printf 'Mcp-Session-Id: test\r\n' > "$headers"
+fi
+case "$payload" in
+  *'"name":"sbx_desktop_session"'*)
+    printf '%s\n' "$payload" >> "$MOCK_DELIVERIES"
+    if [ "$MOCK_DELIVERY_RESULT" = http ]; then
+      "$fail_http" && exit 22
+      exit 0
+    fi
+    exit "$MOCK_DELIVERY_RESULT"
+    ;;
+esac
+# Closing the session must not determine whether delivery was successful.
+[ "$method" = DELETE ] && exit 7
+exit 0
+`, 0o755)
+	for _, kit := range []string{"claude", "claude-mixin", "codex", "codex-mixin"} {
+		t.Run(kit, func(t *testing.T) {
+			tmp := t.TempDir()
+			deliveries := filepath.Join(tmp, "deliveries")
+			stamp := filepath.Join(tmp, "sbx-agent-hook", "test_.session")
+			run := func(result, input string, attempts int) {
+				t.Helper()
+				// The real status command detaches its worker. Wait for that
+				// child on exit so assertions cannot race delivery or stamping.
+				stdout, stderr, err := runExampleCommand(t, []string{
+					"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"TMPDIR=" + tmp,
+					"HOME=" + tmp,
+					"MCP_GATEWAY_URL=http://test.invalid/mcp",
+					"MOCK_DELIVERIES=" + deliveries,
+					"MOCK_DELIVERY_RESULT=" + result,
+				}, input, "sh", "-c", `script=$1; shift; trap 'wait' EXIT; . "$script"`,
+					"hook-test", filepath.Join(kit, "scripts", "sbx-agent-hook.sh"), "claude-status")
+				require.NoError(t, err, stderr)
+				require.Empty(t, stdout)
+				require.Empty(t, stderr)
+				calls, err := os.ReadFile(deliveries)
+				require.NoError(t, err)
+				require.Len(t, strings.Split(strings.TrimSpace(string(calls)), "\n"), attempts)
+			}
+			input := `{"session_id":"test","model":{"id":"first"}}`
+			for i, result := range []string{"7", "28", "http"} {
+				run(result, input, i+1)
+				require.NoFileExists(t, stamp, "failed delivery must remain eligible for retry")
+			}
+			run("0", input, 4)
+			previous, err := os.ReadFile(stamp)
+			require.NoError(t, err)
+			require.NotEmpty(t, previous)
+			run("0", input, 4)
+
+			changed := `{"session_id":"test","model":{"id":"second"}}`
+			run("28", changed, 5)
+			current, err := os.ReadFile(stamp)
+			require.NoError(t, err)
+			require.Equal(t, previous, current, "failed updates must preserve the last delivered checksum")
+			run("0", changed, 6)
+			current, err = os.ReadFile(stamp)
+			require.NoError(t, err)
+			require.NotEqual(t, previous, current)
+			run("0", changed, 6)
+		})
+	}
+}
+
 func TestDesktopHookCleansHeadersOnGatewayFailure(t *testing.T) {
 	requireExampleTool(t, "jq")
 	bin := t.TempDir()

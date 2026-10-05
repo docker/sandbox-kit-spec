@@ -63,7 +63,7 @@ mcp_open() {
 rpc_id=1
 mcp_call() { # tool-name arguments-json
   rpc_id=$((rpc_id + 1))
-  curl -s -m 5 -o /dev/null -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
+  curl -s --fail -m 5 -o /dev/null -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
     --data "{\"jsonrpc\":\"2.0\",\"id\":$rpc_id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" "$url"
 }
 mcp_close() {
@@ -176,9 +176,11 @@ send_session() { # args-json
   sum=$(printf '%s' "$1" | cksum | cut -d' ' -f1)
   [ -r "$stamp" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$sum" ] && return 0
   mcp_open || return 0
-  mcp_call sbx_desktop_session "$1"
+  # Keep failed deliveries eligible for retry on the next identical update.
+  if mcp_call sbx_desktop_session "$1"; then
+    printf '%s' "$sum" > "$stamp" 2>/dev/null
+  fi
   mcp_close
-  printf '%s' "$sum" > "$stamp" 2>/dev/null
 }
 
 {
