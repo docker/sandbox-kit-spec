@@ -11,24 +11,38 @@
       "minItems": 1,
       "contains": {
         "type": "string",
-        "pattern": "\\{\\{\\.Prompt\\}\\}"
+        "anyOf": [
+          {
+            "pattern": "\\{\\{\\.Prompt\\}\\}"
+          },
+          {
+            "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+          }
+        ]
       },
       "items": {
         "type": "string"
       },
-      "description": "Argv tail that starts an interactive session seeded with a prompt; must reference {{.Prompt}}, which the host substitutes before execution."
+      "description": "Argv tail that starts an interactive session seeded with a prompt; must reference {{.Prompt}}, which the host substitutes before execution (an element that references a kit arg is judged once the arg is expanded)."
     },
     "resume": {
       "type": "array",
       "minItems": 1,
       "contains": {
         "type": "string",
-        "pattern": "\\{\\{\\.SessionID\\}\\}"
+        "anyOf": [
+          {
+            "pattern": "\\{\\{\\.SessionID\\}\\}"
+          },
+          {
+            "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+          }
+        ]
       },
       "items": {
         "type": "string"
       },
-      "description": "Argv tail that reopens a named session interactively; must reference {{.SessionID}}."
+      "description": "Argv tail that reopens a named session interactively; must reference {{.SessionID}} (an element that references a kit arg is judged once the arg is expanded)."
     },
     "continue": {
       "type": "array",

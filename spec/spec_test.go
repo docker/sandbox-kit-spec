@@ -726,6 +726,31 @@ func TestAgentInteractiveSessionsAgreeWithLifecycle(t *testing.T) {
 
 // Configs built in code can hold typed slices rather than the []any a
 // decoder produces; null and empty-command checks must read them alike.
+// A parameterized entry defers typed validation until its args are
+// expanded, but whether a verb is stated and whether list names a command
+// do not wait for values: an unrelated reference must not suppress them.
+func TestAgentInteractiveSessionsAuthoredChecksSurviveParameterization(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\nargs:\n  flag: {default: x}\ncapabilities:\n  - type: com.docker.sandbox/agent-interactive-sessions@1\n    config:\n"
+	for name, ok := range map[string]bool{
+		"      continue: [\"${{ kit.args.flag }}\"]\n      prompt: null\n":                       false,
+		"      continue: [\"${{ kit.args.flag }}\"]\n      list: []\n":                           false,
+		"      continue: [\"${{ kit.args.flag }}\"]\n      list: \"\"\n":                         false,
+		"      continue: [\"${{ kit.args.flag }}\"]\n      newSession: [null]\n":                 false,
+		"      continue: [\"${{ kit.args.flag }}\"]\n      prompt: [\"${{ kit.args.flag }}\"]\n": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, err := Decode([]byte(head + name))
+			require.NoError(t, err)
+			_, err = Validate(d)
+			if ok {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
 func ptrTo[T any](v T) *T { return &v }
 
 func TestAgentInteractiveSessionsRejectsTypedProgrammaticConfigs(t *testing.T) {

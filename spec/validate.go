@@ -893,15 +893,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
 				continue
 			}
-			// Presence is meaning here, and the typed decode reads a stated
-			// null as absent (and a null element as ""), so a null is
-			// refused on the authored value rather than silently becoming
-			// "unsupported".
-			for _, key := range []string{"prompt", "resume", "continue", "newSession", "sessionPicker", "list"} {
-				if value, stated := n.Config[key]; stated && hasNull(value) {
-					errs.add(fieldErrorf(path+".config."+key, "capabilities[%d]: %s must not be null or contain null", i, key))
-				}
-			}
+			errs.add(validateInteractiveSessionsAuthored(path, i, n))
 			// Presence, not length: an empty tail is a verb ("the launch
 			// argv alone"), so a declaration holding only newSession: []
 			// says something.
@@ -916,13 +908,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 			if a.Resume != nil && !argvContains(a.Resume, SessionIDPlaceholder) {
 				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
-			}
-			// list is a complete command, so a present one must name a
-			// command. Judged on the authored value: the string form
-			// decodes to ["sh", "-c", s], which a length check would let
-			// an empty string slip through as a three-element argv.
-			if list, stated := n.Config["list"]; stated && emptyCommand(list) {
-				errs.add(fieldErrorf(path+".config.list", "capabilities[%d]: list must name a command", i))
 			}
 			newSession, newSessionAt = a.NewSession, i
 			interactiveList, interactiveListAt = a.List, i
@@ -1160,11 +1145,37 @@ func validateNetworkEntry(path string, i int, phase string, r NetworkEntry) erro
 	return errs.err()
 }
 
+// validateInteractiveSessionsAuthored judges the authored values of an
+// agent-interactive-sessions entry whose meaning is presence. The typed
+// decode reads a stated null as absent (and a null element as ""), so a
+// null is refused here rather than silently becoming "unsupported"; and
+// list is a complete command, so a present one must name a command. The
+// string form decodes to ["sh", "-c", s], which a length check would let
+// an empty string slip through as a three-element argv. These do not wait
+// for argument values, so a parameterized entry is checked the same way.
+func validateInteractiveSessionsAuthored(path string, i int, n Capability) error {
+	var errs ValidationErrors
+	for _, key := range []string{"prompt", "resume", "continue", "newSession", "sessionPicker", "list"} {
+		if value, stated := n.Config[key]; stated && hasNull(value) {
+			errs.add(fieldErrorf(path+".config."+key, "capabilities[%d]: %s must not be null or contain null", i, key))
+		}
+	}
+	if list, stated := n.Config["list"]; stated && emptyCommand(list) {
+		errs.add(fieldErrorf(path+".config.list", "capabilities[%d]: list must name a command", i))
+	}
+	return errs.err()
+}
+
 // validatePresenceRules judges what an entry states rather than what
 // it states it as, which is the part of a config a placeholder does
 // not hide.
 func validatePresenceRules(path string, i int, n Capability) error {
 	var errs ValidationErrors
+	if n.Type == CapabilityAgentInteractiveSessions {
+		// Whether a verb is stated is its meaning, so its nulls and its
+		// empty command are judged now, whatever another field defers.
+		return validateInteractiveSessionsAuthored(path, i, n)
+	}
 	if n.Type == CapabilityCredential {
 		phases, err := credentialPhases(n)
 		if err != nil {

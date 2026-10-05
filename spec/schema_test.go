@@ -434,7 +434,12 @@ func TestAgentInteractiveSessionsSchemaPresence(t *testing.T) {
 		require.EqualValues(t, 1, prop["minItems"], "%s: [] cannot carry its placeholder", verb)
 		// The validator refuses a tail without the placeholder, so the
 		// schema must too: contains is the keyword that judges it.
-		pattern := regexp.MustCompile(at(t, prop, "contains")["pattern"].(string))
+		contains := at(t, prop, "contains")
+		anyOf := contains["anyOf"].([]any)
+		pattern := regexp.MustCompile(anyOf[0].(map[string]any)["pattern"].(string))
+		// An element that still references a kit arg is judged after
+		// expansion, as the validator defers a parameterized entry.
+		require.Contains(t, anyOf[1].(map[string]any)["$ref"], "kit-arg.schema.json#/definitions/bearing")
 		require.True(t, pattern.MatchString("--flag="+placeholder), "%s: a placeholder inside a token counts", verb)
 		require.False(t, pattern.MatchString("--flag"), "%s: a tail without it fails", verb)
 	}
