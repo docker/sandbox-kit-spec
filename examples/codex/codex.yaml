@@ -112,13 +112,13 @@ capabilities:
             approval_policy = "never"
             sandbox_mode = "danger-full-access"
             mcp_oauth_credentials_store = "file"
-            # Turn-complete hook for sbx Desktop (see /usr/local/bin/sbx-agent-hook):
+            # Turn-complete hook for sbx Desktop (see /usr/local/bin/sbx-codex-hook):
             # raises the desktop notification and forwards the session's model,
             # effort, token usage and git state read from this thread's rollout
             # file. `notify` is top-level and needs no hook trust; Codex spawns
             # it fire-and-forget with the event JSON as the last argument, and
             # the script is a silent no-op when no desktop server is loaded.
-            notify = ["/usr/local/bin/sbx-agent-hook", "codex"]
+            notify = ["/usr/local/bin/sbx-codex-hook", "codex"]
             EOF
             # Model selection from the create-phase args. These are
             # top-level keys, so they must land here, before the

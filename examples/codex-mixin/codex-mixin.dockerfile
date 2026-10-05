@@ -35,8 +35,8 @@ RUN case "$TARGETARCH" in \
 # `notify` hook the config seed points Codex at: it reports a completed
 # turn to sbx Desktop through the MCP gateway and is a silent no-op when
 # no desktop server is loaded. Rides the overlay like the binaries above.
-COPY scripts/sbx-agent-hook.sh /out/usr/local/bin/sbx-agent-hook
-RUN chmod 0755 /out/usr/local/bin/sbx-agent-hook && chown 0:0 /out/usr/local/bin/sbx-agent-hook
+COPY scripts/sbx-agent-hook.sh /out/usr/local/bin/sbx-codex-hook
+RUN chmod 0755 /out/usr/local/bin/sbx-codex-hook && chown 0:0 /out/usr/local/bin/sbx-codex-hook
 
 # The v2 kit's environment.variables block has no v3 field; the image
 # config owns runtime env. An ENV on the final stage would reach the

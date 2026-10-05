@@ -40,8 +40,8 @@ RUN chmod 0755 /opt/claude-sessions/interactive-sessions.mjs
 # Lifecycle hook the settings seed registers for Stop/Notification: it
 # reports the event to sbx Desktop through the MCP gateway and is a
 # silent no-op when no desktop server is loaded. See the script header.
-COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-agent-hook
-RUN chmod 0755 /usr/local/bin/sbx-agent-hook
+COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-claude-hook
+RUN chmod 0755 /usr/local/bin/sbx-claude-hook
 
 # v2's environment.variables, in the slot OCI already owns for static env.
 ENV IS_SANDBOX=1

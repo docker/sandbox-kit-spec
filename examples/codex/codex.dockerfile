@@ -23,8 +23,8 @@ ARG CODEX_VERSION
 # no desktop server is loaded. The template already runs as agent, so the
 # root-owned install needs an explicit root stage.
 USER root
-COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-agent-hook
-RUN chmod 0755 /usr/local/bin/sbx-agent-hook
+COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-codex-hook
+RUN chmod 0755 /usr/local/bin/sbx-codex-hook
 USER agent
 # Installing over the template's existing platform package can leave npm
 # extracting into directories it just removed, losing the native binary.

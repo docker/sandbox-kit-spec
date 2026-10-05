@@ -179,12 +179,12 @@ capabilities:
             "
                 ;;
             esac
-            # Lifecycle hooks for sbx Desktop (see /usr/local/bin/sbx-agent-hook):
+            # Lifecycle hooks for sbx Desktop (see /usr/local/bin/sbx-claude-hook):
             # Stop and StopFailure report a finished turn, Notification the
             # moments Claude waits on the user. The script never fails, never
             # writes stdout and runs async, so a session without the desktop
             # app sees no delay and no hook error.
-            HOOK='{ "type": "command", "command": "/usr/local/bin/sbx-agent-hook claude", "timeout": 10, "async": true }'
+            HOOK='{ "type": "command", "command": "/usr/local/bin/sbx-claude-hook claude", "timeout": 10, "async": true }'
             HOOKS="  \"hooks\": {
                 \"Stop\": [ { \"hooks\": [ $HOOK ] } ],
                 \"StopFailure\": [ { \"hooks\": [ $HOOK ] } ],
@@ -197,7 +197,7 @@ capabilities:
             # nothing, so no status line is drawn in the terminal. A mixin that
             # sets its own statusLine (e.g. claude-sbx-statusline) replaces
             # this one and the app's session view goes quiet for that sandbox.
-            STATUSLINE="  \"statusLine\": { \"type\": \"command\", \"command\": \"/usr/local/bin/sbx-agent-hook claude-status\" },
+            STATUSLINE="  \"statusLine\": { \"type\": \"command\", \"command\": \"/usr/local/bin/sbx-claude-hook claude-status\" },
             "
             printf '%s' "{
               \"themeId\": 1,
