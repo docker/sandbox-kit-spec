@@ -415,6 +415,7 @@ var mutations = map[string][]string{
 	"leaks-plain-inject-only-env":           {"credential@1/inject-only-no-env"},
 	"exposes-install-inject-only":           {"credential@1/inject-only-no-env"},
 	"hides-install-inject-only-in-declared": {"credential@1/inject-only-no-env"},
+	"hides-inject-only-in-export":           {"credential@1/inject-only-no-env"},
 	"assumes-uid-1000":                      {"sbx@1/honors-image-user"},
 	"runs-image-entrypoint":                 {"sbx@1/entrypoint-not-pid-one"},
 	"workspace-at-fixed-path":               {"sbx@1/workspace-at-workdir"},
