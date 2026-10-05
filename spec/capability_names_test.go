@@ -132,7 +132,6 @@ func TestMergeCapabilityNames(t *testing.T) {
 		{"resources", "type: com.docker.sandbox/resources@1\n    config: {cpu: 2}", ""},
 		{"sessions", "type: com.docker.sandbox/agent-sessions@1\n    config: {continue: [--continue]}", ""},
 		{"interactive sessions", "type: com.docker.sandbox/agent-interactive-sessions@1\n    config: {newSession: []}", ""},
-		{"volume", "type: com.docker.sandbox/volume@1\n    config: {path: /cache}", "type: com.docker.sandbox/volume@1\n    config: {path: /./cache}"},
 		{"port", "type: com.docker.sandbox/port@1\n    config: {container: 8080}", "type: com.docker.sandbox/port@1\n    config: {container: 8080, transport: tcp}"},
 		{"skills", "type: com.docker.sandbox/agent-skills@1\n    config: {path: /skills}", ""},
 		{"ssh agent", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime}", ""},
@@ -177,6 +176,7 @@ func TestCapabilityNamesDoNotHideMergeConflicts(t *testing.T) {
 	for _, entries := range [][2]string{
 		{"type: com.docker.sandbox/credential@1\n    config: {service: github, phase: runtime, apiKey: {name: GH_TOKEN}}", "type: com.docker.sandbox/credential@1\n    config: {service: github, phase: runtime, apiKey: {name: GH_TOKEN}}"},
 		{"type: com.docker.sandbox/resources@1\n    config: {cpu: 1}", "type: com.docker.sandbox/resources@1\n    config: {cpu: 2}"},
+		{"type: com.docker.sandbox/volume@1\n    config: {path: /cache}", "type: com.docker.sandbox/volume@1\n    config: {path: /./cache}"},
 		{"type: com.docker.sandbox/volume@1\n    config: {path: /data, size: 1GiB}", "type: com.docker.sandbox/volume@1\n    config: {path: /data, size: 2GiB}"},
 	} {
 		var inputs []Contribution

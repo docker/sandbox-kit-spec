@@ -1040,6 +1040,13 @@ exec)
   env)
     echo "PATH=/usr/bin"
     echo "HOME=/home/agent"
+    if [ -f "$dir/inject-only-install" ]; then
+      if [ "$broken" = "hides-inject-only-in-export" ]; then
+        echo "DECLARED=inject-only-sentinel"
+      else
+        echo "DECLARED=yes"
+      fi
+    fi
     if [ "$broken" = "hides-inject-only-in-token" ] && [ -f "$dir/inject-only" ]; then
       echo "KIT_TCK_TOKEN=inject-only-sentinel"
     else

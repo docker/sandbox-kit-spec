@@ -300,8 +300,7 @@ capabilities:
 	require.ErrorContains(t, err, "written by two contributions")
 }
 
-// Instance-shaped types union on their own key: the same ask twice is
-// one ask, a different ask under one key is a contradiction.
+// Distinct volume destinations union; repeated port requests collapse.
 func TestMergeInstanceShapedCapabilities(t *testing.T) {
 	a := contribute(t, "a", `schemaVersion: "3"
 kind: workload
@@ -312,30 +311,23 @@ capabilities:
   - type: com.docker.sandbox/port@1
     config: {container: 8080}
 `)
-	same := contribute(t, "same", `schemaVersion: "3"
+	b := contribute(t, "b", `schemaVersion: "3"
 kind: mixin
 version: "1.0.0"
 capabilities:
-  - type: com.docker.sandbox/volume@1
-    config: {path: /home/agent/.cache, size: 1g}
   - type: com.docker.sandbox/volume@1
     config: {path: /home/agent/.state}
+  - type: com.docker.sandbox/port@1
+    config: {container: 8080}
 `)
 
-	out := mergeOK(t, a, same).Descriptor
+	out := mergeOK(t, a, b).Descriptor
 	volumes, err := VolumesOf(out.Capabilities)
 	require.NoError(t, err)
-	require.Len(t, volumes, 2, "one path, one volume — the identical ask collapses")
-
-	bigger := contribute(t, "bigger", `schemaVersion: "3"
-kind: mixin
-version: "1.0.0"
-capabilities:
-  - type: com.docker.sandbox/volume@1
-    config: {path: /home/agent/.cache, size: 10g}
-`)
-	_, err = Merge([]Contribution{a, bigger}, MergeOptions{})
-	require.ErrorContains(t, err, "ask for different things")
+	require.Len(t, volumes, 2)
+	ports, err := PortsOf(out.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, ports, 1, "identical port requests still collapse")
 }
 
 // One credential has one owner, which the resolver states across a set
@@ -1296,39 +1288,52 @@ func TestOnlyAnExactReferenceIsAReExport(t *testing.T) {
 	require.ErrorContains(t, err, "embeds a reference in a larger value")
 }
 
-// A volume's destination is the cleaned path: validation asks only
-// that it be absolute, so two spellings of one mount would otherwise
-// emit two entries and leave a runtime reconciling sizes nobody
-// agreed on.
-func TestMergeNormalizesVolumePaths(t *testing.T) {
-	vol := `schemaVersion: "3"
-kind: %s
-version: "1.0.0"
-capabilities:
-  - type: com.docker.sandbox/volume@1
-    config: {path: "%s", size: 1g}
-`
-	out := mergeOK(t,
-		contribute(t, "a", fmt.Sprintf(vol, KindWorkload, "/data/cache")),
-		contribute(t, "b", fmt.Sprintf(vol, KindMixin, "/data/./cache")),
-	).Descriptor
-	volumes, err := VolumesOf(out.Capabilities)
-	require.NoError(t, err)
-	require.Len(t, volumes, 1, "one destination, one volume")
-
-	// Two spellings of one path asking for different sizes is the
-	// contradiction the key exists to surface.
-	_, err = Merge([]Contribution{
-		contribute(t, "a", fmt.Sprintf(vol, KindWorkload, "/data/cache")),
-		contribute(t, "b", `schemaVersion: "3"
+// volume@1/no-silent-merge forbids sharing a destination even when
+// both Kits ask for the same storage. Equivalent path spellings must
+// not bypass the conflict in publication or runtime composition.
+func TestCompositionRefusesSharedVolumePaths(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, extra string
+	}{
+		{"identical", "/data/cache", ""},
+		{"different size", "/data/cache", ", size: 10g"},
+		{"different mode", "/data/cache", ", mode: '0755'"},
+		{"tmpfs", "/data/cache", ", tmpfs: true"},
+		{"dot", "/data/./cache", ""},
+		{"parent", "/data/other/../cache", ""},
+		{"trailing slash", "/data/cache/", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, optional := range []bool{false, true} {
+				t.Run(fmt.Sprintf("optional=%t", optional), func(t *testing.T) {
+					vol := `schemaVersion: "3"
 kind: mixin
-version: "1.0.0"
 capabilities:
   - type: com.docker.sandbox/volume@1
-    config: {path: "/data/./cache", size: 10g}
-`),
-	}, MergeOptions{})
-	require.ErrorContains(t, err, "ask for different things")
+    optional: %t
+    config: {path: %s%s}
+`
+					inputs := []Contribution{
+						contribute(t, "first-kit", fmt.Sprintf(vol, optional, "/data/cache", "")),
+						contribute(t, "second-kit", fmt.Sprintf(vol, optional, tc.path, tc.extra)),
+					}
+					for _, input := range inputs {
+						_, err := Validate(input.Descriptor)
+						require.NoError(t, err)
+					}
+					published, err := Merge(inputs, MergeOptions{})
+					require.Nil(t, published)
+					require.ErrorContains(t, err, "first-kit capabilities[0]")
+					require.ErrorContains(t, err, "second-kit capabilities[0]")
+					require.ErrorContains(t, err, CapabilityVolume)
+					require.ErrorContains(t, err, "/data/cache")
+					composed, composeErr := Compose(inputs)
+					require.Nil(t, composed)
+					require.EqualError(t, composeErr, err.Error())
+				})
+			}
+		})
+	}
 }
 
 // An omitted config and one written as {} are the only two spellings a
