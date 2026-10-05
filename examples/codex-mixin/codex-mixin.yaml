@@ -18,7 +18,7 @@ kind: mixin
 
 args:
   version:
-    default: "0.159.2"
+    default: "0.160.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Codex CLI release to install
     buildArg: CODEX_VERSION
