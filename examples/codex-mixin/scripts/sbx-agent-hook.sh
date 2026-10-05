@@ -49,7 +49,10 @@ hdr=""
 mcp_open() {
   hdr=$(mktemp 2>/dev/null) || return 1
   init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"sbx-agent-hook","version":"1.1"}}}'
-  curl -s -m 3 -o /dev/null -D "$hdr" -H "$auth" -H "$ctype" -H "$accept" --data "$init" "$url" || return 1
+  if ! curl -s -m 3 -o /dev/null -D "$hdr" -H "$auth" -H "$ctype" -H "$accept" --data "$init" "$url"; then
+    rm -f "$hdr"
+    return 1
+  fi
   sid=$(tr -d '\r' < "$hdr" | awk 'tolower($1) == "mcp-session-id:" { print $2; exit }')
   rm -f "$hdr"
   [ -n "$sid" ] || return 1
@@ -134,11 +137,11 @@ claude_session_args() {
 
 # Codex rollout file for a thread -> session arguments.
 codex_session_args() { # thread-id
-  home="${CODEX_HOME:-$HOME/.codex}"
+  codex_store="${CODEX_HOME:-$HOME/.codex}"
   # Rollouts live under sessions/YYYY/MM/DD/. A glob rather than find: on
   # the sandbox's virtiofs mounts directories report a link count of 1 and
   # GNU find's leaf optimisation then never descends into them.
-  set -- "$home"/sessions/*/*/*/rollout-*-"$1".jsonl
+  set -- "$codex_store"/sessions/*/*/*/rollout-*-"$1".jsonl
   file=$1
   [ -f "$file" ] || return 1
   jq -n -c '

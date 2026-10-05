@@ -39,3 +39,45 @@ func TestDesktopHookPathsComposeAcrossAgents(t *testing.T) {
 		}
 	}
 }
+
+func TestDesktopHookCleansHeadersOnGatewayFailure(t *testing.T) {
+	requireExampleTool(t, "jq")
+	bin := t.TempDir()
+	// A connection failure can still leave a partial header file. Exercise
+	// the real hook with curl replaced, so no desktop server is contacted.
+	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -D ]; then
+    shift
+    printf '%s\n' 'partial header' > "$1"
+  fi
+  shift
+done
+exit 7
+`, 0o755)
+	for _, kit := range []string{"claude", "claude-mixin", "codex", "codex-mixin"} {
+		t.Run(kit, func(t *testing.T) {
+			tmp := t.TempDir()
+			for range 3 {
+				argv := []string{"sh", filepath.Join(kit, "scripts", "sbx-agent-hook.sh")}
+				input := `{"hook_event_name":"Stop","session_id":"test"}`
+				if strings.HasPrefix(kit, "codex") {
+					argv = append(argv, "codex", `{"type":"agent-turn-complete"}`)
+				} else {
+					argv = append(argv, "claude")
+				}
+				stdout, stderr, err := runExampleCommand(t, []string{
+					"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"TMPDIR=" + tmp,
+					"MCP_GATEWAY_URL=http://test.invalid/mcp",
+				}, input, argv...)
+				require.NoError(t, err, stderr)
+				require.Empty(t, stdout)
+				require.Empty(t, stderr)
+				entries, err := os.ReadDir(tmp)
+				require.NoError(t, err)
+				require.Empty(t, entries, "gateway failures must not accumulate temporary header files")
+			}
+		})
+	}
+}
