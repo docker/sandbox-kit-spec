@@ -205,7 +205,7 @@ capabilities:
   # entries are argv tails appended to the entrypoint's launch command.
   - type: com.docker.sandbox/agent-sessions@1
     config:
-      prompt: ["{{.Prompt}}"]
+      prompt: ["exec", "{{.Prompt}}"]
       resume: ["resume", "{{.SessionID}}"]
       continue: ["resume", "--last"]
       list:
@@ -263,17 +263,13 @@ capabilities:
             done
           done
 
-          jq -s '
-            [ .[]
-              | {
-                  sessionId: .id,
-                  cwd,
-                  title: (.name // .preview),
-                  updatedAt: (if .updatedAt then (.updatedAt | floor | todate) else null end),
-                  _meta: {archived}
-                }
-              | with_entries(select(.value != null))
-            ]' "$tmp/sessions"
+          # Each page is ordered, but active and archived pages must be
+          # sorted together before emitting the v1 ID-only result.
+          jq -r -s '
+            unique_by(.id)
+            | sort_by(.updatedAt // 0)
+            | reverse
+            | .[].id' "$tmp/sessions"
 
   # Where codex reads shared skills, so the host's store reaches it.
   # The runtime also exposes selected agent-skill@1 bundles here, even

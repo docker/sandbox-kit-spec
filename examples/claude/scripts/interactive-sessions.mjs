@@ -18,32 +18,12 @@ const background = new Set(
   rows.filter((r) => r.kind === "background" && r.sessionId).map((r) => r.sessionId)
 );
 
-const sessions = [];
-let skipped = 0;
+// Sort explicitly: the v1 contract orders IDs by most recent session,
+// regardless of the SDK's traversal order. A missing cwd still has a
+// resumable ID; it matters only when the caller requests a cwd filter.
+const sessions = (await listSessions())
+  .filter((s) => s.sessionId && !background.has(s.sessionId))
+  .filter((s) => !cwdFilter || s.cwd === cwdFilter)
+  .sort((a, b) => b.lastModified - a.lastModified);
 
-for (const s of await listSessions()) {
-  if (background.has(s.sessionId)) continue;
-  if (cwdFilter && s.cwd !== cwdFilter) continue;
-  if (!s.cwd) {
-    skipped++;
-    continue;
-  }
-
-  sessions.push({
-    sessionId: s.sessionId,
-    cwd: s.cwd,
-    title: s.customTitle ?? s.summary,
-    updatedAt: new Date(s.lastModified).toISOString(),
-    _meta: {
-      kind: "interactive",
-      firstPrompt: s.firstPrompt,
-      gitBranch: s.gitBranch,
-      tag: s.tag,
-      fileSize: s.fileSize,
-      createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : undefined,
-    },
-  });
-}
-
-if (skipped) console.error(`skipped ${skipped} session(s) with no cwd`);
-console.log(JSON.stringify(sessions, null, 2));
+for (const s of sessions) process.stdout.write(`${s.sessionId}\n`);

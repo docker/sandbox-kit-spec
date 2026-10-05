@@ -2,10 +2,8 @@
 # The Claude Code agent as a MIXIN: the same declarations as the
 # standalone workload kit (examples/claude), minus what only the kit that
 # owns the environment can carry — the entrypoint (the base workload's
-# stays; run `claude` in the shell). agent-sessions keeps only list:
-# prompt/resume/continue are argv tails on the workload entrypoint, which
-# here is the base's shell; list is a complete command and works either
-# way.
+# stays; run `claude` in the shell), and agent-sessions (the session
+# control surface belongs to the workload).
 schemaVersion: "3"
 displayName: Claude Code (mixin)
 author: "Docker, Inc."
@@ -92,15 +90,6 @@ capabilities:
               expiresAt: "{{.ExpiresAt}}"
               scopes: "{{.Scopes}}"
             primaryApiKey: "{{.PrimaryApiKey}}"
-
-  # list only: a complete command (Agent SDK listSessions, minus
-  # background agents). prompt/resume/continue are omitted — they are
-  # argv tails on the workload entrypoint, and on a shell base that is
-  # not claude.
-  - type: com.docker.sandbox/agent-sessions@1
-    description: List interactive Claude sessions
-    config:
-      list: ["node", "/opt/claude-sessions/interactive-sessions.mjs"]
 
   # Session state persists across container recreation; subdirectories
   # rather than all of ~/.claude/, so kit-managed files (settings.json,

@@ -117,12 +117,12 @@ capabilities:
   # human at the terminal. Argv tails append to the entrypoint the way
   # user args do; the host substitutes the placeholders. list is a
   # complete command: the Agent SDK's listSessions, minus background
-  # agents (those come from `claude agents`), emitting JSON session
-  # objects the host feeds to resume.
+  # agents (those come from `claude agents`), emitting resumable session
+  # ids one per line, most recent first.
   - type: com.docker.sandbox/agent-sessions@1
     description: Drive claude sessions programmatically
     config:
-      prompt: ["{{.Prompt}}"]
+      prompt: ["-p", "{{.Prompt}}"]
       continue: ["--continue"]
       resume: ["--resume", "{{.SessionID}}"]
       list: ["node", "/opt/claude-sessions/interactive-sessions.mjs"]
