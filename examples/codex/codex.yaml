@@ -243,17 +243,15 @@ capabilities:
           printf '%s\n' '{"method":"initialized","params":{}}' >&3
           : >"$tmp/sessions"
 
+          # Match Codex's user-facing resume picker, including exec and
+          # app-server sessions. Sub-agent and unknown threads stay out.
           for archived in false true; do
             cursor=null
             while :; do
               params=$(jq -nc --argjson cursor "$cursor" --argjson archived "$archived" '
                 {
                   limit: 100, cursor: $cursor, archived: $archived,
-                  sourceKinds: [
-                    "cli", "vscode", "exec", "appServer", "subAgent",
-                    "subAgentReview", "subAgentCompact",
-                    "subAgentThreadSpawn", "subAgentOther", "unknown"
-                  ]
+                  sourceKinds: ["cli", "vscode", "exec", "appServer"]
                 }')
               rpc thread/list "$params"
               printf '%s\n' "$response" | jq -c --argjson archived "$archived" \

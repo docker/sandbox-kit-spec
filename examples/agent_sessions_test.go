@@ -140,11 +140,23 @@ while IFS= read -r request; do
   if [ "$method" = thread/list ]; then
     page=$(printf '%s' "$request" | jq -r '[(.params.archived | tostring), (.params.cursor // "start")] | join("-")')
     case "$page" in
-      false-start) result='{"data":[{"id":"old","updatedAt":1}],"nextCursor":"next"}' ;;
-      false-next) result='{"data":[{"id":"new","updatedAt":3}],"nextCursor":null}' ;;
-      true-start) result='{"data":[{"id":"middle","updatedAt":2}],"nextCursor":null}' ;;
+      false-start) result='{"data":[{"id":"old","updatedAt":1,"source":"cli"}],"nextCursor":"next"}' ;;
+      false-next) result='{"data":[{"id":"new","updatedAt":3,"source":"exec"}],"nextCursor":null}' ;;
+      true-start) result='{"data":[{"id":"middle","updatedAt":2,"source":"appServer"}],"nextCursor":null}' ;;
       *) exit 1 ;;
     esac
+    if [ "${KIT_TEST_SOURCE_MIX:-}" = 1 ]; then
+      case "$page" in
+        false-start) result='{"data":[{"id":"old","updatedAt":1,"source":"cli"},{"id":"worker","updatedAt":10,"source":"subAgent"},{"id":"unknown","updatedAt":11,"source":"unknown"}],"nextCursor":"next"}' ;;
+        false-next) result='{"data":[{"id":"new","updatedAt":3,"source":"exec"},{"id":"review","updatedAt":12,"source":"subAgentReview"},{"id":"compact","updatedAt":13,"source":"subAgentCompact"}],"nextCursor":null}' ;;
+        true-start) result='{"data":[{"id":"middle","updatedAt":2,"source":"appServer"},{"id":"editor","updatedAt":4,"source":"vscode"},{"id":"spawn","updatedAt":14,"source":"subAgentThreadSpawn"},{"id":"other","updatedAt":15,"source":"subAgentOther"}],"nextCursor":null}' ;;
+      esac
+    fi
+    # Simulate server-side source filtering so an overbroad query exposes
+    # background threads in stdout rather than merely failing a mock pin.
+    sources=$(printf '%s' "$request" | jq -c '.params.sourceKinds')
+    result=$(printf '%s' "$result" | jq -c --argjson sources "$sources" \
+      '.data |= map(select(.source as $kind | $sources | index($kind)))')
     if [ "${KIT_TEST_EMPTY:-}" = 1 ]; then
       result='{"data":[],"nextCursor":null}'
     fi
@@ -158,6 +170,7 @@ done
 		fails           bool
 	}{
 		{"paginated", "KIT_TEST_EMPTY=0", "new\nmiddle\nold\n", false},
+		{"user resumable sources", "KIT_TEST_SOURCE_MIX=1", "editor\nnew\nmiddle\nold\n", false},
 		{"empty", "KIT_TEST_EMPTY=1", "", false},
 		{"rpc error", "KIT_TEST_RPC_ERROR=1", "", true},
 	} {
@@ -166,6 +179,9 @@ done
 			stdout, stderr, err := runExampleCommand(t, []string{
 				"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"TMPDIR=" + tmp,
+				"KIT_TEST_RPC_ERROR=0",
+				"KIT_TEST_EMPTY=0",
+				"KIT_TEST_SOURCE_MIX=0",
 				tc.env,
 			}, "", sessions.List...)
 			if tc.fails {
