@@ -465,14 +465,17 @@ becomes `transport: tcp`. A kit cannot pin a host port.
 
 ### agent-sessions@1
 
-Workload-only by convention — unlike `sbx@1`, `validate.go` has no kind check
-for it, so a mixin declaring it is accepted and simply describes something a
-mixin does not own. Add it only where the v2 kit's `testdata/tck.yaml` recorded
-a working non-interactive invocation in `promptArgs`. Translate it into the
-verb tails: `promptArgs: ["-p"]` → `prompt: ["-p", "{{.Prompt}}"]`, plus
-`continue` and `resume` where the agent supports them, and `list`, which is a
-complete command rather than a tail. Where `promptArgs` was deliberately
-omitted, omit the capability — do not invent flags.
+`prompt` / `continue` / `resume` are argv tails on the workload entrypoint, so
+they belong on the workload kit. `list` is a complete command and may ride on
+a mixin (see `examples/claude-mixin`). Unlike `sbx@1`, `validate.go` has no
+kind check, so a mixin declaring the tails is accepted but describes something
+it does not own — keep those verbs off mixins. Add the capability where the
+v2 kit's `testdata/tck.yaml` recorded a working non-interactive invocation in
+`promptArgs`. Translate it into the verb tails:
+`promptArgs: ["-p"]` → `prompt: ["-p", "{{.Prompt}}"]`, plus `continue` and
+`resume` where the agent supports them, and `list`. Where `promptArgs` was
+deliberately omitted, omit the tails — do not invent flags; a list-only
+declaration is fine when enumeration works without a headless prompt path.
 
 ### Bundled skills
 
@@ -519,8 +522,11 @@ A workload kit's `-mixin` sibling declares the same credentials, network policy,
 volumes, hooks, args and provides, minus what only the kit that owns the
 environment can carry:
 
-- no `sbx@1` or `agent-sessions@1`; an agent mixin keeps its explicit
-  `agent-context@1` directory and filename, while tool mixins carry bodies only
+- no `sbx@1`; no `agent-sessions@1` verb tails (`prompt` / `continue` /
+  `resume`) — those append to the workload entrypoint. A list-only
+  `agent-sessions@1` is fine when enumeration is a complete command. An
+  agent mixin keeps its explicit `agent-context@1` directory and filename,
+  while tool mixins carry bodies only
 - no `ENTRYPOINT` — the base workload's launch command stays, and the user runs
   the tool from the shell. Say so in the descriptor's header comment.
 - `displayName: <Name> (mixin)`, and a description that says to layer it onto a
@@ -605,7 +611,8 @@ Before calling a migration done:
 - [ ] the install/runtime phase split loses no host from the v2 list
 - [ ] every mixin declaring a context `filename:` also declares its
       explicit discovery `directory:`
-- [ ] no `sbx@1` or `agent-sessions@1` on a mixin
+- [ ] no `sbx@1` on a mixin; no agent-sessions verb tails on a mixin
+      (list-only is fine)
 - [ ] the mixin's `ENV` is on the recipe's final stage, and profile.d is used
       only for values that collide or that only a shell needs
 - [ ] entrypoint, env, user and workdir live in the recipe, not the descriptor

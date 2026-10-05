@@ -22,6 +22,27 @@ RUN case "$TARGETARCH" in \
  && chmod 0755 "/home/agent/.local/share/claude/versions/${CLAUDE_VERSION}" \
  && ln -sfn "/home/agent/.local/share/claude/versions/${CLAUDE_VERSION}" /home/agent/.local/bin/claude \
  && chown -R agent:agent /home/agent/.local
+
+# agent-sessions list reads interactive sessions through the Agent SDK.
+# The SDK's patch tracks Claude Code's (2.1.N → 0.3.N). --omit=optional
+# drops the vendored native binary so this kit keeps one claude (above).
+# The script lives beside node_modules so ESM resolution finds the package
+# without NODE_PATH (which ESM ignores).
+RUN sdk_version="0.3.${CLAUDE_VERSION##*.}" \
+ && mkdir -p /opt/claude-sessions \
+ && npm install --omit=optional --no-fund --no-audit --cache /tmp/npm-cache \
+      --prefix /opt/claude-sessions \
+      "@anthropic-ai/claude-agent-sdk@${sdk_version}" \
+ && rm -rf /tmp/npm-cache /root/.npm
+COPY scripts/interactive-sessions.mjs /opt/claude-sessions/interactive-sessions.mjs
+RUN chmod 0755 /opt/claude-sessions/interactive-sessions.mjs
+
+# Lifecycle hook the settings seed registers for Stop/Notification: it
+# reports the event to sbx Desktop through the MCP gateway and is a
+# silent no-op when no desktop server is loaded. See the script header.
+COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-agent-hook
+RUN chmod 0755 /usr/local/bin/sbx-agent-hook
+
 # v2's environment.variables, in the slot OCI already owns for static env.
 ENV IS_SANDBOX=1
 USER agent

@@ -2,8 +2,10 @@
 # The Claude Code agent as a MIXIN: the same declarations as the
 # standalone workload kit (examples/claude), minus what only the kit that
 # owns the environment can carry — the entrypoint (the base workload's
-# stays; run `claude` in the shell), and agent-sessions
-# (the verbs drive the workload's entrypoint, which is the base's shell).
+# stays; run `claude` in the shell). agent-sessions keeps only list:
+# prompt/resume/continue are argv tails on the workload entrypoint, which
+# here is the base's shell; list is a complete command and works either
+# way.
 schemaVersion: "3"
 displayName: Claude Code (mixin)
 author: "Docker, Inc."
@@ -22,6 +24,21 @@ args:
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Claude Code release to install
     buildArg: CLAUDE_VERSION
+  # Model selection, resolved at create so one published kit serves every
+  # preference: `--kit-arg model=… reasoningEffort=…`, or a kits[] entry's
+  # args in sbxenv.yaml. Empty leaves Claude Code's own default in force.
+  # Both are also exported into the sandbox environment, so a shell inside
+  # can read what the session was created with.
+  model:
+    default: ""
+    pattern: '^[A-Za-z0-9._-]*$'
+    description: Claude model to use (settings.json `model`); empty keeps the CLI default
+    env: CLAUDE_MODEL
+  reasoningEffort:
+    default: ""
+    enum: ["", low, medium, high, xhigh, max, auto]
+    description: Effort level (settings.json `effortLevel`); empty keeps the CLI default
+    env: CLAUDE_REASONING_EFFORT
 
 provides: ["claude@${{ kit.args.version }}"]
 
@@ -75,6 +92,15 @@ capabilities:
               expiresAt: "{{.ExpiresAt}}"
               scopes: "{{.Scopes}}"
             primaryApiKey: "{{.PrimaryApiKey}}"
+
+  # list only: a complete command (Agent SDK listSessions, minus
+  # background agents). prompt/resume/continue are omitted — they are
+  # argv tails on the workload entrypoint, and on a shell base that is
+  # not claude.
+  - type: com.docker.sandbox/agent-sessions@1
+    description: List interactive Claude sessions
+    config:
+      list: ["node", "/opt/claude-sessions/interactive-sessions.mjs"]
 
   # Session state persists across container recreation; subdirectories
   # rather than all of ~/.claude/, so kit-managed files (settings.json,
@@ -141,10 +167,53 @@ capabilities:
               HELPER='  "apiKeyHelper": "echo proxy-managed",
             '
             fi
+            # Model selection from the create-phase args. The args'
+            # patterns admit no quote or backslash, so the expanded
+            # value is safe inside the JSON string. effortLevel accepts
+            # low/medium/high/xhigh; max and auto persist only through
+            # CLAUDE_CODE_EFFORT_LEVEL (settings.json rejects them).
+            model='${{ kit.args.model }}'
+            effort='${{ kit.args.reasoningEffort }}'
+            MODEL=''
+            EFFORT=''
+            ENV_BLOCK=''
+            [ -z "$model" ] || MODEL="  \"model\": \"$model\",
+            "
+            case "$effort" in
+              '') ;;
+              max|auto)
+                ENV_BLOCK="  \"env\": { \"CLAUDE_CODE_EFFORT_LEVEL\": \"$effort\" },
+            "
+                ;;
+              *)
+                EFFORT="  \"effortLevel\": \"$effort\",
+            "
+                ;;
+            esac
+            # Lifecycle hooks for sbx Desktop (see /usr/local/bin/sbx-agent-hook):
+            # Stop and StopFailure report a finished turn, Notification the
+            # moments Claude waits on the user. The script never fails, never
+            # writes stdout and runs async, so a session without the desktop
+            # app sees no delay and no hook error.
+            HOOK='{ "type": "command", "command": "/usr/local/bin/sbx-agent-hook claude", "timeout": 10, "async": true }'
+            HOOKS="  \"hooks\": {
+                \"Stop\": [ { \"hooks\": [ $HOOK ] } ],
+                \"StopFailure\": [ { \"hooks\": [ $HOOK ] } ],
+                \"Notification\": [ { \"matcher\": \"permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input\", \"hooks\": [ $HOOK ] } ]
+              },
+            "
+            # The statusLine command is the only place Claude Code exposes
+            # the live session (model, context window, cost, lines changed);
+            # sbx-agent-hook forwards it to sbx Desktop's status bar and prints
+            # nothing, so no status line is drawn in the terminal. A mixin that
+            # sets its own statusLine (e.g. claude-sbx-statusline) replaces
+            # this one and the app's session view goes quiet for that sandbox.
+            STATUSLINE="  \"statusLine\": { \"type\": \"command\", \"command\": \"/usr/local/bin/sbx-agent-hook claude-status\" },
+            "
             printf '%s' "{
               \"themeId\": 1,
               \"alwaysThinkingEnabled\": true,
-            ${HELPER}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
+            ${HELPER}${MODEL}${EFFORT}${ENV_BLOCK}${HOOKS}${STATUSLINE}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
               \"bypassPermissionsModeAccepted\": true,
               \"skipDangerousModePermissionPrompt\": true
             }
