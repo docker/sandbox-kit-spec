@@ -63,8 +63,24 @@ mcp_open() {
 rpc_id=1
 mcp_call() { # tool-name arguments-json
   rpc_id=$((rpc_id + 1))
-  curl -s --fail -m 5 -o /dev/null -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
-    --data "{\"jsonrpc\":\"2.0\",\"id\":$rpc_id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" "$url"
+  response=$(curl -s --fail -m 5 -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
+    --data "{\"jsonrpc\":\"2.0\",\"id\":$rpc_id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" "$url") || return 1
+  # Streamable HTTP permits JSON or SSE. Only a matching, successful
+  # tools/call result acknowledges delivery; HTTP 200 alone does not.
+  printf '%s' "$response" | jq -Rse --argjson id "$rpc_id" '
+    def messages:
+      . as $body | try [fromjson] catch
+        [$body | gsub("\r\n|\r"; "\n") | split("\n\n")[]
+         | split("\n") | map(select(startswith("data:"))
+                              | .[5:] | ltrimstr(" ")) | join("\n")
+         | select(length > 0) | fromjson?];
+    messages
+    | map(select(type == "object" and .jsonrpc == "2.0" and .id == $id))
+    | length == 1 and (.[0]
+      | (has("error") | not)
+        and (.result | type == "object" and (.content | type == "array")
+             and ((has("isError") | not) or .isError == false)))
+  ' >/dev/null
 }
 mcp_close() {
   [ -n "$sid" ] && curl -s -m 2 -o /dev/null -X DELETE -H "$auth" -H "Mcp-Session-Id: $sid" "$url"

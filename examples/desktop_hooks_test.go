@@ -64,6 +64,7 @@ case "$payload" in
       "$fail_http" && exit 22
       exit 0
     fi
+    [ "$MOCK_DELIVERY_RESULT" = 0 ] && printf '%s' "$MOCK_RESPONSE"
     exit "$MOCK_DELIVERY_RESULT"
     ;;
 esac
@@ -76,6 +77,8 @@ exit 0
 			tmp := t.TempDir()
 			deliveries := filepath.Join(tmp, "deliveries")
 			stamp := filepath.Join(tmp, "sbx-agent-hook", "test_.session")
+			success := `{"jsonrpc":"2.0","id":2,"result":{"content":[]}}`
+			response := success
 			run := func(result, input string, attempts int) {
 				t.Helper()
 				// The real status command detaches its worker. Wait for that
@@ -87,6 +90,7 @@ exit 0
 					"MCP_GATEWAY_URL=http://test.invalid/mcp",
 					"MOCK_DELIVERIES=" + deliveries,
 					"MOCK_DELIVERY_RESULT=" + result,
+					"MOCK_RESPONSE=" + response,
 				}, input, "sh", "-c", `script=$1; shift; trap 'wait' EXIT; . "$script"`,
 					"hook-test", filepath.Join(kit, "scripts", "sbx-agent-hook.sh"), "claude-status")
 				require.NoError(t, err, stderr)
@@ -101,22 +105,65 @@ exit 0
 				run(result, input, i+1)
 				require.NoFileExists(t, stamp, "failed delivery must remain eligible for retry")
 			}
-			run("0", input, 4)
+			invalid := []string{
+				`{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"unknown tool"}}`,
+				`{"jsonrpc":"2.0","id":2,"result":{"content":[],"isError":true}}`,
+				`{"jsonrpc":"2.0","id":3,"result":{"content":[]}}`,
+				`{"jsonrpc":"2.0","result":{"content":[]}}`,
+				`{"jsonrpc":"2.0","id":2,"result":null}`,
+				`{"jsonrpc":"2.0","id":2,"result":{"content":[],"isError":null}}`,
+				`{"jsonrpc":"2.0","id":2,"result":{}}`,
+				`{"jsonrpc":"2.0","id":2`,
+				"",
+				"event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[],\"isError\":true}}\n\n",
+			}
+			attempts := 3
+			for _, body := range invalid {
+				response = body
+				attempts++
+				run("0", input, attempts)
+				require.NoFileExists(t, stamp, "an invalid MCP acknowledgement must not be cached: %s", body)
+			}
+			response = success
+			attempts++
+			run("0", input, attempts)
 			previous, err := os.ReadFile(stamp)
 			require.NoError(t, err)
 			require.NotEmpty(t, previous)
-			run("0", input, 4)
+			run("0", input, attempts)
 
 			changed := `{"session_id":"test","model":{"id":"second"}}`
-			run("28", changed, 5)
+			attempts++
+			run("28", changed, attempts)
 			current, err := os.ReadFile(stamp)
 			require.NoError(t, err)
 			require.Equal(t, previous, current, "failed updates must preserve the last delivered checksum")
-			run("0", changed, 6)
+			response = invalid[1]
+			attempts++
+			run("0", changed, attempts)
+			current, err = os.ReadFile(stamp)
+			require.NoError(t, err)
+			require.Equal(t, previous, current, "MCP tool errors must preserve the last delivered checksum")
+			// SSE may interleave notifications, use CRLF, and split JSON over
+			// multiple data lines. Its matching response still acknowledges delivery.
+			response = ": keepalive\r\n\r\nevent: message\r\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\r\n\r\n" +
+				"event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\r\ndata: \"result\":{\"content\":[],\"isError\":false}}\r\n\r\n"
+			attempts++
+			run("0", changed, attempts)
 			current, err = os.ReadFile(stamp)
 			require.NoError(t, err)
 			require.NotEqual(t, previous, current)
-			run("0", changed, 6)
+			run("0", changed, attempts)
+			for model, body := range map[string]string{
+				"sse-lf": "data: " + success + "\n\n",
+				"sse-cr": "data: " + success + "\r\r",
+			} {
+				response = body
+				changed = `{"session_id":"test","model":{"id":"` + model + `"}}`
+				attempts++
+				run("0", changed, attempts)
+				run("0", changed, attempts)
+			}
 		})
 	}
 }
