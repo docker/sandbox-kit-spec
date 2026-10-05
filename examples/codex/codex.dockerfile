@@ -18,7 +18,11 @@ ARG CODEX_VERSION
 # it can add globals at run time, and a root-run install would take that
 # back for every path it touches. The cache lands outside the image.
 USER agent
-RUN npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
+# Installing over the template's existing platform package can leave npm
+# extracting into directories it just removed, losing the native binary.
+# Remove that package first so the pin is a clean install on every base.
+RUN npm uninstall -g --no-fund --no-audit @openai/codex \
+ && npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
       "@openai/codex@${CODEX_VERSION}" \
  && rm -rf /tmp/npm-cache \
  # The pin is a claim about content: judge it the way the entrypoint
