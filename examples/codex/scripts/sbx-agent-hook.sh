@@ -106,6 +106,7 @@ notify_args() { # agent
 # Live git facts for a directory, as jq --arg values (empty when not a repo).
 git_branch=""; git_dirty="false"; git_commit=""
 read_git() { # dir
+  git_branch=""; git_dirty="false"; git_commit=""
   [ -n "$1" ] && [ -d "$1" ] || return 0
   if git_branch=$(git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null); then
     git_commit=$(git -C "$1" rev-parse --short HEAD 2>/dev/null)
@@ -203,6 +204,28 @@ send_session() { # args-json
   mcp_close
 }
 
+# One worker drains the latest queued status for a session. Queue before
+# detaching so a delayed older worker cannot send over a newer update.
+# Recheck after releasing the lock: an enqueue may have found us busy just
+# before release, leaving a payload that no other worker will pick up.
+send_pending() { # session-key
+  pending="$state_dir/$1.pending"
+  lock="$state_dir/$1.lock"
+  while mkdir "$lock" 2>/dev/null; do
+    trap 'rm -f "$lock/payload"; rmdir "$lock" 2>/dev/null' 0
+    trap 'exit 0' HUP INT TERM
+    while mv "$pending" "$lock/payload" 2>/dev/null; do
+      args=$(cat "$lock/payload" 2>/dev/null)
+      read_git "$(printf '%s' "$args" | jq -r '.cwd // empty')"
+      send_session "$(printf '%s' "$args" | with_git)"
+    done
+    rm -f "$lock/payload"
+    rmdir "$lock" 2>/dev/null || return 0
+    trap - 0 HUP INT TERM
+    [ -f "$pending" ] || return 0
+  done
+}
+
 {
   [ -n "$url" ] || exit 0
   command -v curl >/dev/null 2>&1 || exit 0
@@ -224,10 +247,15 @@ send_session() { # args-json
       # itself returns at once (and prints nothing).
       args=$(claude_session_args) || exit 0
       [ -n "$args" ] || exit 0
-      dir=$(printf '%s' "$args" | jq -r '.cwd // empty')
+      key=$(printf '%s' "$args" | jq -r '.session_id // "unknown"' | tr -c 'A-Za-z0-9_.-' '_')
+      mkdir -p "$state_dir" 2>/dev/null || exit 0
+      queued=$(mktemp "$state_dir/$key.XXXXXX" 2>/dev/null) || exit 0
+      if ! printf '%s' "$args" > "$queued" || ! mv "$queued" "$state_dir/$key.pending"; then
+        rm -f "$queued"
+        exit 0
+      fi
       (
-        read_git "$dir"
-        send_session "$(printf '%s' "$args" | with_git)"
+        send_pending "$key"
       ) </dev/null >/dev/null 2>&1 &
       ;;
     codex)

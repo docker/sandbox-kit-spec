@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/sandbox-kit-spec/v3/assemble"
 	"github.com/stretchr/testify/require"
@@ -207,5 +208,109 @@ exit 7
 				require.Empty(t, entries, "gateway failures must not accumulate temporary header files")
 			}
 		})
+	}
+}
+
+func TestDesktopHookSerializesConcurrentStatus(t *testing.T) {
+	requireExampleTool(t, "jq")
+	bin := t.TempDir()
+	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
+payload=""; headers=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data) shift; payload="$1" ;;
+    -D) shift; headers="$1" ;;
+  esac
+  shift
+done
+if [ -n "$headers" ]; then
+  printf 'Mcp-Session-Id: test\r\n' > "$headers"
+fi
+case "$payload" in
+  *'"name":"sbx_desktop_session"'*)
+    if [ ! -f "$MOCK_ENTERED" ]; then
+      touch "$MOCK_ENTERED"
+      while [ ! -f "$MOCK_RELEASE" ]; do sleep 0.01; done
+    fi
+    printf '%s\n' "$payload" >> "$MOCK_DELIVERIES"
+    printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
+    ;;
+esac
+`, 0o755)
+	for _, kit := range []string{"claude", "claude-mixin", "codex", "codex-mixin"} {
+		for _, scenario := range []string{"newest update", "duplicate update"} {
+			t.Run(kit+"/"+scenario, func(t *testing.T) {
+				tmp := t.TempDir()
+				entered := filepath.Join(tmp, "entered")
+				release := filepath.Join(tmp, "release")
+				deliveries := filepath.Join(tmp, "deliveries")
+				type result struct {
+					stdout, stderr string
+					err            error
+				}
+				run := func(model string) result {
+					stdout, stderr, err := runExampleCommand(t, []string{
+						"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+						"TMPDIR=" + tmp,
+						"HOME=" + tmp,
+						"MCP_GATEWAY_URL=http://test.invalid/mcp",
+						"MOCK_ENTERED=" + entered,
+						"MOCK_RELEASE=" + release,
+						"MOCK_DELIVERIES=" + deliveries,
+					}, `{"session_id":"test","model":{"id":"`+model+`"}}`, "sh", "-c",
+						`script=$1; shift; trap 'wait' EXIT; . "$script"`, "hook-test",
+						filepath.Join(kit, "scripts", "sbx-agent-hook.sh"), "claude-status")
+					return result{stdout, stderr, err}
+				}
+				check := func(r result) {
+					t.Helper()
+					require.NoError(t, r.err, r.stderr)
+					require.Empty(t, r.stdout)
+					require.Empty(t, r.stderr)
+				}
+				first := make(chan result, 1)
+				go func() { first <- run("first") }()
+				finished := false
+				// Unblock and join the initial worker even if an assertion fails.
+				t.Cleanup(func() {
+					_ = os.WriteFile(release, nil, 0o644)
+					if !finished {
+						<-first
+					}
+				})
+				require.Eventually(t, func() bool {
+					_, err := os.Stat(entered)
+					return err == nil
+				}, 3*time.Second, 10*time.Millisecond)
+				models := []string{"first"}
+				if scenario == "newest update" {
+					check(run("middle"))
+					check(run("newest"))
+					models = append(models, "newest")
+				} else {
+					check(run("first"))
+				}
+				writeExampleFixture(t, release, "", 0o644)
+				r := <-first
+				finished = true
+				check(r)
+				calls, err := os.ReadFile(deliveries)
+				require.NoError(t, err)
+				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+				require.Len(t, lines, len(models), "only the active and newest pending status should be delivered")
+				for i, model := range models {
+					require.Contains(t, lines[i], `"model_id":"`+model+`"`)
+				}
+				// Repeating the last update must agree with the final cache.
+				check(run(models[len(models)-1]))
+				again, err := os.ReadFile(deliveries)
+				require.NoError(t, err)
+				require.Equal(t, calls, again)
+				entries, err := os.ReadDir(filepath.Join(tmp, "sbx-agent-hook"))
+				require.NoError(t, err)
+				require.Len(t, entries, 1, "workers must remove their queue and lock after draining")
+				require.Equal(t, "test_.session", entries[0].Name())
+			})
+		}
 	}
 }
