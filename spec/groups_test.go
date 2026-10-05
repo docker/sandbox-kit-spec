@@ -330,13 +330,14 @@ func TestPublicationCompletesPathOnlySources(t *testing.T) {
 func TestComposeOmitsSourcesFromEffectiveCapabilities(t *testing.T) {
 	for _, capability := range []Capability{
 		{Type: CapabilityVolume, Config: map[string]any{"path": "/cache"}},
+		{Type: CapabilityPort, Config: map[string]any{"container": 8080}},
 		{Type: CapabilityResources, Config: map[string]any{"cpus": 2}},
 	} {
 		t.Run(capability.Type, func(t *testing.T) {
 			capability.Source = &CapabilitySource{Kit: "original-kit", Path: "capabilities[7]"}
 			d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{capability}}
 			inputs := []Contribution{{Reference: "first", Descriptor: d}}
-			if capability.Type == CapabilityVolume {
+			if capability.Type == CapabilityPort {
 				duplicate := capability
 				duplicate.Source = &CapabilitySource{Kit: "another-kit", Path: "capabilities[9]"}
 				inputs = append(inputs, Contribution{Reference: "second", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{duplicate}}})
