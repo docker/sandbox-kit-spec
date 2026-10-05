@@ -485,7 +485,7 @@ func decodeForMerge(reference string, n Capability, out any) error {
 }
 
 // keyed remembers which contribution first asked for an instance-shaped
-// capability, so a second, different ask names both parties.
+// capability, so a conflicting ask names both parties.
 type keyed struct {
 	reference  string
 	capability Capability
@@ -574,9 +574,8 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return mergeSole(&m.sessions, reference, n, "agent-sessions")
 	}
 
-	// Everything else unions on the key its type dedups by: the same
-	// ask from two kits is one ask, a different ask under the same key
-	// is a contradiction only their authors can resolve.
+	// Instance-shaped entries reconcile on their type's key. Some
+	// destinations have one owner even when the requests are identical.
 	key, err := m.instanceKey(reference, n)
 	if err != nil {
 		return err
@@ -594,6 +593,12 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 	// destination and cannot substitute for this host-sharing grant.
 	if n.Type == CapabilityHostMount || prev.capability.Type == CapabilityHostMount {
 		return fmt.Errorf("merge: %s and %s both declare storage at the same path; a host mount has one owner", prev.reference, reference)
+	}
+	// Matching storage settings do not grant permission to share state:
+	// volume@1 forbids two Kits declaring the same mount destination.
+	if n.Type == CapabilityVolume {
+		return fmt.Errorf("merge: %s and %s both declare %s at %s; volume paths cannot be shared",
+			prev.reference, reference, n.Type, strings.TrimPrefix(key, n.Type+"\x00"))
 	}
 	// A credential does not union the way the rest do, identical
 	// configs included. Resolve refuses two kits declaring one
@@ -783,12 +788,6 @@ func sameRequest(a, b Capability) bool {
 		var sa, sb AgentSkills
 		if DecodeCapabilityConfig(a, &sa) == nil && DecodeCapabilityConfig(b, &sb) == nil {
 			return sa.Path == sb.Path && SkillsMode(sa) == SkillsMode(sb)
-		}
-	case CapabilityVolume:
-		var va, vb Volume
-		if DecodeCapabilityConfig(a, &va) == nil && DecodeCapabilityConfig(b, &vb) == nil {
-			va.Path, vb.Path = path.Clean(va.Path), path.Clean(vb.Path)
-			return va == vb
 		}
 	}
 	return capabilityIdentity(a) == capabilityIdentity(b)
