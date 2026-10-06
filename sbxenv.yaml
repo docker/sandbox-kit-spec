@@ -54,7 +54,7 @@ kits:
   # `codex --model … -c model_reasoning_effort=…` would set per launch,
   # and export CODEX_MODEL / CODEX_REASONING_EFFORT into the sandbox.
   # `--kit-arg model=…` overrides per invocation.
-  - source: docker/sbx-kit-codex:0.160.0
+  - source: docker/sbx-kit-codex:0.160.1
     args:
       model: gpt-6.1-sol
       reasoningEffort: high
