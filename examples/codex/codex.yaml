@@ -19,7 +19,7 @@ kind: workload
 
 args:
   version:
-    default: "0.160.0"
+    default: "0.160.1"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Codex CLI release to install
     buildArg: CODEX_VERSION

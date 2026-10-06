@@ -29,7 +29,7 @@ kind: mixin
 
 args:
   version:
-    default: "2.0.1"
+    default: "2.1.1"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: codex-acp release to install
     buildArg: ACP_VERSION
@@ -42,7 +42,7 @@ provides: ["codex-acp@${{ kit.args.version }}"]
 # eligible, and it is also what makes CODEX_PATH resolvable: the
 # codex-mixin kit installs /usr/local/bin/codex.
 #
-# codex-acp 2.0.1 declares @openai/codex ^0.159.1. With the bundled
+# codex-acp 2.1.1 declares @openai/codex ^0.159.1. With the bundled
 # binary removed, the composed codex must satisfy that range. Keep both
 # bounds aligned with the adapter's dependency when changing its version.
 requires: ["codex >= 0.159.1, < 0.160.0"]

@@ -18,7 +18,7 @@ kind: workload
 # can read what the session was created with.
 args:
   version:
-    default: "2.1.289"
+    default: "2.1.291"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Claude Code release to install
     buildArg: CLAUDE_VERSION
