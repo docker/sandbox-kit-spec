@@ -54,6 +54,11 @@ esac
 					writeExampleFixture(t, filepath.Join(codexStore, "sessions", "2026", "10", "05",
 						"rollout-2026-10-05T12-00-00-thread-test.jsonl"), `{"type":"session_meta","payload":{"id":"thread-test","cwd":"/rollout/workspace","cli_version":"0.160.0","git":{"branch":"rollout-branch","commit_hash":"1234567890abcdef"}}}
 {"type":"turn_context","payload":{"model":"older-model","effort":"low"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /rollout/workspace\n\n<INSTRUCTIONS>\nbe nice\n</INSTRUCTIONS>"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/rollout/workspace</cwd>\n</environment_context>"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"  \nUpdate the kit versions\n\nclaude and codex are stale."}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"On it."}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Also bump the mixins"}]}}
 {"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":1000,"last_token_usage":{"total_tokens":10},"total_token_usage":{"input_tokens":20,"output_tokens":3}}}}
 {"type":"turn_context","payload":{"cwd":"/not-a-real-hook-test-workspace","model":"current-model","effort":"high"}}
 {"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":1000,"last_token_usage":{"total_tokens":120},"total_token_usage":{"input_tokens":333,"output_tokens":44}}}}
@@ -78,7 +83,7 @@ esac
 				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
 				want := []string{`{"name":"sbx_desktop_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
 				if withRollout {
-					want = append(want, `{"name":"sbx_desktop_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
+					want = append(want, `{"name":"sbx_desktop_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":"Update the kit versions","model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
 				}
 				require.Len(t, lines, len(want))
 				for i, expected := range want {
@@ -94,6 +99,71 @@ esac
 				}
 			})
 		}
+	}
+}
+
+func TestClaudeDesktopHookForwardsThePromptAsSessionTitle(t *testing.T) {
+	requireExampleTool(t, "jq")
+	bin := t.TempDir()
+	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
+payload=""; headers=""; method=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data) shift; payload="$1" ;;
+    -D) shift; headers="$1" ;;
+    -X) shift; method="$1" ;;
+  esac
+  shift
+done
+if [ -n "$headers" ]; then
+  printf 'Mcp-Session-Id: test\r\n' > "$headers"
+fi
+case "$payload" in
+  *'"method":"tools/call"'*)
+    printf '%s\n' "$payload" >> "$MOCK_CALLS"
+    printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
+    ;;
+esac
+[ "$method" != DELETE ] || touch "$MOCK_CLOSED"
+`, 0o755)
+	for _, kit := range []string{"claude", "claude-mixin"} {
+		t.Run(kit, func(t *testing.T) {
+			descriptor, err := os.ReadFile(filepath.Join(kit, kit+".yaml"))
+			require.NoError(t, err)
+			require.Contains(t, string(descriptor), `\"UserPromptSubmit\": [ { \"hooks\": [ $HOOK ] } ]`, "the prompt hook must be registered")
+			run := func(input string) []string {
+				t.Helper()
+				tmp := t.TempDir()
+				callsPath := filepath.Join(tmp, "calls")
+				closed := filepath.Join(tmp, "closed")
+				stdout, stderr, err := runExampleCommand(t, []string{
+					"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"HOME=" + tmp,
+					"TMPDIR=" + tmp,
+					"MCP_GATEWAY_URL=http://test.invalid/mcp",
+					"MOCK_CALLS=" + callsPath,
+					"MOCK_CLOSED=" + closed,
+				}, input, "sh", filepath.Join(kit, "scripts", "sbx-agent-hook.sh"), "claude")
+				require.NoError(t, err, stderr)
+				require.Empty(t, stdout, "UserPromptSubmit stdout would be added to the prompt")
+				require.Empty(t, stderr)
+				calls, err := os.ReadFile(callsPath)
+				if os.IsNotExist(err) {
+					return nil
+				}
+				require.NoError(t, err)
+				require.FileExists(t, closed, "a delivery must close its MCP session")
+				return strings.Split(strings.TrimSpace(string(calls)), "\n")
+			}
+			lines := run(`{"hook_event_name":"UserPromptSubmit","session_id":"s-1","cwd":"/work/repo","prompt":"  \nFix the flaky test\n\nIt fails on CI only."}`)
+			require.Len(t, lines, 1)
+			var call struct {
+				Params json.RawMessage `json:"params"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(lines[0]), &call))
+			require.JSONEq(t, `{"name":"sbx_desktop_session","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":"Fix the flaky test"}}`, string(call.Params))
+			require.Nil(t, run(`{"hook_event_name":"UserPromptSubmit","session_id":"s-1","cwd":"/work/repo","prompt":"   "}`), "a blank prompt is nothing to report")
+		})
 	}
 }
 

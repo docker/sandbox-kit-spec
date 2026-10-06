@@ -181,13 +181,16 @@ capabilities:
             esac
             # Lifecycle hooks for sbx Desktop (see /usr/local/bin/sbx-claude-hook):
             # Stop and StopFailure report a finished turn, Notification the
-            # moments Claude waits on the user. The script never fails, never
-            # writes stdout and runs async, so a session without the desktop
-            # app sees no delay and no hook error.
+            # moments Claude waits on the user, UserPromptSubmit the prompt
+            # that names the conversation (Claude Code lists sessions by id
+            # only). The script never fails, never writes stdout and runs
+            # async, so a session without the desktop app sees no delay and
+            # no hook error.
             HOOK='{ "type": "command", "command": "/usr/local/bin/sbx-claude-hook claude", "timeout": 10, "async": true }'
             HOOKS="  \"hooks\": {
                 \"Stop\": [ { \"hooks\": [ $HOOK ] } ],
                 \"StopFailure\": [ { \"hooks\": [ $HOOK ] } ],
+                \"UserPromptSubmit\": [ { \"hooks\": [ $HOOK ] } ],
                 \"Notification\": [ { \"matcher\": \"permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input\", \"hooks\": [ $HOOK ] } ]
               },
             "

@@ -11,7 +11,10 @@
 # answers with an error and nothing else happens.
 #
 #   sbx-agent-hook claude          Claude Code Stop / StopFailure / Notification
-#                                  hook: event JSON on stdin -> notify
+#                                  hook: event JSON on stdin -> notify;
+#                                  UserPromptSubmit: the prompt -> session info
+#                                  (title), so the app can name a conversation
+#                                  the harness lists by id only
 #   sbx-agent-hook claude-status   Claude Code statusLine command: session JSON
 #                                  on stdin -> session info (prints nothing, so
 #                                  no status line is drawn in the terminal)
@@ -48,7 +51,7 @@ sid=""
 hdr=""
 mcp_open() {
   hdr=$(mktemp 2>/dev/null) || return 1
-  init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"sbx-agent-hook","version":"1.1"}}}'
+  init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"sbx-agent-hook","version":"1.2"}}}'
   if ! curl -s -m 3 -o /dev/null -D "$hdr" -H "$auth" -H "$ctype" -H "$accept" --data "$init" "$url"; then
     rm -f "$hdr"
     return 1
@@ -124,6 +127,18 @@ with_git() {
           git_dirty: (if $b == "" then .git_dirty else $d end) }'
 }
 
+# Claude Code UserPromptSubmit JSON -> session arguments carrying only the
+# prompt as title (first line, trimmed); the app fills the rest from the
+# status line. Empty when the event carries no prompt.
+claude_prompt_args() {
+  printf '%s' "$input" | jq -c '
+    def str: if . == null then null else tostring end;
+    def trim: gsub("^\\s+|\\s+$"; "");
+    (.prompt // "" | tostring | split("\n") | map(trim) | map(select(length > 0)) | .[0] // "") as $line
+    | select($line != "")
+    | { agent: "claude", session_id: (.session_id | str), cwd: (.cwd | str), title: ($line | .[0:200]) }'
+}
+
 # Claude Code statusLine JSON -> session arguments.
 claude_session_args() {
   effort=""
@@ -162,16 +177,31 @@ codex_session_args() { # thread-id
   file=$1
   [ -f "$file" ] || return 1
   jq -n -c '
+    def trim: gsub("^\\s+|\\s+$"; "");
     [inputs] as $all
     | ($all | map(select(.type == "session_meta")) | last | .payload) as $meta
     | ($all | map(select(.type == "turn_context")) | last | .payload) as $turn
     | ($all | map(select(.type == "event_msg" and .payload.type == "token_count")) | last | .payload.info) as $tok
     | ($tok.model_context_window // null) as $win
     | ($tok.last_token_usage.total_tokens // null) as $used
+    # The first user message that is not a block Codex injects itself
+    # (AGENTS.md, environment context, permissions…) names the thread.
+    | ($all
+       | map(select(.type == "response_item" and .payload.type == "message" and .payload.role == "user"))
+       | map(.payload.content // [] | map(select(.type == "input_text" or .type == "text") | .text // "") | join("\n")
+             | trim | select(length > 0)
+             | select(startswith("# AGENTS.md") or startswith("<environment_context>") or startswith("<user_instructions>")
+                      or startswith("<permissions") or startswith("<turn_aborted") or startswith("<external_codex_apps")
+                      or startswith("<in-app-browser-context") or startswith("<user_shell_command") or startswith("<app-context")
+                      or startswith("<skill") or startswith("<collaboration_mode") or startswith("<realtime_") | not))
+       | first // null) as $prompt
+    | (if $prompt == null then null
+       else ($prompt | split("\n") | map(trim) | map(select(length > 0)) | .[0] // null | if . == null then null else .[0:200] end) end) as $title
     | {
         agent: "codex",
         session_id: ($meta.id // null),
         cwd: ($turn.cwd // $meta.cwd // null),
+        title: $title,
         model_id: ($turn.model // null),
         model_name: ($turn.model // null),
         effort: ($turn.effort // null),
@@ -233,6 +263,19 @@ send_pending() { # session-key
 
   case "$mode" in
     claude)
+      case "$(printf '%s' "$input" | jq -r '.hook_event_name // empty')" in
+        UserPromptSubmit)
+          # Not a lifecycle event: the prompt names the conversation. Sent
+          # as session info, not a notification. (Claude Code adds a
+          # UserPromptSubmit hook's stdout to the prompt; this prints none.)
+          args=$(claude_prompt_args) || exit 0
+          [ -n "$args" ] || exit 0
+          mcp_open || exit 0
+          mcp_call sbx_desktop_session "$args"
+          mcp_close
+          exit 0
+          ;;
+      esac
       args=$(notify_args claude) || exit 0
       [ -n "$args" ] || exit 0
       # A Stop that a previous Stop hook already continued is the same turn.
