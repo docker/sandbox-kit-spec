@@ -17,8 +17,20 @@ ARG CODEX_VERSION
 # As agent, not root: the template hands the npm prefix to the agent so
 # it can add globals at run time, and a root-run install would take that
 # back for every path it touches. The cache lands outside the image.
+#
+# `notify` hook the config seed points Codex at: it reports a completed
+# turn to sbx Desktop through the MCP gateway and is a silent no-op when
+# no desktop server is loaded. The template already runs as agent, so the
+# root-owned install needs an explicit root stage.
+USER root
+COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-codex-hook
+RUN chmod 0755 /usr/local/bin/sbx-codex-hook
 USER agent
-RUN npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
+# Installing over the template's existing platform package can leave npm
+# extracting into directories it just removed, losing the native binary.
+# Remove that package first so the pin is a clean install on every base.
+RUN npm uninstall -g --no-fund --no-audit @openai/codex \
+ && npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
       "@openai/codex@${CODEX_VERSION}" \
  && rm -rf /tmp/npm-cache \
  # The pin is a claim about content: judge it the way the entrypoint

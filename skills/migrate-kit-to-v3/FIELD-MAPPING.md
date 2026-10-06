@@ -466,14 +466,19 @@ becomes `transport: tcp`. A kit cannot pin a host port.
 
 ### agent-sessions@1
 
-Workload-only by convention — unlike `sbx@1`, `validate.go` has no kind check
-for it, so a mixin declaring it is accepted and simply describes something a
-mixin does not own. Add it only where the v2 kit's `testdata/tck.yaml` recorded
-a working non-interactive invocation in `promptArgs`. Translate it into the
-verb tails: `promptArgs: ["-p"]` → `prompt: ["-p", "{{.Prompt}}"]`, plus
-`continue` and `resume` where the agent supports them, and `list`, which is a
-complete command rather than a tail. Where `promptArgs` was deliberately
-omitted, omit the capability — do not invent flags.
+Author this capability on the workload kit, whose entrypoint the verbs
+operate. Unlike `sbx@1`, `validate.go` has no kind check, but composition
+holds agent-sessions to one whole-sandbox declaration and rejects differing
+requests; a list-only mixin is not a separate session surface. Keep the
+capability off mixins.
+
+Add it where the v2 kit's `testdata/tck.yaml` recorded a working
+non-interactive invocation in `promptArgs`. Translate it into the verb
+tails: `promptArgs: ["-p"]` → `prompt: ["-p", "{{.Prompt}}"]`, plus
+`continue` and `resume` where the agent supports them. `list` is a complete
+command whose stdout contains one resumable ID per line, most recent first.
+Where `promptArgs` was deliberately omitted, omit the capability — do not
+invent flags.
 
 ### agent-interactive-sessions@1
 

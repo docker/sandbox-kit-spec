@@ -16,6 +16,9 @@ RUN case "$TARGETARCH" in \
       -o /out/usr/local/bin/claude \
  && chmod 0755 /out/usr/local/bin/claude
 
-# The overlay: one binary, landing on any base.
+# The mixin owns no session control surface, so it carries only the
+# Claude binary and Desktop hook; the workload carries the listing SDK.
+COPY scripts/sbx-agent-hook.sh /out/usr/local/bin/sbx-claude-hook
+RUN chmod 0755 /out/usr/local/bin/sbx-claude-hook && chown 0:0 /out/usr/local/bin/sbx-claude-hook
 FROM scratch
 COPY --from=build /out /
