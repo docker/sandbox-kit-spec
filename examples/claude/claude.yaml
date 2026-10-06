@@ -135,6 +135,7 @@ capabilities:
   # list: `claude agents --json` prints JSON, not one id per line, so the
   # command above does not meet the contract and is not repeated here.
   - type: com.docker.sandbox/agent-interactive-sessions@1
+    optional: true
     description: Open claude's terminal UI on a chosen session
     config:
       # `--` ends the options: a prompt starting with `-` stays a prompt.

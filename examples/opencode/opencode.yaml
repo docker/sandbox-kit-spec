@@ -226,6 +226,7 @@ capabilities:
   # There is no sessionPicker (no flag opens one) and no list (the session
   # list is a table or JSON, not one id per line).
   - type: com.docker.sandbox/agent-interactive-sessions@1
+    optional: true
     config:
       # `--prompt=` binds the value: a prompt starting with `-` stays one.
       prompt: ["--prompt={{.Prompt}}"]

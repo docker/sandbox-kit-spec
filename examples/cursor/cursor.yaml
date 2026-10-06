@@ -126,6 +126,7 @@ capabilities:
   # id is cursor-agent's session picker. There is no list: its help
   # describes `ls` as resuming a chat, not as printing ids.
   - type: com.docker.sandbox/agent-interactive-sessions@1
+    optional: true
     config:
       # `--` ends the options: a prompt starting with `-` stays a prompt.
       prompt: ["--", "{{.Prompt}}"]
