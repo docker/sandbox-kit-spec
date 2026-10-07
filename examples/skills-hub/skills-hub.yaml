@@ -1,0 +1,24 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: "Skills Hub: ${{ kit.args.skill }}"
+description: "Bundled ${{ kit.args.skill }} skill from skills-hub.ai."
+sourceUrl: "https://skills-hub.ai/skills/${{ kit.args.skill }}"
+version: "${{ kit.args.version }}"
+
+args:
+  skill:
+    default: code-review
+    pattern: '^[a-z0-9][a-z0-9-]{0,254}$'
+    description: Public skill slug from skills-hub.ai
+    buildArg: SKILL
+  version:
+    default: "1.0.0"
+    pattern: '^[0-9]+[.][0-9]+[.][0-9]+$'
+    description: Published version of the selected skill
+    buildArg: SKILL_VERSION
+
+capabilities:
+  - type: com.docker.sandbox/agent-skill@1
+    config:
+      path: "/usr/share/skills-hub/${{ kit.args.skill }}"

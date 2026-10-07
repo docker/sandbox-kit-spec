@@ -15,7 +15,7 @@ vars:
   # so they only build once those kits have been pushed to the namespace
   # their `registry` arg names. Build one on its own:
   # `task kit:build KIT=team BUILD_ARGS='--build-arg registry=docker.io/me'`.
-  KITS: hello gh tool shell alpine builder motd wordpress claude claude-mixin claude-acp codex codex-mixin codex-acp cursor cursor-mixin devin devin-mixin docker-agent docker-agent-mixin gemini gemini-mixin opencode opencode-mixin skills dev-tools optional-cache shared-cache git-signing github-ssh review-skill
+  KITS: hello gh tool shell alpine builder motd wordpress claude claude-mixin claude-acp codex codex-mixin codex-acp cursor cursor-mixin devin devin-mixin docker-agent docker-agent-mixin gemini gemini-mixin opencode opencode-mixin skills dev-tools optional-cache shared-cache git-signing github-ssh review-skill skills-hub
   # Empty means "the kit's own version answers": build and push refresh an
   # upstream-tracked descriptor from the vendor's latest release and tag
   # with it, so an image tag can never name a version the kit did not
