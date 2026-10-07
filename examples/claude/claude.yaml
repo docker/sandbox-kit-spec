@@ -122,7 +122,7 @@ capabilities:
   - type: com.docker.sandbox/agent-sessions@1
     description: Drive claude sessions programmatically
     config:
-      prompt: ["-p", "{{.Prompt}}"]
+      prompt: ["--", "{{.Prompt}}"]
       continue: ["--continue"]
       resume: ["--resume", "{{.SessionID}}"]
       list: ["node", "/opt/claude-sessions/interactive-sessions.mjs"]

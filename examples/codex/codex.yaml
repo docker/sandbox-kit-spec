@@ -205,7 +205,7 @@ capabilities:
   # entries are argv tails appended to the entrypoint's launch command.
   - type: com.docker.sandbox/agent-sessions@1
     config:
-      prompt: ["exec", "{{.Prompt}}"]
+      prompt: ["--", "{{.Prompt}}"]
       resume: ["resume", "{{.SessionID}}"]
       continue: ["resume", "--last"]
       list:
