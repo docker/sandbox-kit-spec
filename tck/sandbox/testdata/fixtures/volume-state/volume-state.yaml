@@ -12,6 +12,8 @@ args:
     default: "0700"
 capabilities:
   - type: com.docker.sandbox/volume@1
+    name: Original storage
+    description: First contributor display metadata
     source: {kit: registry.example/storage:latest, path: "capabilities[0]"}
     config:
       path: "${{ kit.args.volume_path }}"

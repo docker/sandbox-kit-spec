@@ -61,16 +61,53 @@ def size_value(value):
 
 
 def equivalent(a, b):
-    return (size_value(a['size']) == size_value(b['size'])
-            and (int(a['mode'], 8) if a['mode'] else None)
-            == (int(b['mode'], 8) if b['mode'] else None)
-            and a['tmpfs'] == b['tmpfs'])
+    size_a, size_b = size_value(a['size']), size_value(b['size'])
+    mode_a = int(a['mode'], 8) if a['mode'] else None
+    mode_b = int(b['mode'], 8) if b['mode'] else None
+    if broken == 'volume-compares-size-spelling':
+        size_a, size_b = a['size'], b['size']
+    if broken == 'volume-compares-mode-spelling':
+        mode_a, mode_b = a['mode'], b['mode']
+    if broken == 'volume-rounds-size':
+        size_a = float(size_a) if size_a is not None else None
+        size_b = float(size_b) if size_b is not None else None
+    if broken == 'volume-defaults-unspecified-size':
+        size_a, size_b = size_a or 0, size_b or 0
+    if broken == 'volume-defaults-unspecified-mode':
+        mode_a, mode_b = mode_a or 0, mode_b or 0
+    same_size = size_a == size_b
+    same_mode = mode_a == mode_b
+    if broken == 'volume-wildcard-size' and (size_a is None or size_b is None):
+        same_size = True
+    if broken == 'volume-wildcard-mode' and (mode_a is None or mode_b is None):
+        same_mode = True
+    for field in ['size', 'mode', 'tmpfs']:
+        if (broken == 'volume-compares-' + field + '-presence'
+                and a['_' + field + '_present'] != b['_' + field + '_present']):
+            return False
+    return same_size and same_mode and a['tmpfs'] == b['tmpfs']
+
+
+def setting(entry, field, descriptor, overrides):
+    # Read the shipped fixture's scalar, including its argument default.
+    # Literal settings must not inherit overrides for unrelated Kit args.
+    config = entry.split('    config:', 1)[1]
+    match = re.search(r'\b' + field + r':\s*("[^"]*"|[^,\s}]+)', config)
+    if not match:
+        return '', False
+    value = match[1].strip('"')
+    argument = re.fullmatch(r'\$\{\{ kit\.args\.([a-z_]+) \}\}', value)
+    if argument:
+        default = re.search(r'^  ' + argument[1] + r':\n    default: ([^\n]+)$', descriptor, re.M)
+        value = overrides.get(argument[1], default[1].strip('"'))
+    return value, True
 
 
 def requests(kits, overrides):
     result = {}
     sources = {}
     optionalities = {}
+    metadata = {}
     contributions = 0
     for kit in kits:
         name = Path(kit).name
@@ -82,36 +119,40 @@ def requests(kits, overrides):
         descriptor = (Path(kit) / (name + '.yaml')).read_text()
         entry = descriptor.split('  - type: com.docker.sandbox/volume@1', 1)[1].split('  - type:', 1)[0]
         optional = any(line.strip() == 'optional: true' for line in entry.splitlines())
-        default_path = re.search(r'^  volume_path:\n    default: ([^\n]+)$', descriptor, re.M)
-        path = overrides.get('volume_path', default_path[1] if default_path else primary)
+        path, _ = setting(entry, 'path', descriptor, overrides)
         if broken != 'volume-raw-paths':
             path = posixpath.normpath(path)
-        size = overrides.get('volume_size', '1024m' if name == 'volume-state-other' else '1g')
-        mode = overrides.get('volume_mode', '700' if name == 'volume-state-other' else '0700')
-        if name == 'volume-state-other':
-            mode = '700'
-        if name == 'volume-state-size':
-            size = '2g'
-        if name == 'volume-state-mode':
-            mode = '0755'
-        if name == 'volume-state-unspecified':
-            size, mode = '', ''
-        tmpfs = name == 'volume-state-tmpfs'
+        size, has_size = setting(entry, 'size', descriptor, overrides)
+        mode, has_mode = setting(entry, 'mode', descriptor, overrides)
+        tmpfs_value, has_tmpfs = setting(entry, 'tmpfs', descriptor, overrides)
+        tmpfs = tmpfs_value == 'true'
+        display = {field: next((line.strip() for line in entry.splitlines()
+                               if line.lstrip().startswith(field + ':')), '')
+                   for field in ['name', 'description']}
         source = next((line.strip() for line in entry.splitlines()
                        if line.lstrip().startswith('source:')), '')
-        for path, config, source, optional in [
-            (path, dict(size=size, mode=mode, tmpfs=tmpfs), source, optional),
-            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs), '', False),
+        for path, config, source, optional, display in [
+            (path, dict(size=size, mode=mode, tmpfs=tmpfs,
+                        _size_present=has_size, _mode_present=has_mode,
+                        _tmpfs_present=has_tmpfs), source, optional, display),
+            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs,
+                             _size_present=True, _mode_present=True,
+                             _tmpfs_present=tmpfs), '', False, {}),
         ]:
             if path in result and broken == 'volume-compares-provenance' and sources[path] != source:
                 refuse('diagnostic provenance differs at ' + path)
             if path in result and broken == 'volume-compares-optionality' and optionalities[path] != optional:
                 refuse('request optionality differs at ' + path)
+            for field in ['name', 'description']:
+                if (path in result and broken == 'volume-compares-' + field
+                        and metadata[path].get(field) != display.get(field)):
+                    refuse('display ' + field + ' differs at ' + path)
             if path in result and not equivalent(result[path], config) and broken != 'volume-merges-conflicts':
                 refuse('conflicting storage configurations at ' + path)
             result[path] = config
             sources[path] = source
             optionalities[path] = optionalities.get(path, True) and optional
+            metadata[path] = display
     if contributions > 1 and broken == 'volume-refuses-matching':
         refuse('matching volume requests rejected')
     return result

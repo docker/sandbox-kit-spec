@@ -53,18 +53,34 @@ func volumeProbe(ctx context.Context, e *Env, id, operation, path, name, value, 
 
 func volumeMatching(ctx context.Context, e *Env) []report.Finding {
 	// The second Kit uses a path alias, equivalent size/mode spellings,
-	// distinct provenance, and an optional request. Storage settings
-	// reconcile independently of metadata, and required wins.
-	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state", "volume-state-other"}, nil)
-	if err != nil {
-		return []report.Finding{report.Failf("matching volume composition: %v", err)}
+	// explicit false, distinct display metadata/provenance, and optionality.
+	// Empty settings remain unspecified; decimal sizes compare exactly.
+	for _, pair := range []struct {
+		first, second string
+		args          map[string]string
+	}{
+		{"volume-state", "volume-state-other", nil},
+		{"volume-state-unspecified", "volume-state-empty", nil},
+		{"volume-state", "volume-state-fraction", map[string]string{"volume_size": "1.5g"}},
+	} {
+		id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, pair.first, pair.second}, pair.args)
+		if err != nil {
+			return []report.Finding{report.Failf("matching %s/%s composition: %v", pair.first, pair.second, err)}
+		}
+		// Defer even failed observations so allocation/mount failures cannot
+		// leak the instance under test.
+		defer remove()
+		paths, err := e.Adapter.VolumePaths(ctx, id)
+		if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+			return []report.Finding{report.Failf("matching %s/%s requests must allocate one volume per cleaned path: %v (%v)", pair.first, pair.second, paths, err)}
+		}
+		for _, path := range []string{volumePath, volumeOtherPath} {
+			if f := volumeProbe(ctx, e, id, "mounted", path, "", "", ""); len(f) > 0 {
+				return f
+			}
+		}
 	}
-	defer remove()
-	paths, err := e.Adapter.VolumePaths(ctx, id)
-	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
-		return []report.Finding{report.Failf("matching requests must allocate one volume per cleaned path: %v (%v)", paths, err)}
-	}
-	return volumeProbe(ctx, e, id, "mounted", volumePath, "", "", "")
+	return nil
 }
 
 func volumeConflicts(ctx context.Context, e *Env) []report.Finding {
@@ -74,12 +90,24 @@ func volumeConflicts(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("control create: %v", err)}
 	}
 	remove()
-	for _, fixture := range []string{"volume-state-size", "volume-state-mode", "volume-state-unspecified", "volume-state-tmpfs"} {
-		_, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state", fixture}, nil)
+	for _, pair := range [][2]string{
+		{"volume-state", "volume-state-size"},
+		{"volume-state", "volume-state-mode"},
+		{"volume-state", "volume-state-unspecified"},
+		{"volume-state", "volume-state-tmpfs"},
+		{"volume-state", "volume-state-size-unspecified"},
+		{"volume-state", "volume-state-mode-unspecified"},
+		// These differ below floating-point precision without allocating
+		// huge volumes just to exercise exact byte-value comparison.
+		{"volume-state", "volume-state-near-size"},
+		{"volume-state-size-unspecified", "volume-state-zero-size"},
+		{"volume-state-mode-unspecified", "volume-state-zero-mode"},
+	} {
+		_, remove, err := e.sandbox(ctx, []string{fixtureWorkload, pair[0], pair[1]}, nil)
 		remove()
 		var refused *adapter.RefusedError
 		if !errors.As(err, &refused) {
-			return []report.Finding{report.Failf("conflicting %s composition must refuse: %v", fixture, err)}
+			return []report.Finding{report.Failf("conflicting %s/%s composition must refuse: %v", pair[0], pair[1], err)}
 		}
 	}
 	return nil

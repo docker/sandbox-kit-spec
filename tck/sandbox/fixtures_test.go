@@ -16,7 +16,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 78, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 85, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -99,6 +99,16 @@ func TestPublishedVolumeFixtureMatchesPublisher(t *testing.T) {
 	require.NotEqual(t, contributions[0].Descriptor.Capabilities[0].Source,
 		contributions[1].Descriptor.Capabilities[0].Source,
 		"matching volume fixtures must exercise distinct provenance")
+	require.NotEqual(t, contributions[0].Descriptor.Capabilities[0].Name,
+		contributions[1].Descriptor.Capabilities[0].Name,
+		"matching volume fixtures must ignore distinct display names")
+	require.NotEqual(t, contributions[0].Descriptor.Capabilities[0].Description,
+		contributions[1].Descriptor.Capabilities[0].Description,
+		"matching volume fixtures must ignore distinct descriptions")
+	_, hasTmpfs := contributions[0].Descriptor.Capabilities[0].Config["tmpfs"]
+	require.False(t, hasTmpfs)
+	require.Equal(t, false, contributions[1].Descriptor.Capabilities[0].Config["tmpfs"],
+		"matching volume fixtures must reconcile omitted and explicit false tmpfs")
 	require.False(t, contributions[0].Descriptor.Capabilities[0].Optional)
 	require.True(t, contributions[1].Descriptor.Capabilities[0].Optional,
 		"matching fixtures must reconcile required and optional requests")
