@@ -202,6 +202,7 @@ var mutations = map[string][]string{
 	"volume-keys-on-wrapper":            {"volume@1/composition-independent"},
 	"volume-refusal-destroys-storage":   {"volume@1/recreate-config-compatible"},
 	"volume-refuses-matching":           {"volume@1/matching-requests-merge"},
+	"volume-compares-provenance":        {"volume@1/matching-requests-merge"},
 	"volume-merges-conflicts":           {"volume@1/no-silent-merge"},
 	"volume-shares-instances":           {"volume@1/instance-and-path-identity"},
 	"volume-ignores-path":               {"volume@1/instance-and-path-identity"},

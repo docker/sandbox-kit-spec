@@ -96,6 +96,9 @@ func TestPublishedVolumeFixtureMatchesPublisher(t *testing.T) {
 		// original first contributor's source rather than claiming it.
 		contributions = append(contributions, spec.Contribution{Reference: name, Descriptor: d})
 	}
+	require.NotEqual(t, contributions[0].Descriptor.Capabilities[0].Source,
+		contributions[1].Descriptor.Capabilities[0].Source,
+		"matching volume fixtures must exercise distinct provenance")
 	published, err := spec.Merge(contributions, spec.MergeOptions{})
 	require.NoError(t, err)
 	raw, err := os.ReadFile(filepath.Join(FixtureDir, "volume-state-published", "volume-state-published.yaml"))

@@ -12,7 +12,7 @@ args:
     default: "0700"
 capabilities:
   - type: com.docker.sandbox/volume@1
-    source: {kit: registry.example/storage:latest, path: "capabilities[0]"}
+    source: {kit: registry.example/other-storage:latest, path: "capabilities[1]"}
     config:
       path: "${{ kit.args.volume_path }}"
       size: "${{ kit.args.volume_size }}"

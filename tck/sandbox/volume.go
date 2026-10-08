@@ -29,8 +29,8 @@ func volumeProbe(ctx context.Context, e *Env, id, operation, path, name, value, 
 }
 
 func volumeMatching(ctx context.Context, e *Env) []report.Finding {
-	// The second Kit uses equivalent size/mode spellings and the same
-	// diagnostic provenance. None of these change storage ownership.
+	// The second Kit has equivalent size/mode spellings and distinct
+	// diagnostic provenance. Provenance does not affect compatibility.
 	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state", "volume-state-other"}, nil)
 	if err != nil {
 		return []report.Finding{report.Failf("matching volume composition: %v", err)}

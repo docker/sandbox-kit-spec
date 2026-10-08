@@ -65,6 +65,7 @@ def equivalent(a, b):
 
 def requests(kits, overrides):
     result = {}
+    sources = {}
     contributions = 0
     for kit in kits:
         name = Path(kit).name
@@ -84,13 +85,19 @@ def requests(kits, overrides):
         if name == 'volume-state-unspecified':
             size, mode = '', ''
         tmpfs = name == 'volume-state-tmpfs'
-        for path, config in [
-            (posixpath.normpath(overrides.get('volume_path', primary)), dict(size=size, mode=mode, tmpfs=tmpfs)),
-            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs)),
+        descriptor = (Path(kit) / (name + '.yaml')).read_text()
+        source = next((line.strip() for line in descriptor.splitlines()
+                       if line.lstrip().startswith('source:')), '')
+        for path, config, source in [
+            (posixpath.normpath(overrides.get('volume_path', primary)), dict(size=size, mode=mode, tmpfs=tmpfs), source),
+            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs), ''),
         ]:
+            if path in result and broken == 'volume-compares-provenance' and sources[path] != source:
+                refuse('diagnostic provenance differs at ' + path)
             if path in result and not equivalent(result[path], config) and broken != 'volume-merges-conflicts':
                 refuse('conflicting storage configurations at ' + path)
             result[path] = config
+            sources[path] = source
     if contributions > 1 and broken == 'volume-refuses-matching':
         refuse('matching volume requests rejected')
     return result
