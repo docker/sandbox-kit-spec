@@ -132,6 +132,13 @@ simulate persistence by copying data around a runtime remove/create.
 An adapter without an operation that preserves instance identity and
 volume data on recreation cannot claim `volume@1`.
 
+Volume data probes run as the agent. Mount-root accessibility is a SHOULD,
+so contents observations report SKIP when the initial root's permissions
+prevent seeding or reading test data. Only the fixture probe's explicit
+permission-denied status permits that skip; missing roots and failed
+probes remain failures. Errors after successfully seeding retained block
+storage are not skipped, because they can violate state preservation.
+
 `wait-idle` and `status` are required only for adapters claiming
 `com.docker.sandbox/long-running@1`. `wait-idle` **MUST** exercise a real
 client session's connection and disconnection, leave no client sessions

@@ -2,6 +2,8 @@
 set -eu
 operation="$1"; root="$2"; name="${3:-}"; value="${4:-}"
 case "$operation" in
+writable) test -d "$root"; { test -w "$root" && test -x "$root"; } || exit 3 ;;
+readable) test -d "$root"; { test -r "$root" && test -x "$root"; } || exit 3 ;;
 write) mkdir -p "$root"; printf '%s' "$value" >"$root/$name" ;;
 read) cat "$root/$name" ;;
 absent) test ! -e "$root/$name" ;;

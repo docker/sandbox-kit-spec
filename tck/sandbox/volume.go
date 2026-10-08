@@ -17,6 +17,29 @@ const (
 	volumeControlPath = volumePath + "-control"
 )
 
+func volumeAccess(ctx context.Context, e *Env, id, path, access string) []report.Finding {
+	res, err := e.Adapter.Exec(ctx, id, "kit-tck-volume", access, path)
+	if err != nil {
+		return []report.Finding{report.Failf("initial volume access probe: %v", err)}
+	}
+	// Only the fixture's permission-denied status excuses an observation.
+	// Missing roots and broken probes must not become conformance skips.
+	if res.ExitCode == 3 {
+		return []report.Finding{report.Skipf("cannot observe volume data at %s: initial root is not %s by the agent; mount-root accessibility is a SHOULD", path, access)}
+	}
+	if res.ExitCode != 0 {
+		return []report.Finding{report.Failf("initial volume access probe at %s: exit %d: %s", path, res.ExitCode, res.Stderr)}
+	}
+	return nil
+}
+
+func volumeSeed(ctx context.Context, e *Env, id, path, name, value string) []report.Finding {
+	if f := volumeAccess(ctx, e, id, path, "writable"); len(f) > 0 {
+		return f
+	}
+	return volumeProbe(ctx, e, id, "write", path, name, value, "")
+}
+
 func volumeProbe(ctx context.Context, e *Env, id, operation, path, name, value, want string) []report.Finding {
 	got, failure := execOutput(ctx, e, id, "kit-tck-volume", operation, path, name, value)
 	if failure != nil {
@@ -41,7 +64,7 @@ func volumeMatching(ctx context.Context, e *Env) []report.Finding {
 	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
 		return []report.Finding{report.Failf("matching requests must allocate one volume per cleaned path: %v (%v)", paths, err)}
 	}
-	return volumeProbe(ctx, e, id, "write", volumePath, "marker", "merged", "")
+	return volumeProbe(ctx, e, id, "mounted", volumePath, "", "", "")
 }
 
 func volumeConflicts(ctx context.Context, e *Env) []report.Finding {
@@ -69,7 +92,7 @@ func volumeIdentity(ctx context.Context, e *Env) []report.Finding {
 	}
 	defer removeA()
 	for _, path := range []string{volumePath, volumeOtherPath} {
-		if f := volumeProbe(ctx, e, a, "write", path, "marker", path, ""); len(f) > 0 {
+		if f := volumeSeed(ctx, e, a, path, "marker", path); len(f) > 0 {
 			return f
 		}
 	}
@@ -79,6 +102,9 @@ func volumeIdentity(ctx context.Context, e *Env) []report.Finding {
 	}
 	defer removeB()
 	for _, path := range []string{volumePath, volumeOtherPath} {
+		if f := volumeAccess(ctx, e, b, path, "readable"); len(f) > 0 {
+			return f
+		}
 		if f := volumeProbe(ctx, e, b, "absent", path, "marker", "", ""); len(f) > 0 {
 			return f
 		}
@@ -95,10 +121,13 @@ func volumeRecompose(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
 	defer remove()
-	for _, path := range []string{volumePath, volumeOtherPath, volumeControlPath} {
-		if f := volumeProbe(ctx, e, id, "write", path, "marker", "retained", ""); len(f) > 0 {
+	for _, path := range []string{volumePath, volumeOtherPath} {
+		if f := volumeSeed(ctx, e, id, path, "marker", "retained"); len(f) > 0 {
 			return f
 		}
+	}
+	if f := volumeProbe(ctx, e, id, "write", volumeControlPath, "marker", "retained", ""); len(f) > 0 {
+		return f
 	}
 	// A file created by the agent can be chmodded even when the runtime
 	// owns the mount root. Root ownership and initial mode are SHOULDs.
@@ -135,7 +164,7 @@ func volumeRetained(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
 	defer remove()
-	if f := volumeProbe(ctx, e, id, "write", volumePath, "marker", "retained", ""); len(f) > 0 {
+	if f := volumeSeed(ctx, e, id, volumePath, "marker", "retained"); len(f) > 0 {
 		return f
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
@@ -157,6 +186,9 @@ func volumeRetained(ctx context.Context, e *Env) []report.Finding {
 	newPath := volumePath + "-renamed"
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state-other")}, map[string]string{"volume_path": newPath}); err != nil {
 		return []report.Finding{report.Failf("rename destination: %v", err)}
+	}
+	if f := volumeAccess(ctx, e, id, newPath, "readable"); len(f) > 0 {
+		return f
 	}
 	if f := volumeProbe(ctx, e, id, "empty", newPath, "", "", ""); len(f) > 0 {
 		return f
@@ -186,7 +218,7 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 	remove := sync.OnceFunc(cleanup)
 	defer remove()
 	for _, path := range []string{volumePath, volumeOtherPath} {
-		if f := volumeProbe(ctx, e, id, "write", path, "marker", "old-instance", ""); len(f) > 0 {
+		if f := volumeSeed(ctx, e, id, path, "marker", "old-instance"); len(f) > 0 {
 			return f
 		}
 	}
@@ -204,6 +236,9 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 	}
 	defer removeFresh()
 	for _, path := range []string{volumePath, volumeOtherPath} {
+		if f := volumeAccess(ctx, e, fresh, path, "readable"); len(f) > 0 {
+			return f
+		}
 		if f := volumeProbe(ctx, e, fresh, "empty", path, "", "", ""); len(f) > 0 {
 			return f
 		}
@@ -223,10 +258,11 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 		}
 		findings := func() []report.Finding {
 			defer remove()
-			for _, path := range []string{volumePath, volumeControlPath} {
-				if f := volumeProbe(ctx, e, id, "write", path, "marker", "unchanged", ""); len(f) > 0 {
-					return f
-				}
+			if f := volumeSeed(ctx, e, id, volumePath, "marker", "unchanged"); len(f) > 0 {
+				return f
+			}
+			if f := volumeProbe(ctx, e, id, "write", volumeControlPath, "marker", "unchanged", ""); len(f) > 0 {
+				return f
 			}
 			var kits []string
 			if override == nil {
@@ -262,7 +298,7 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 		return []report.Finding{report.Failf("create retained storage: %v", err)}
 	}
 	defer remove()
-	if f := volumeProbe(ctx, e, id, "write", volumePath, "marker", "retained", ""); len(f) > 0 {
+	if f := volumeSeed(ctx, e, id, volumePath, "marker", "retained"); len(f) > 0 {
 		return f
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
@@ -308,6 +344,9 @@ func volumeEmpty(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
 	defer remove()
+	if f := volumeAccess(ctx, e, id, volumePath, "readable"); len(f) > 0 {
+		return f
+	}
 	return volumeProbe(ctx, e, id, "empty", volumePath, "", "", "")
 }
 
@@ -318,7 +357,7 @@ func volumeTmpfs(ctx context.Context, e *Env) []report.Finding {
 	}
 	defer remove()
 	for _, recreate := range []bool{false, true} {
-		if f := volumeProbe(ctx, e, id, "write", volumePath, "marker", "scratch", ""); len(f) > 0 {
+		if f := volumeSeed(ctx, e, id, volumePath, "marker", "scratch"); len(f) > 0 {
 			return f
 		}
 		if recreate {
@@ -331,6 +370,9 @@ func volumeTmpfs(ctx context.Context, e *Env) []report.Finding {
 		}
 		if err != nil {
 			return []report.Finding{report.Failf("tmpfs restart/recreate: %v", err)}
+		}
+		if f := volumeAccess(ctx, e, id, volumePath, "readable"); len(f) > 0 {
+			return f
 		}
 		if f := volumeProbe(ctx, e, id, "absent", volumePath, "marker", "", ""); len(f) > 0 {
 			return f
@@ -345,6 +387,9 @@ func volumeHooks(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create with mount-observing hooks: %v", err)}
 	}
 	defer remove()
+	if f := volumeAccess(ctx, e, id, volumePath, "writable"); len(f) > 0 {
+		return f
+	}
 	for _, hook := range []string{"install", "startup"} {
 		if f := volumeProbe(ctx, e, id, "read", volumePath, hook, "", "mounted"); len(f) > 0 {
 			return f

@@ -259,14 +259,26 @@ elif verb == 'exec':
     target = destination(record, path, not mounted)
     name = args[0] if args else ''
     value = args[1] if len(args) > 1 else ''
-    if operation == 'write':
+    if operation in ['writable', 'readable']:
+        if broken == 'volume-setup-probe-error' or not target.is_dir():
+            sys.exit(1)
+        if mounted and (broken == 'volume-root-not-readable'
+                        or (operation == 'writable' and broken == 'volume-root-not-writable')):
+            sys.exit(3)
+    elif operation == 'write':
+        if mounted and broken in ['volume-root-not-writable', 'volume-root-not-readable']:
+            raise PermissionError('the agent cannot write the mount root')
         target.mkdir(parents=True, exist_ok=True)
         (target / name).write_text(value)
     elif operation == 'read':
+        if mounted and broken == 'volume-root-not-readable':
+            raise PermissionError('the agent cannot read the mount root')
         sys.stdout.write((target / name).read_text())
     elif operation == 'absent':
         sys.exit(1 if (target / name).exists() else 0)
     elif operation == 'empty':
+        if mounted and broken == 'volume-root-not-readable':
+            raise PermissionError('the agent cannot list the mount root')
         sys.exit(1 if not target.exists() or any(target.iterdir()) else 0)
     elif operation == 'mounted':
         sys.exit(0 if mounted else 1)

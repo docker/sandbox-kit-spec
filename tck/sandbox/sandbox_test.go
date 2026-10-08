@@ -209,6 +209,7 @@ var mutations = map[string][]string{
 	"volume-shares-instances":           {"volume@1/instance-and-path-identity"},
 	"volume-ignores-path":               {"volume@1/instance-and-path-identity"},
 	"volume-keys-on-kit":                {"volume@1/composition-independent"},
+	"volume-setup-probe-error":          {"volume@1/composition-independent"},
 	"volume-keeps-writable-layer":       {"volume@1/composition-independent"},
 	"volume-resets-mode":                {"volume@1/composition-independent"},
 	"volume-forgets-undeclared":         {"volume@1/undeclared-retained"},

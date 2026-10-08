@@ -25,6 +25,11 @@ capabilities:
       install:
         - command: [kit-tck-volume, mounted, "${{ kit.args.volume_path }}"]
         - command: [kit-tck-volume, write, "${{ kit.args.volume_path }}", install, mounted]
+          user: "0"
       startup:
         - command: [kit-tck-volume, mounted, "${{ kit.args.volume_path }}"]
         - command: [kit-tck-volume, write, "${{ kit.args.volume_path }}", startup, mounted]
+          user: "0"
+        # The agent overwrites this sentinel to observe each later boot.
+        - command: [kit-tck-volume, set-mode, "${{ kit.args.volume_path }}", startup, "0666"]
+          user: "0"

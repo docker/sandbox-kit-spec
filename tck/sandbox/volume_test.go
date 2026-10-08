@@ -20,6 +20,23 @@ func TestVolumeChecksDoNotRequireMountRootOwnership(t *testing.T) {
 	require.False(t, rep.Failed(), "%s", rep)
 }
 
+func TestVolumeDataObservationsSkipInaccessibleInitialRoots(t *testing.T) {
+	for _, variant := range []string{"volume-root-not-writable", "volume-root-not-readable"} {
+		t.Run(variant, func(t *testing.T) {
+			rep := runAgainstFake(t, variant, volumeChecks...)
+			require.False(t, rep.Failed(), "%s", rep)
+			skippedLifetime := false
+			for _, finding := range rep.Findings {
+				require.Equal(t, report.Skip, finding.Severity)
+				if finding.Requirement == "volume@1/composition-independent" {
+					skippedLifetime = true
+				}
+			}
+			require.True(t, skippedLifetime, "unobservable persistence must skip, not pass")
+		})
+	}
+}
+
 func TestFakeVolumeInstallHooksRunOnlyAtCreate(t *testing.T) {
 	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume + "," + capLifecycle, "KIT_TCK_FAKE_BROKEN="}
