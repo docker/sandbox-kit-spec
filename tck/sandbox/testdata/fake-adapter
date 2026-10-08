@@ -24,6 +24,21 @@ host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
 
+# Volume lifetime probes have their own instance model. Removing an
+# instance cannot be used to emulate recreation in that model.
+volume_helper="$(dirname "${BASH_SOURCE[0]}")/volume-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    case "$arg" in
+    */volume-state* | */volume-workload)
+      exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
+      ;;
+    esac
+  done
+elif [ "$verb" = volume-paths ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
+  exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
+fi
+
 # The group fixture's observable files, ordering, records and grant surface.
 write_group_state() {
   local dir="$1" rejected="$2"

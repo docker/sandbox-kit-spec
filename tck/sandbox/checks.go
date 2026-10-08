@@ -927,6 +927,7 @@ var (
 )
 
 func init() {
+	checks = append(checks, volumeChecks...)
 	checks = append(checks,
 		check{
 			requirement: "agent-context@1/explicit-profile-conflict",

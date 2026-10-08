@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    source: {kit: registry.example/storage:latest, path: "capabilities[0]"}
+    config: {path: /var/tmp/kit-tck-volume, size: 1g, mode: "0700"}
+  - type: com.docker.sandbox/volume@1
+    config: {path: /var/tmp/kit-tck-volume-other, size: 1g, mode: "0700"}

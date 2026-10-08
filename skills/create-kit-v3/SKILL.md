@@ -130,7 +130,7 @@ often got wrong:
 | `credential@1` | one service's auth | Entries are **required by default** — add `optional: true` unless the kit genuinely cannot run unauthenticated. `phase` accepts a single phase or `[install, runtime]` with shared configuration. Every `inject[].domain` must appear in every listed phase's allow list, matched **exactly**: a `*.example.com` wildcard does not satisfy `api.example.com`. |
 | `ssh-agent@1` | git over SSH, SSH commit signing | Set `unrestricted: false` to bound it. `sign: [git]` is all commit signing needs; `authenticate: [git@github.com]` is a login to one server. An entry with `unrestricted: true` (the default) signs anything with every key the user's agent holds — declare that only when a client cannot bind sessions (OpenSSH can), and prefer `credential@1` with HTTPS when a token will do. `optional: true` unless the kit cannot work without it: many users have no agent running. A hook that uses it declares `SSH_AUTH_SOCK` in `env:`, and only hooks of the granted phase get it. `authenticate` grants a signature, not a connection: the server must also be reachable under the network policy. `phase` accepts a single phase or `[install, runtime]` with shared rules. Commit signing needs git config too (`gpg.format=ssh`, `gpg.ssh.defaultKeyCommand="ssh-add -L"`). |
 | `lifecycle@1` | install/startup hooks, staged files | Hook environments are **deny-by-default**. Declare every variable in `env:`, including ones only a child process reads — `curl`, `pip` and `npm` need `HTTP_PROXY`/`HTTPS_PROXY`, and `docker` needs `DOCKER_HOST`. |
-| `volume@1` | persistent paths | Always set `size`. An unsized kit volume is formatted at 512 MiB, which is a cache or a package store running out of room mid-run rather than anything visible at create. |
+| `volume@1` | persistent paths | Declare needed capacity with `size`; omission leaves it unspecified and conflicts with another Kit's explicit request. Retained volume settings cannot change on recreation. |
 | `host-mount@1` | host-shared caches, datasets, or artifacts | Declare only the absolute, canonical in-container `path` and optional octal `mode`. The runtime owns the host location. Data is shared across sandboxes of the declaring Kit, survives sandbox removal, and is visible to the host user. Use an optional group to couple cache setup with the mount; see `examples/shared-cache`. |
 | `agent-context@1` | instructions the agent reads | A workload can supply the legacy workspace-sibling `filename`. An agent workload or mixin supplies `filename` plus an absolute `directory` at its discovery location; this overrides the legacy fallback. Different explicit destinations conflict. Tool mixins contribute bodies alone. Use `contentFile:` for a static body, but inline `content:` when the body interpolates an arg — a staged body is never arg-expanded. |
 | `long-running@1` | workloads or service mixins that outlive client sessions | Config-less; a request from any Kit applies to the whole sandbox. A background hook or published port does not prevent session auto-stop. Required by default; use `optional: true` only if auto-stop is tolerable. This does not request restart after failure. |
@@ -149,6 +149,21 @@ directories may have weaker filesystem semantics than private volumes.
 Concurrent writers coordinate access themselves. The initial `mode`
 does not reset existing directory permissions on later creates.
 Two host mounts at one path, or a host mount and a volume there, conflict.
+Matching volume requests across Kits merge on the cleaned destination;
+different sizes, modes, or backing kinds conflict. Sizes compare by byte
+value (suffixes use powers of 1024), modes by octal value, and omitted
+`tmpfs` is false. An unspecified size or mode differs from an explicit
+value. Duplicate destinations within one declaration block are rejected.
+
+Block-volume data belongs to the sandbox instance, independently of the
+Kits that requested it. Restart and recreation retain it, including when
+mixins or the workload change. Removing a declaration leaves its storage
+retained and unmounted; restoring the path reattaches it. Recreation with
+different settings for a retained destination refuses before replacing
+the container. New paths start empty before hooks; reattachment preserves
+contents and permissions. Removing the instance deletes all its volumes;
+creating another with the same name starts fresh. Tmpfs is empty after
+stop or recreation. Host mounts retain their separate sharing contract.
 
 ## Bundled skills
 

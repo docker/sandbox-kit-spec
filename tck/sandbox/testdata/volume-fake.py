@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Instance storage for the volume fixtures, with independently broken duties.
+
+The fake models only its shipped fixtures. Guest probes operate on real
+directories; request records choose mounts but cannot stand in for data.
+"""
+import hashlib
+import json
+import posixpath
+import shutil
+import sys
+import uuid
+from fractions import Fraction
+from pathlib import Path
+
+state, claims, broken, verb, *argv = sys.argv[1:]
+state = Path(state)
+instances = state / 'volume-instances'
+storage = state / 'volume-storage'
+instances.mkdir(parents=True, exist_ok=True)
+storage.mkdir(parents=True, exist_ok=True)
+primary = '/var/tmp/kit-tck-volume'
+secondary = primary + '-other'
+
+
+def refuse(detail):
+    print('refusing: ' + detail, file=sys.stderr)
+    sys.exit(2)
+
+
+def parse(args):
+    kits, overrides, alias = [], {}, ''
+    while args:
+        value, *args = args
+        if value == '--arg':
+            name, setting = args.pop(0).split('=', 1)
+            overrides[name] = setting
+        elif value == '--name':
+            alias = args.pop(0)
+        elif value.startswith('--'):
+            raise ValueError('unsupported volume fixture option: ' + value)
+        else:
+            kits.append(value)
+    return kits, overrides, alias
+
+
+def size_value(value):
+    value = value.lower().replace(' ', '')
+    if not value:
+        return None
+    number = value.rstrip('kmgti b')
+    suffix = value[len(number):]
+    power = 'kmgt'.index(suffix[0]) + 1 if suffix else 0
+    return Fraction(number) * 1024 ** power
+
+
+def equivalent(a, b):
+    return (size_value(a['size']) == size_value(b['size'])
+            and (int(a['mode'], 8) if a['mode'] else None)
+            == (int(b['mode'], 8) if b['mode'] else None)
+            and a['tmpfs'] == b['tmpfs'])
+
+
+def requests(kits, overrides):
+    result = {}
+    contributions = 0
+    for kit in kits:
+        name = Path(kit).name
+        if not name.startswith('volume-state'):
+            continue
+        if 'com.docker.sandbox/volume@1' not in claims.split(','):
+            refuse('required volume@1 is unclaimed')
+        contributions += 1
+        size = overrides.get('volume_size', '1024m' if name == 'volume-state-other' else '1g')
+        mode = overrides.get('volume_mode', '700' if name == 'volume-state-other' else '0700')
+        if name == 'volume-state-other':
+            mode = '700'
+        if name == 'volume-state-size':
+            size = '2g'
+        if name == 'volume-state-mode':
+            mode = '0755'
+        if name == 'volume-state-unspecified':
+            size, mode = '', ''
+        tmpfs = name == 'volume-state-tmpfs'
+        for path, config in [
+            (posixpath.normpath(overrides.get('volume_path', primary)), dict(size=size, mode=mode, tmpfs=tmpfs)),
+            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs)),
+        ]:
+            if path in result and not equivalent(result[path], config) and broken != 'volume-merges-conflicts':
+                refuse('conflicting storage configurations at ' + path)
+            result[path] = config
+    if contributions > 1 and broken == 'volume-refuses-matching':
+        refuse('matching volume requests rejected')
+    return result
+
+
+def record_path(sandbox):
+    return instances / (sandbox + '.json')
+
+
+def load(sandbox):
+    return json.loads(record_path(sandbox).read_text())
+
+
+def destination(record, path, writable=False):
+    key = 'one-path' if broken == 'volume-ignores-path' and not writable else path
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    return storage / record['storage'] / ('writable' if writable else 'volumes') / digest
+
+
+def save(sandbox, record):
+    record_path(sandbox).write_text(json.dumps(record))
+    root = storage / record['storage']
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'requests.json').write_text(json.dumps(record['allocated']))
+
+
+def clear_tmpfs(record):
+    for path, config in record['allocated'].items():
+        if config['tmpfs']:
+            target = destination(record, path)
+            shutil.rmtree(target, ignore_errors=True)
+            target.mkdir(parents=True)
+            target.chmod(int(config['mode'] or '0700', 8))
+
+
+def apply(record, kits, overrides, recreating=False):
+    candidate = requests(kits, overrides)
+    for path, config in candidate.items():
+        previous = record['allocated'].get(path)
+        if previous and not equivalent(previous, config):
+            if broken == 'volume-refusal-destroys-container':
+                shutil.rmtree(storage / record['storage'] / 'writable', ignore_errors=True)
+            if broken == 'volume-refusal-destroys-storage':
+                shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
+            if broken != 'volume-ignores-recreate-config':
+                refuse('retained volume configuration changed at ' + path)
+    if recreating:
+        if broken != 'volume-keeps-writable-layer':
+            shutil.rmtree(storage / record['storage'] / 'writable', ignore_errors=True)
+        if broken == 'volume-keys-on-kit' and record['kits'] != kits:
+            shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
+        if broken == 'volume-keys-on-wrapper' and any(Path(kit).name == 'volume-state-published' for kit in kits):
+            shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
+        if broken != 'volume-tmpfs-persists-recreate':
+            clear_tmpfs(record)
+    record['kits'], record['args'], record['selected'] = kits, overrides, candidate
+    for path, config in candidate.items():
+        target = destination(record, path)
+        fresh = not target.exists()
+        target.mkdir(parents=True, exist_ok=True)
+        if fresh or broken == 'volume-resets-mode':
+            target.chmod(int(config['mode'] or '0700', 8))
+        if fresh and broken == 'volume-copies-image':
+            (target / 'image-marker').write_text('image')
+        record['allocated'][path] = config
+    if broken == 'volume-forgets-undeclared':
+        for path in list(record['allocated']):
+            if path not in candidate:
+                shutil.rmtree(destination(record, path), ignore_errors=True)
+                del record['allocated'][path]
+    for path in [primary, secondary, primary + '-control']:
+        destination(record, path, True).mkdir(parents=True, exist_ok=True)
+    if any(Path(kit).name == 'volume-state-hooks' for kit in kits) and 'com.docker.sandbox/lifecycle@1' in claims.split(','):
+        path = posixpath.normpath(overrides.get('volume_path', primary))
+        target = destination(record, path, broken == 'volume-after-hooks')
+        target.mkdir(parents=True, exist_ok=True)
+        for hook in ['install', 'startup']:
+            (target / hook).write_text('mounted')
+
+
+if verb == 'create':
+    kits, overrides, alias = parse(argv)
+    sandbox = 'volume-' + uuid.uuid4().hex
+    root = 'shared' if broken == 'volume-shares-instances' else sandbox
+    if broken == 'volume-reuses-name':
+        root = alias or sandbox
+    record = dict(storage=root, alias=alias, kits=[], args={}, allocated={}, selected={})
+    previous = storage / root / 'requests.json'
+    if previous.exists():
+        record['allocated'] = json.loads(previous.read_text())
+    apply(record, kits, overrides)
+    save(sandbox, record)
+    print(sandbox)
+elif verb == 'volume-paths':
+    if not record_path(argv[0]).exists():
+        print('[]')
+    else:
+        record = load(argv[0])
+        print(json.dumps(sorted(path for path, config in record['allocated'].items()
+                                if not config['tmpfs'] and destination(record, path).exists())))
+elif verb == 'rm':
+    sandbox = argv[0]
+    record = load(sandbox)
+    if broken != 'volume-retains-after-removal':
+        if broken != 'volume-reuses-name':
+            shutil.rmtree(storage / record['storage'], ignore_errors=True)
+        record_path(sandbox).unlink()
+elif verb == 'recreate':
+    sandbox, *args = argv
+    record = load(sandbox)
+    kits, overrides, _ = parse(args)
+    apply(record, kits or record['kits'], record['args'] | overrides, True)
+    save(sandbox, record)
+elif verb in ['stop', 'start']:
+    record = load(argv[0])
+    if verb == 'stop' and broken != 'volume-tmpfs-persists-stop':
+        clear_tmpfs(record)
+elif verb == 'exec':
+    sandbox, separator, probe, operation, path, *args = argv
+    if separator != '--' or probe != 'kit-tck-volume':
+        raise ValueError('unexpected volume probe')
+    record = load(sandbox)
+    path = posixpath.normpath(path)
+    mounted = path in record['selected'] or (broken == 'volume-mounts-undeclared' and path in record['allocated'])
+    target = destination(record, path, not mounted)
+    name = args[0] if args else ''
+    value = args[1] if len(args) > 1 else ''
+    if operation == 'write':
+        target.mkdir(parents=True, exist_ok=True)
+        (target / name).write_text(value)
+    elif operation == 'read':
+        sys.stdout.write((target / name).read_text())
+    elif operation == 'absent':
+        sys.exit(1 if (target / name).exists() else 0)
+    elif operation == 'empty':
+        sys.exit(1 if not target.exists() or any(target.iterdir()) else 0)
+    elif operation == 'mounted':
+        sys.exit(0 if mounted else 1)
+    elif operation == 'unmounted':
+        sys.exit(1 if mounted else 0)
+    elif operation == 'mode':
+        print(format(target.stat().st_mode & 0o7777, 'o'))
+    elif operation == 'set-mode':
+        target.chmod(int(value, 8))
+    else:
+        raise ValueError('unknown volume probe operation')
+else:
+    raise ValueError('unexpected volume verb: ' + verb)

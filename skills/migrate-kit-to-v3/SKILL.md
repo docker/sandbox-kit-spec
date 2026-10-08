@@ -106,6 +106,16 @@ The complete field-by-field mapping, the capability rules, and the gotcha list
 are in [FIELD-MAPPING.md](FIELD-MAPPING.md). Read it before writing the
 descriptor.
 
+Volume declarations at one cleaned path merge across Kits only when their
+expanded settings match. Equivalent byte-size and octal-mode spellings
+match; unspecified size or mode differs from an explicit value. Block
+storage belongs to the sandbox instance: recreation retains it across
+composition changes, unselected paths remain unmounted until requested
+again, and incompatible settings refuse recreation. Instance removal
+deletes all its volumes; another create with the same name starts fresh.
+Fresh storage starts empty before hooks. Host mounts still have one
+Kit owner and conflict with volumes at the same destination.
+
 Migrate faithfully: preserve every declared host, credential, hook, volume,
 port, env var and instruction, and keep base images verbatim. Where v3 cannot
 express something, or where a v2 declaration turns out to be dead config, mark

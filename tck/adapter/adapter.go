@@ -3,6 +3,7 @@ package adapter
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -60,6 +61,8 @@ func (a *Adapter) Capabilities(ctx context.Context) ([]string, error) {
 
 // CreateOptions shape one create call beyond the kit set itself.
 type CreateOptions struct {
+	// Name is a suite-owned alias, not the sandbox's storage identity.
+	Name string
 	// GitIdentityConfig transports a suite-owned test binding in Git config
 	// format, or "off" to withhold it. It does not prescribe runtime storage.
 	GitIdentityConfig string
@@ -107,6 +110,9 @@ type CreateOptions struct {
 // Create composes a kit set into a running sandbox and returns its id.
 func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions) (string, error) {
 	argv := append([]string{"create"}, kits...)
+	if opts.Name != "" {
+		argv = append(argv, "--name", opts.Name)
+	}
 	if opts.GitIdentityConfig != "" {
 		argv = append(argv, "--git-identity-config", opts.GitIdentityConfig)
 	}
@@ -178,11 +184,53 @@ func (a *Adapter) Status(ctx context.Context, id string) (string, error) {
 }
 
 // Recreate replaces the sandbox's container — a fresh writable layer —
-// preserving only declared volume state. Stop/start preserves the entire
+// preserving instance-owned block storage, including unmounted paths.
+// Stop/start preserves the entire
 // filesystem, so it cannot tell a volume from an ordinary directory;
 // recreate is the observation that can.
 func (a *Adapter) Recreate(ctx context.Context, id string) error {
-	return a.mustRun(ctx, "recreate", id)
+	return a.RecreateWith(ctx, id, nil, nil)
+}
+
+// RecreateWith changes the composition within the existing instance.
+// Kits replace the previous set when nonempty; args override retained
+// argument values. Create-time host bindings remain unchanged.
+func (a *Adapter) RecreateWith(ctx context.Context, id string, kits []string, args map[string]string) error {
+	argv := append([]string{"recreate", id}, kits...)
+	for _, name := range sortedKeys(args) {
+		argv = append(argv, "--arg", name+"="+args[name])
+	}
+	res, err := a.run(ctx, argv...)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode == ExitRefused {
+		return &RefusedError{Detail: strings.TrimSpace(res.Stderr)}
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("recreate: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// VolumePaths observes every allocated destination, mounted or retained.
+// A removed instance returns an empty list without provisioning storage.
+func (a *Adapter) VolumePaths(ctx context.Context, id string) ([]string, error) {
+	res, err := a.run(ctx, "volume-paths", id)
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("volume-paths: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(res.Stdout), &paths); err != nil {
+		return nil, fmt.Errorf("volume-paths: %w", err)
+	}
+	if strings.TrimSpace(res.Stdout) == "null" {
+		return nil, errors.New("volume-paths: expected a JSON array")
+	}
+	return paths, nil
 }
 
 // Stop and Start bracket a reboot, which is what separates install hooks

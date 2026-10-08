@@ -16,7 +16,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 69, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 78, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -56,4 +56,56 @@ func TestRepublishedGroupFixtureMatchesPublisher(t *testing.T) {
 	got, err := json.Marshal(fixture)
 	require.NoError(t, err)
 	require.JSONEq(t, string(want), string(got))
+}
+
+func TestVolumeFixturesValidateAfterArgumentExpansion(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join(FixtureDir, "volume-state*", "*.yaml"))
+	require.NoError(t, err)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			require.NoError(t, err)
+			d, err := spec.Decode(raw)
+			require.NoError(t, err)
+			values, err := spec.KitArgValues(d.Args, nil)
+			require.NoError(t, err)
+			expanded, err := spec.ExpandCreateArgs(raw, d.Args, values)
+			require.NoError(t, err)
+			effective, err := spec.Decode(expanded)
+			require.NoError(t, err)
+			_, err = spec.ValidateEffective(expanded, effective)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestPublishedVolumeFixtureMatchesPublisher(t *testing.T) {
+	var contributions []spec.Contribution
+	for _, name := range []string{"volume-state", "volume-state-other"} {
+		raw, err := os.ReadFile(filepath.Join(FixtureDir, name, name+".yaml"))
+		require.NoError(t, err)
+		d, err := spec.Decode(raw)
+		require.NoError(t, err)
+		values, err := spec.KitArgValues(d.Args, nil)
+		require.NoError(t, err)
+		expanded, err := spec.ExpandCreateArgs(raw, d.Args, values)
+		require.NoError(t, err)
+		d, err = spec.Decode(expanded)
+		require.NoError(t, err)
+		// Provenance is diagnostic; the published fixture carries the
+		// original first contributor's source rather than claiming it.
+		contributions = append(contributions, spec.Contribution{Reference: name, Descriptor: d})
+	}
+	published, err := spec.Merge(contributions, spec.MergeOptions{})
+	require.NoError(t, err)
+	raw, err := os.ReadFile(filepath.Join(FixtureDir, "volume-state-published", "volume-state-published.yaml"))
+	require.NoError(t, err)
+	fixture, err := spec.Decode(raw)
+	require.NoError(t, err)
+	want, err := json.Marshal(published.Descriptor)
+	require.NoError(t, err)
+	got, err := json.Marshal(fixture)
+	require.NoError(t, err)
+	require.JSONEq(t, string(want), string(got))
+	require.Len(t, fixture.Capabilities, 2)
 }

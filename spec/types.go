@@ -803,14 +803,15 @@ func SkillsWritable(s AgentSkills) bool {
 	return SkillsMode(s) == SkillsReadWrite
 }
 
-// Volume is CapabilityVolume's config: one persistent (or tmpfs) path
-// and its characteristics.
+// Volume is CapabilityVolume's config: instance-owned storage at a cleaned
+// destination, independent of the Kit that requested it.
 type Volume struct {
 	Path string `json:"path" yaml:"path"`
 	Size string `json:"size,omitempty" yaml:"size,omitempty"`
 	// Tmpfs makes the path a tmpfs mount instead of a block volume.
 	Tmpfs bool `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
-	// Mode is an octal permission string, e.g. "1777".
+	// Mode is initial octal permissions, e.g. "1777". Reattachment does
+	// not reset permissions changed inside the sandbox.
 	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 

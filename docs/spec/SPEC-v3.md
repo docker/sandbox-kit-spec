@@ -566,7 +566,7 @@ other**: a descriptor states one of them, never both. They describe the
 same grant, so a host given both would have to guess which bounds the
 other.
 
-**Instance-shaped types appear once per thing requested**, deduplicated on
+**Instance-shaped types appear once per thing requested**, identified by
 their own key: `credential@1` on (service, phase), with each listed phase
 participating independently, `volume@1` and `host-mount@1` on a shared
 cleaned storage path key,
@@ -577,6 +577,13 @@ cleaned storage path key,
 entry.
 
 Exact-duplicate entries of any type are rejected.
+
+Across selected contributions, keys determine which requests reconcile,
+not whether they may merge. Credentials and host mounts have one owner
+and conflict even when their configurations match. Matching volume and
+port requests collapse; differing requests conflict. SSH-agent permissions
+union per phase. [§9.5](#95-merging-a-set) and the capability pages specify
+the type-specific rules for publication and runtime composition alike.
 
 ### 7.1.1 Capability groups
 
@@ -915,7 +922,11 @@ error. In that order they reconcile into one descriptor:
 | `licenses` | Union. The artifact ships every one of their layers, so a narrower list would misreport it — and §9.3 derives an annotation from it. | <!-- tck: SPEC-v3 §9.5/licenses-union -->
 | `args` | The set's own. The listed Kits' are answered at publish, pinned or re-exported. |
 | Display fields | The set's own: the artifact is a new thing with its own name, publisher, and documentation. |
-| Instance-shaped capabilities | Union, deduplicated on the type's own key ([§7.1](#71-arity)). Two different configs under one key is an error. |
+| Instance-shaped capabilities | Union on the type's own key ([§7.1](#71-arity)), subject to the exceptions below. Matching requests collapse; differing requests under one key conflict. |
+| `volume@1` | Matching typed storage configurations at one cleaned path collapse; different sizes, modes, or backing kinds conflict. Storage belongs to the sandbox instance, independently of the declaring Kit. |
+| `credential@1` | One owner per (service, phase); overlapping requests conflict even when identical. |
+| `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
+| `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
@@ -1062,8 +1073,12 @@ What runs is never a published artifact: at create, a resolver produces a
 locked set and an assembler emits an ordinary image — config synthesized
 from the merged declarations, layers concatenated in dependency order —
 identified by the lock, which is what makes recreate exact. Local handles,
-state keying, and lock formats are runtime concerns outside this
-specification; the descriptor carries no top-level identity name on purpose.
+state-key representations, and lock formats are runtime concerns outside
+this specification; the descriptor carries no top-level identity name on
+purpose. The volume capability defines the observable storage lifetime:
+restart and recreation preserve an instance, while removal ends it and a
+new create begins another. Kit or lock changes do not change that storage
+identity.
 
 ---
 

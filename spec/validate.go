@@ -456,9 +456,9 @@ func RequireAuthoredProvides(d *Descriptor) error {
 var needType = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$`)
 
 // singletonCapabilities are policy-shaped types: at most one entry each.
-// Instance-shaped types (credential, volume, port, usb-device) appear
-// once per thing requested and dedup on their own key; unknown types
-// dedup on the exact request (type + config).
+// Instance-shaped types appear once per thing requested within each
+// declaration block. Cross-contribution reconciliation belongs to merge;
+// a shared instance key does not imply that a type permits merging.
 var singletonCapabilities = map[string]bool{
 	CapabilityGitIdentity:              true,
 	CapabilityNetworkPolicy:            true,
@@ -757,10 +757,11 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if v.Mode != "" && !octalMode.MatchString(v.Mode) {
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, v.Mode))
 			}
-			if prev, dup := seenVolume[v.Path]; dup {
+			volumePath := containerpath.Clean(v.Path)
+			if prev, dup := seenVolume[volumePath]; dup {
 				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume for %q already declared at capabilities[%d]", i, v.Path, prev))
 			}
-			seenVolume[v.Path] = i
+			seenVolume[volumePath] = i
 			if prev, dup := seenHostMount[containerpath.Clean(v.Path)]; dup {
 				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q conflicts with host mount at capabilities[%d]", i, v.Path, prev))
 			}

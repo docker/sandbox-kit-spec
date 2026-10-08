@@ -10,8 +10,9 @@
 #   - `recreate` has no sbx command. It is an `sbx rm` followed by a
 #     create under the same name from the arguments the first create
 #     used — the closest sbx offers to replacing a container in place.
-#     Whether declared volume state survives that is exactly what the
-#     volume check judges, so the adapter neither arranges nor pretends.
+#     This ends the runtime instance, so it is not volume-conforming
+#     recreation. volume@1 remains unclaimed until sbx can preserve
+#     instance-owned storage without removing the instance.
 #   - `capabilities` is a claim, not a discovery: sbx has no command that
 #     reports which capability types it implements, so the list lives
 #     here. Claiming one sbx does not implement produces failures rather
@@ -67,9 +68,9 @@ marker_line="Placed by tck/adapters/sbx"
 #   volume@1 is absent because sbx mounts nothing at a declared volume
 #   path: the fixture asks for /data, the sandbox has no such mount, and
 #   a write there fails outright — so no observation about persistence
-#   can be made at all. The recreate this adapter offers, a remove and a
-#   fresh create, does discard the writable layer that check needs
-#   discarded, so the type becomes claimable the day the mount arrives.
+#   can be made at all. Claiming this type also requires an in-place
+#   recreation operation and volume-paths observation of retained storage;
+#   a same-name remove/create cannot preserve instance identity.
 #
 #   port@1, usb-device@1, agent-sessions@1, agent-interactive-sessions@1
 #   and kit-registry@1 are absent because the contract gives the suite no
@@ -914,6 +915,7 @@ create)
 	# Only the verbs that keep records need one.
 	prepare_state
 	kits=()
+	requested_name=""
 	kit_args=()
 	container_env_args=()
 	skills_mode=""
@@ -924,6 +926,11 @@ create)
 	rejects=()
 	while [ $# -gt 0 ]; do
 		case "$1" in
+		--name)
+			requested_name="$2"
+			case "$requested_name" in '' | *[!a-zA-Z0-9_-]*) die "invalid sandbox alias" ;; esac
+			shift 2
+			;;
 		--arg)
 			# The contract's name=value is sbx's own --kit-arg spelling,
 			# which applies the value to every kit that declares the
@@ -986,7 +993,7 @@ create)
 	prepare_skill_store "$skills_store_scenario"
 	bind_credential
 
-	id="$(new_id)"
+	id="${requested_name:-$(new_id)}"
 	# Snapshot identity before argv is remembered so recreate replays the
 	# pinned pair, not later suite edits to the mutable config path.
 	# Keep the snapshot even when create rejects the grant: a later
@@ -1066,7 +1073,20 @@ start)
 	run_sbx run --name "$1" --detached >&2
 	;;
 
+volume-paths)
+	if claims_volume; then
+		die "sbx does not expose retained instance volume storage"
+	fi
+	printf '[]\n'
+	;;
+
 recreate)
+	# Refuse before removal: replaying an alias is not preserving the
+	# instance required by volume@1, even if a backend kept some data.
+	if claims_volume; then
+		die "sbx cannot recreate instance-owned volumes without removing the instance"
+	fi
+	[ "$#" -eq 1 ] || die "sbx adapter does not support changed-composition recreation"
 	# Only the verbs that keep records need one.
 	prepare_state
 	id="$1"

@@ -188,6 +188,29 @@ func TestSbxSSHAgentReplaysBindingOnRecreate(t *testing.T) {
 	require.NoError(t, a.Remove(t.Context(), id))
 }
 
+func TestSbxDoesNotRemoveAnInstanceToEmulateVolumeRecreation(t *testing.T) {
+	a, observed := sshAdapter(t)
+	dir := t.TempDir()
+	removed := filepath.Join(dir, "removed")
+	stub := filepath.Join(dir, "sbx")
+	script := strings.Replace(sshStub, "rm) ;;", "rm) touch \"$STUB_REMOVED\" ;;", 1)
+	require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+	a.Env = append(a.Env, "SBX="+stub, "STUB_REMOVED="+removed, "SBX_TCK_CAPABILITIES=com.docker.sandbox/volume@1")
+	id, err := a.Create(t.Context(), []string{"workload"}, CreateOptions{Name: "kit-tck-volume-alias"})
+	require.NoError(t, err)
+	require.Equal(t, "kit-tck-volume-alias", id)
+	err = a.Recreate(t.Context(), id)
+	require.ErrorContains(t, err, "cannot recreate instance-owned volumes")
+	require.NoFileExists(t, removed, "a failed recreation must not destroy the instance")
+	raw, err := os.ReadFile(observed)
+	require.NoError(t, err)
+	require.Equal(t, "unset\n", string(raw), "no replacement create was attempted")
+	_, err = a.VolumePaths(t.Context(), id)
+	require.ErrorContains(t, err, "does not expose retained instance volume storage")
+	require.NoError(t, a.Remove(t.Context(), id))
+	require.FileExists(t, removed, "the stub observes a real removal")
+}
+
 // Record create argv so selection/policy/identity adapter paths are
 // observable without a real daemon.
 const selectionStub = `#!/bin/sh
