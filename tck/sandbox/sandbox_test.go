@@ -210,6 +210,10 @@ var mutations = map[string][]string{
 	"volume-mounts-retained-with-selection":                                  {"volume@1/undeclared-retained"},
 	"volume-renamed-root-not-readable+volume-mounts-retained-with-selection": {"volume@1/undeclared-retained"},
 
+	"volume-forgets-deselected-renamed":                                  {"volume@1/undeclared-retained"},
+	"volume-remounts-deselected-renamed":                                 {"volume@1/undeclared-retained"},
+	"volume-renamed-root-not-readable+volume-forgets-deselected-renamed": {"volume@1/undeclared-retained"},
+
 	"volume-compares-name":             {"volume@1/matching-requests-merge"},
 	"volume-compares-description":      {"volume@1/matching-requests-merge"},
 	"volume-compares-size-spelling":    {"volume@1/matching-requests-merge"},

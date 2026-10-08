@@ -254,6 +254,11 @@ def apply(record, kits, overrides, recreating=False):
             if path not in candidate:
                 shutil.rmtree(destination(record, path), ignore_errors=True)
                 del record['allocated'][path]
+    renamed = primary + '-renamed'
+    if (broken == 'volume-forgets-deselected-renamed'
+            and renamed in record['allocated'] and renamed not in candidate):
+        shutil.rmtree(destination(record, renamed), ignore_errors=True)
+        del record['allocated'][renamed]
     for path in [primary, secondary, primary + '-control']:
         destination(record, path, True).mkdir(parents=True, exist_ok=True)
     run_hooks(record, 'recreate' if recreating else 'create')
@@ -327,7 +332,9 @@ elif verb == 'exec':
     mounted = (path in record['selected']
                or (broken == 'volume-mounts-undeclared' and path in record['allocated'])
                or (broken == 'volume-mounts-retained-with-selection'
-                   and record['selected'] and path in record['allocated']))
+                   and record['selected'] and path in record['allocated'])
+               or (broken == 'volume-remounts-deselected-renamed'
+                   and path == primary + '-renamed' and path in record['allocated']))
     target = destination(record, path, not mounted)
     name = args[0] if args else ''
     value = args[1] if len(args) > 1 else ''

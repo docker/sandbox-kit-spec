@@ -251,6 +251,13 @@ func volumeRetained(ctx context.Context, e *Env) []report.Finding {
 	if err := e.Adapter.RecreateWith(ctx, id, nil, map[string]string{"volume_path": volumePath}); err != nil {
 		return []report.Finding{report.Failf("restore destination: %v", err)}
 	}
+	paths, err = e.Adapter.VolumePaths(ctx, id)
+	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath, newPath}) {
+		return append(findings, report.Failf("retained destinations after restoration: %v (%v)", paths, err))
+	}
+	if f := volumeProbe(ctx, e, id, "unmounted", newPath, "", "", ""); len(f) > 0 {
+		return append(findings, f...)
+	}
 	if f := volumeProbe(ctx, e, id, "mounted", volumePath, "", "", ""); len(f) > 0 {
 		return append(findings, f...)
 	}
