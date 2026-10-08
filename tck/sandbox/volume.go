@@ -29,13 +29,18 @@ func volumeProbe(ctx context.Context, e *Env, id, operation, path, name, value, 
 }
 
 func volumeMatching(ctx context.Context, e *Env) []report.Finding {
-	// The second Kit has equivalent size/mode spellings and distinct
-	// diagnostic provenance. Provenance does not affect compatibility.
+	// The second Kit uses a path alias, equivalent size/mode spellings,
+	// distinct provenance, and an optional request. Storage settings
+	// reconcile independently of metadata, and required wins.
 	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state", "volume-state-other"}, nil)
 	if err != nil {
 		return []report.Finding{report.Failf("matching volume composition: %v", err)}
 	}
 	defer remove()
+	paths, err := e.Adapter.VolumePaths(ctx, id)
+	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+		return []report.Finding{report.Failf("matching requests must allocate one volume per cleaned path: %v (%v)", paths, err)}
+	}
 	return volumeProbe(ctx, e, id, "write", volumePath, "marker", "merged", "")
 }
 
@@ -248,7 +253,53 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 			return findings
 		}
 	}
-	return nil
+	return volumeDormantRecreateConflicts(ctx, e)
+}
+
+func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
+	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state"}, nil)
+	if err != nil {
+		return []report.Finding{report.Failf("create retained storage: %v", err)}
+	}
+	defer remove()
+	if f := volumeProbe(ctx, e, id, "write", volumePath, "marker", "retained", ""); len(f) > 0 {
+		return f
+	}
+	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
+		return []report.Finding{report.Failf("undeclare storage: %v", err)}
+	}
+	if f := volumeProbe(ctx, e, id, "write", volumeControlPath, "marker", "unchanged", ""); len(f) > 0 {
+		return f
+	}
+	for _, override := range []map[string]string{{"volume_size": "2g"}, {"volume_mode": "0755"}, nil} {
+		fixture := "volume-state"
+		if override == nil {
+			fixture = "volume-state-tmpfs"
+		}
+		err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures(fixture)}, override)
+		var refused *adapter.RefusedError
+		if !errors.As(err, &refused) {
+			return []report.Finding{report.Failf("incompatible dormant storage must refuse: %v", err)}
+		}
+		if f := volumeProbe(ctx, e, id, "read", volumeControlPath, "marker", "", "unchanged"); len(f) > 0 {
+			return f
+		}
+		if f := volumeProbe(ctx, e, id, "unmounted", volumePath, "", "", ""); len(f) > 0 {
+			return f
+		}
+	}
+	// Refusal must keep the workload-only composition and its inputs;
+	// only a compatible, explicit reintroduction may expose the data.
+	if err := e.Adapter.Recreate(ctx, id); err != nil {
+		return []report.Finding{report.Failf("refusal altered dormant composition: %v", err)}
+	}
+	if f := volumeProbe(ctx, e, id, "unmounted", volumePath, "", "", ""); len(f) > 0 {
+		return f
+	}
+	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state")}, nil); err != nil {
+		return []report.Finding{report.Failf("compatible dormant reattachment: %v", err)}
+	}
+	return volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "retained")
 }
 
 func volumeEmpty(ctx context.Context, e *Env) []report.Finding {

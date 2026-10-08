@@ -99,6 +99,12 @@ func TestPublishedVolumeFixtureMatchesPublisher(t *testing.T) {
 	require.NotEqual(t, contributions[0].Descriptor.Capabilities[0].Source,
 		contributions[1].Descriptor.Capabilities[0].Source,
 		"matching volume fixtures must exercise distinct provenance")
+	require.False(t, contributions[0].Descriptor.Capabilities[0].Optional)
+	require.True(t, contributions[1].Descriptor.Capabilities[0].Optional,
+		"matching fixtures must reconcile required and optional requests")
+	require.NotEqual(t, contributions[0].Descriptor.Capabilities[0].Config["path"],
+		contributions[1].Descriptor.Capabilities[0].Config["path"],
+		"matching fixtures must exercise distinct path spellings")
 	published, err := spec.Merge(contributions, spec.MergeOptions{})
 	require.NoError(t, err)
 	raw, err := os.ReadFile(filepath.Join(FixtureDir, "volume-state-published", "volume-state-published.yaml"))

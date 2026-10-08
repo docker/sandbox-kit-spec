@@ -20,6 +20,28 @@ func TestVolumeChecksDoNotRequireMountRootOwnership(t *testing.T) {
 	require.False(t, rep.Failed(), "%s", rep)
 }
 
+func TestFakeVolumeInstallHooksRunOnlyAtCreate(t *testing.T) {
+	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume + "," + capLifecycle, "KIT_TCK_FAKE_BROKEN="}
+	fixtures := Fixtures(FixtureDir)
+	id, err := a.Create(t.Context(), []string{fixtures(fixtureWorkload), fixtures("volume-state-hooks")}, adapter.CreateOptions{})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, a.Remove(t.Context(), id)) }()
+	probe := func(operation, value string) string {
+		result, err := a.Exec(t.Context(), id, "kit-tck-volume", operation, volumePath, "install", value)
+		require.NoError(t, err)
+		require.Zero(t, result.ExitCode, result.Stderr)
+		return result.Stdout
+	}
+	require.Equal(t, "mounted", probe("read", ""))
+	probe("write", "already-installed")
+	require.NoError(t, a.Stop(t.Context(), id))
+	require.NoError(t, a.Start(t.Context(), id))
+	require.Equal(t, "already-installed", probe("read", ""))
+	require.NoError(t, a.Recreate(t.Context(), id))
+	require.Equal(t, "already-installed", probe("read", ""))
+}
+
 func TestVolumeLifetimeNeedsNoOtherCapabilities(t *testing.T) {
 	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume, "KIT_TCK_FAKE_BROKEN="}

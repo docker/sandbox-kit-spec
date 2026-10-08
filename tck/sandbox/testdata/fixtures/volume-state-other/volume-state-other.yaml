@@ -5,13 +5,14 @@ displayName: Instance storage
 description: Storage requests whose identity survives composition changes
 args:
   volume_path:
-    default: /var/tmp/kit-tck-volume
+    default: /var/tmp/kit-tck-volume/
   volume_size:
     default: 1024m
   volume_mode:
     default: "0700"
 capabilities:
   - type: com.docker.sandbox/volume@1
+    optional: true
     source: {kit: registry.example/other-storage:latest, path: "capabilities[1]"}
     config:
       path: "${{ kit.args.volume_path }}"

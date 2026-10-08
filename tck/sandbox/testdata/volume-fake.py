@@ -7,6 +7,7 @@ directories; request records choose mounts but cannot stand in for data.
 import hashlib
 import json
 import posixpath
+import re
 import shutil
 import sys
 import uuid
@@ -66,6 +67,7 @@ def equivalent(a, b):
 def requests(kits, overrides):
     result = {}
     sources = {}
+    optionalities = {}
     contributions = 0
     for kit in kits:
         name = Path(kit).name
@@ -74,6 +76,13 @@ def requests(kits, overrides):
         if 'com.docker.sandbox/volume@1' not in claims.split(','):
             refuse('required volume@1 is unclaimed')
         contributions += 1
+        descriptor = (Path(kit) / (name + '.yaml')).read_text()
+        entry = descriptor.split('  - type: com.docker.sandbox/volume@1', 1)[1].split('  - type:', 1)[0]
+        optional = any(line.strip() == 'optional: true' for line in entry.splitlines())
+        default_path = re.search(r'^  volume_path:\n    default: ([^\n]+)$', descriptor, re.M)
+        path = overrides.get('volume_path', default_path[1] if default_path else primary)
+        if broken != 'volume-raw-paths':
+            path = posixpath.normpath(path)
         size = overrides.get('volume_size', '1024m' if name == 'volume-state-other' else '1g')
         mode = overrides.get('volume_mode', '700' if name == 'volume-state-other' else '0700')
         if name == 'volume-state-other':
@@ -85,19 +94,21 @@ def requests(kits, overrides):
         if name == 'volume-state-unspecified':
             size, mode = '', ''
         tmpfs = name == 'volume-state-tmpfs'
-        descriptor = (Path(kit) / (name + '.yaml')).read_text()
-        source = next((line.strip() for line in descriptor.splitlines()
+        source = next((line.strip() for line in entry.splitlines()
                        if line.lstrip().startswith('source:')), '')
-        for path, config, source in [
-            (posixpath.normpath(overrides.get('volume_path', primary)), dict(size=size, mode=mode, tmpfs=tmpfs), source),
-            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs), ''),
+        for path, config, source, optional in [
+            (path, dict(size=size, mode=mode, tmpfs=tmpfs), source, optional),
+            (secondary, dict(size='1g', mode='0700', tmpfs=tmpfs), '', False),
         ]:
             if path in result and broken == 'volume-compares-provenance' and sources[path] != source:
                 refuse('diagnostic provenance differs at ' + path)
+            if path in result and broken == 'volume-compares-optionality' and optionalities[path] != optional:
+                refuse('request optionality differs at ' + path)
             if path in result and not equivalent(result[path], config) and broken != 'volume-merges-conflicts':
                 refuse('conflicting storage configurations at ' + path)
             result[path] = config
             sources[path] = source
+            optionalities[path] = optionalities.get(path, True) and optional
     if contributions > 1 and broken == 'volume-refuses-matching':
         refuse('matching volume requests rejected')
     return result
@@ -146,7 +157,7 @@ def run_hooks(record, event):
             or (event == 'recreate' and broken == 'volume-after-recreate-hooks'))
     target = destination(record, path, late)
     target.mkdir(parents=True, exist_ok=True)
-    for hook in (['startup'] if event == 'start' else ['install', 'startup']):
+    for hook in (['install', 'startup'] if event == 'create' else ['startup']):
         (target / hook).write_text('mounted')
 
 
@@ -154,6 +165,8 @@ def apply(record, kits, overrides, recreating=False):
     candidate = requests(kits, overrides)
     for path, config in candidate.items():
         previous = record['allocated'].get(path)
+        if broken == 'volume-forgets-dormant-config' and path not in record['selected']:
+            previous = None
         if previous and not equivalent(previous, config):
             if broken == 'volume-refusal-destroys-container':
                 shutil.rmtree(storage / record['storage'] / 'writable', ignore_errors=True)

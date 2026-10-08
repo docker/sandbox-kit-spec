@@ -5,7 +5,7 @@ displayName: Instance storage
 description: Storage requests whose identity survives composition changes
 args:
   volume_path:
-    default: /var/tmp/kit-tck-volume
+    default: /var/tmp/kit-tck-volume/
   volume_size:
     default: 1g
   volume_mode:
