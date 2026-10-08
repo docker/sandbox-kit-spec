@@ -208,6 +208,8 @@ var mutations = map[string][]string{
 	"volume-root-not-readable+volume-forgets-undeclared":              {"volume@1/undeclared-retained"},
 
 	"volume-keys-on-wrapper":            {"volume@1/composition-independent"},
+	"volume-ignores-replacement-kits":   {"volume@1/composition-independent"},
+	"volume-ignores-published-kit":      {"volume@1/composition-independent"},
 	"volume-refusal-destroys-storage":   {"volume@1/recreate-config-compatible"},
 	"volume-refusal-resets-mode":        {"volume@1/recreate-config-compatible"},
 	"volume-refuses-matching":           {"volume@1/matching-requests-merge"},

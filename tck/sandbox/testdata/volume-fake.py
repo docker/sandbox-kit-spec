@@ -252,6 +252,10 @@ elif verb == 'recreate':
     sandbox, *args = argv
     record = load(sandbox)
     kits, overrides, _ = parse(args)
+    if kits and (broken == 'volume-ignores-replacement-kits'
+                 or (broken == 'volume-ignores-published-kit'
+                     and any(Path(kit).name == 'volume-state-published' for kit in kits))):
+        kits = record['kits']
     apply(record, kits or record['kits'], record['args'] | overrides, True)
     save(sandbox, record)
 elif verb in ['stop', 'start']:
@@ -261,10 +265,23 @@ elif verb in ['stop', 'start']:
     if verb == 'start':
         run_hooks(record, 'start')
 elif verb == 'exec':
-    sandbox, separator, probe, operation, path, *args = argv
-    if separator != '--' or probe != 'kit-tck-volume':
+    sandbox, separator, probe, *args = argv
+    if separator != '--':
         raise ValueError('unexpected volume probe')
     record = load(sandbox)
+    if probe == 'cat':
+        markers = {
+            '/var/tmp/kit-tck-volume-workload': ('volume-workload', 'replacement'),
+            '/usr/share/kit-tck-volume-published': ('volume-state-published', 'published'),
+        }
+        kit, value = markers[args[0]]
+        if not any(Path(ref).name == kit for ref in record['kits']):
+            sys.exit(1)
+        print(value)
+        sys.exit(0)
+    if probe != 'kit-tck-volume':
+        raise ValueError('unexpected volume probe')
+    operation, path, *args = args
     path = posixpath.normpath(path)
     mounted = path in record['selected'] or (broken == 'volume-mounts-undeclared' and path in record['allocated'])
     target = destination(record, path, not mounted)

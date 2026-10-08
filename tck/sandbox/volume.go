@@ -137,6 +137,9 @@ func volumeRecompose(ctx context.Context, e *Env) []report.Finding {
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures("volume-workload"), e.Fixtures("volume-state-other")}, nil); err != nil {
 		return []report.Finding{report.Failf("replace workload and declaring Kit: %v", err)}
 	}
+	if f := volumeCompositionMarker(ctx, e, id, "/var/tmp/kit-tck-volume-workload", "replacement\n"); len(f) > 0 {
+		return f
+	}
 	for _, path := range []string{volumePath, volumeOtherPath} {
 		if f := volumeProbe(ctx, e, id, "read", path, "marker", "", "retained"); len(f) > 0 {
 			return f
@@ -150,12 +153,26 @@ func volumeRecompose(ctx context.Context, e *Env) []report.Finding {
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures("volume-workload"), e.Fixtures("volume-state-published")}, nil); err != nil {
 		return []report.Finding{report.Failf("replace loose mixins with published declarations: %v", err)}
 	}
+	if f := volumeCompositionMarker(ctx, e, id, "/usr/share/kit-tck-volume-published", "published\n"); len(f) > 0 {
+		return f
+	}
 	for _, path := range []string{volumePath, volumeOtherPath} {
 		if f := volumeProbe(ctx, e, id, "read", path, "marker", "", "retained"); len(f) > 0 {
 			return f
 		}
 	}
 	return volumeProbe(ctx, e, id, "mode", volumePath, "marker", "", "600\n")
+}
+
+func volumeCompositionMarker(ctx context.Context, e *Env, id, path, want string) []report.Finding {
+	got, failure := execOutput(ctx, e, id, "cat", path)
+	if failure != nil {
+		return []report.Finding{*failure}
+	}
+	if got != want {
+		return []report.Finding{report.Failf("replacement composition marker at %s: got %q, want %q", path, got, want)}
+	}
+	return nil
 }
 
 func volumeRetained(ctx context.Context, e *Env) []report.Finding {
