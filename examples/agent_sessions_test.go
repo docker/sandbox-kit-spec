@@ -58,7 +58,7 @@ func TestAgentSessionPromptIsHeadless(t *testing.T) {
 			sessions, err := spec.AgentSessionsOf(exampleDescriptor(t, kit).Capabilities)
 			require.NoError(t, err)
 			require.NotNil(t, sessions)
-			require.Equal(t, []string{prefix, spec.SessionPromptPlaceholder}, sessions.Prompt)
+			require.Equal(t, []string{prefix, "--", spec.SessionPromptPlaceholder}, sessions.Prompt)
 		})
 	}
 	for _, kit := range []string{"claude-mixin", "codex-mixin"} {
