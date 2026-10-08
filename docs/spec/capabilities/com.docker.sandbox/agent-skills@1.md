@@ -101,9 +101,9 @@ permission to modify the host store.
 
 Paths union across the set, and every selected path receives the same
 bundled skills and any shared host store. Required wins over optional.
-Unlike [volume@1](volume@1.md), two Kits naming one path is **not** a
-conflict: they are asking for the same content in the same place, which
-is satisfied once.
+Two Kits naming one path ask for the same content in the same place,
+which is satisfied once. Matching [volume@1](volume@1.md) requests also
+merge; differing volume storage configurations conflict.
 
 When two Kits name one path with different modes, the composition resolves
 to the **widest declared mode**, still bounded by the host. A single mount
