@@ -140,6 +140,8 @@ probes remain failures. Errors after successfully seeding retained block
 storage are not skipped, because they can violate state preservation.
 Tmpfs discarded on stop or recreation receives a fresh root; initial
 accessibility observations for that replacement root can also skip.
+Removal and retention checks continue their independent allocation,
+mounting, and already-seeded storage observations after a contents skip.
 
 `wait-idle` and `status` are required only for adapters claiming
 `com.docker.sandbox/long-running@1`. `wait-idle` **MUST** exercise a real

@@ -164,8 +164,10 @@ func volumeRetained(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
 	defer remove()
-	if f := volumeSeed(ctx, e, id, volumePath, "marker", "retained"); len(f) > 0 {
-		return f
+	findings := volumeSeed(ctx, e, id, volumePath, "marker", "retained")
+	seeded := len(findings) == 0
+	if !seeded && findings[0].Severity != report.Skip {
+		return findings
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
 		return []report.Finding{report.Failf("remove declarations: %v", err)}
@@ -188,18 +190,27 @@ func volumeRetained(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("rename destination: %v", err)}
 	}
 	if f := volumeAccess(ctx, e, id, newPath, "readable"); len(f) > 0 {
-		return f
-	}
-	if f := volumeProbe(ctx, e, id, "empty", newPath, "", "", ""); len(f) > 0 {
-		return f
+		if f[0].Severity != report.Skip {
+			return append(findings, f...)
+		}
+		findings = append(findings, f...)
+	} else if f := volumeProbe(ctx, e, id, "empty", newPath, "", "", ""); len(f) > 0 {
+		return append(findings, f...)
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, nil, map[string]string{"volume_path": volumePath}); err != nil {
 		return []report.Finding{report.Failf("restore destination: %v", err)}
 	}
-	if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "retained"); len(f) > 0 {
-		return f
+	if f := volumeProbe(ctx, e, id, "mounted", volumePath, "", "", ""); len(f) > 0 {
+		return append(findings, f...)
 	}
-	return volumeProbe(ctx, e, id, "absent", volumePath, "unmounted", "", "")
+	if seeded {
+		if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "retained"); len(f) > 0 {
+			return append(findings, f...)
+		}
+	} else if f := volumeAccess(ctx, e, id, volumePath, "readable"); len(f) > 0 {
+		return append(findings, f...)
+	}
+	return append(findings, volumeProbe(ctx, e, id, "absent", volumePath, "unmounted", "", "")...)
 }
 
 func sorted(paths []string) []string {
@@ -217,9 +228,13 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 	}
 	remove := sync.OnceFunc(cleanup)
 	defer remove()
+	var findings []report.Finding
 	for _, path := range []string{volumePath, volumeOtherPath} {
 		if f := volumeSeed(ctx, e, id, path, "marker", "old-instance"); len(f) > 0 {
-			return f
+			if f[0].Severity != report.Skip {
+				return append(findings, f...)
+			}
+			findings = append(findings, f...)
 		}
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
@@ -228,7 +243,7 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 	remove()
 	paths, err := e.Adapter.VolumePaths(ctx, id)
 	if err != nil || len(paths) != 0 {
-		return []report.Finding{report.Failf("removed instance retains storage: %v (%v)", paths, err)}
+		return append(findings, report.Failf("removed instance retains storage: %v (%v)", paths, err))
 	}
 	fresh, removeFresh, err := e.sandboxWith(ctx, kits, opts)
 	if err != nil {
@@ -237,13 +252,17 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 	defer removeFresh()
 	for _, path := range []string{volumePath, volumeOtherPath} {
 		if f := volumeAccess(ctx, e, fresh, path, "readable"); len(f) > 0 {
-			return f
+			if f[0].Severity != report.Skip {
+				return append(findings, f...)
+			}
+			findings = append(findings, f...)
+			continue
 		}
 		if f := volumeProbe(ctx, e, fresh, "empty", path, "", "", ""); len(f) > 0 {
-			return f
+			return append(findings, f...)
 		}
 	}
-	return nil
+	return findings
 }
 
 func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {

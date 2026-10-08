@@ -15,6 +15,9 @@ from fractions import Fraction
 from pathlib import Path
 
 state, claims, broken, verb, *argv = sys.argv[1:]
+permissions, _, mutation = broken.partition('+')
+if mutation:
+    broken = mutation
 state = Path(state)
 instances = state / 'volume-instances'
 storage = state / 'volume-storage'
@@ -145,7 +148,7 @@ def clear_tmpfs(record, event):
             shutil.rmtree(target, ignore_errors=True)
             target.mkdir(parents=True)
             target.chmod(int(config['mode'] or '0700', 8))
-            if broken == 'volume-fresh-tmpfs-unreadable-' + event:
+            if permissions == 'volume-fresh-tmpfs-unreadable-' + event:
                 target.with_suffix('.inaccessible').touch()
 
 
@@ -189,6 +192,8 @@ def apply(record, kits, overrides, recreating=False):
             shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
         if broken != 'volume-tmpfs-persists-recreate':
             clear_tmpfs(record, 'recreate')
+        if broken == 'volume-loses-renamed-away-data' and primary + '-renamed' in candidate:
+            (destination(record, primary) / 'marker').unlink(missing_ok=True)
     record['kits'], record['args'], record['selected'] = kits, overrides, candidate
     for path, config in candidate.items():
         target = destination(record, path)
@@ -265,29 +270,32 @@ elif verb == 'exec':
     target = destination(record, path, not mounted)
     name = args[0] if args else ''
     value = args[1] if len(args) > 1 else ''
-    inaccessible_tmpfs = (mounted and broken.startswith('volume-fresh-tmpfs-unreadable-')
+    inaccessible_tmpfs = (mounted and permissions.startswith('volume-fresh-tmpfs-unreadable-')
                           and target.with_suffix('.inaccessible').exists())
+    inaccessible_root = (mounted and (permissions == 'volume-root-not-readable'
+                         or (permissions == 'volume-renamed-root-not-readable'
+                             and path == primary + '-renamed')))
     if operation in ['writable', 'readable']:
         if broken == 'volume-setup-probe-error' or not target.is_dir():
             sys.exit(1)
-        if inaccessible_tmpfs or (mounted and (broken == 'volume-root-not-readable'
-                        or (operation == 'writable' and broken == 'volume-root-not-writable'))):
+        if inaccessible_tmpfs or inaccessible_root or (mounted and operation == 'writable'
+                                                      and permissions == 'volume-root-not-writable'):
             sys.exit(3)
     elif operation == 'write':
-        if inaccessible_tmpfs or (mounted and broken in ['volume-root-not-writable', 'volume-root-not-readable']):
+        if inaccessible_tmpfs or inaccessible_root or (mounted and permissions == 'volume-root-not-writable'):
             raise PermissionError('the agent cannot write the mount root')
         target.mkdir(parents=True, exist_ok=True)
         (target / name).write_text(value)
     elif operation == 'read':
-        if inaccessible_tmpfs or (mounted and broken in ['volume-root-not-readable', 'volume-retained-read-denied']):
+        if inaccessible_tmpfs or inaccessible_root or (mounted and broken == 'volume-retained-read-denied'):
             raise PermissionError('the agent cannot read the mount root')
         sys.stdout.write((target / name).read_text())
     elif operation == 'absent':
-        if inaccessible_tmpfs:
-            raise PermissionError('the agent cannot inspect the fresh tmpfs root')
+        if inaccessible_tmpfs or inaccessible_root:
+            raise PermissionError('the agent cannot inspect the volume root')
         sys.exit(1 if (target / name).exists() else 0)
     elif operation == 'empty':
-        if mounted and broken == 'volume-root-not-readable':
+        if inaccessible_root:
             raise PermissionError('the agent cannot list the mount root')
         sys.exit(1 if not target.exists() or any(target.iterdir()) else 0)
     elif operation == 'mounted':

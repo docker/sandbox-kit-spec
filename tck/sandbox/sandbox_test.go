@@ -199,6 +199,11 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"volume-renamed-root-not-readable+volume-loses-renamed-away-data": {"volume@1/undeclared-retained"},
+	"volume-root-not-writable+volume-orphans-after-removal":           {"volume@1/removal-deletes-storage"},
+	"volume-root-not-readable+volume-retains-after-removal":           {"volume@1/removal-deletes-storage"},
+	"volume-root-not-readable+volume-forgets-undeclared":              {"volume@1/undeclared-retained"},
+
 	"volume-keys-on-wrapper":            {"volume@1/composition-independent"},
 	"volume-refusal-destroys-storage":   {"volume@1/recreate-config-compatible"},
 	"volume-refusal-resets-mode":        {"volume@1/recreate-config-compatible"},

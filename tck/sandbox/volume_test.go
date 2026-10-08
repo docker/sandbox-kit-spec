@@ -76,6 +76,17 @@ func TestVolumeTmpfsObservationsSkipInaccessibleFreshRoots(t *testing.T) {
 	}
 }
 
+func TestVolumeRetainedContinuesPastUnreadableRenamedRoot(t *testing.T) {
+	index := slices.IndexFunc(volumeChecks, func(c check) bool {
+		return c.requirement == "volume@1/undeclared-retained"
+	})
+	require.GreaterOrEqual(t, index, 0)
+	rep := runAgainstFake(t, "volume-renamed-root-not-readable", volumeChecks[index])
+	require.False(t, rep.Failed(), "%s", rep)
+	require.Len(t, rep.Findings, 1)
+	require.Equal(t, report.Skip, rep.Findings[0].Severity)
+}
+
 func TestVolumeLifetimeNeedsNoOtherCapabilities(t *testing.T) {
 	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume, "KIT_TCK_FAKE_BROKEN="}
