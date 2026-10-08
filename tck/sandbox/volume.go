@@ -264,6 +264,11 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 			if f := volumeProbe(ctx, e, id, "write", volumeControlPath, "marker", "unchanged", ""); len(f) > 0 {
 				return f
 			}
+			for _, path := range []string{volumePath, volumeControlPath} {
+				if f := volumeProbe(ctx, e, id, "set-mode", path, "marker", "0600", ""); len(f) > 0 {
+					return f
+				}
+			}
 			var kits []string
 			if override == nil {
 				kits = []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state-tmpfs")}
@@ -279,11 +284,17 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 				if f := volumeProbe(ctx, e, id, "read", path, "marker", "", "unchanged"); len(f) > 0 {
 					return f
 				}
+				if f := volumeProbe(ctx, e, id, "mode", path, "marker", "", "600\n"); len(f) > 0 {
+					return f
+				}
 			}
 			if err := e.Adapter.Recreate(ctx, id); err != nil {
 				return []report.Finding{report.Failf("refusal altered retained inputs: %v", err)}
 			}
-			return volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "unchanged")
+			if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "unchanged"); len(f) > 0 {
+				return f
+			}
+			return volumeProbe(ctx, e, id, "mode", volumePath, "marker", "", "600\n")
 		}()
 		if len(findings) > 0 {
 			return findings
@@ -299,6 +310,9 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 	}
 	defer remove()
 	if f := volumeSeed(ctx, e, id, volumePath, "marker", "retained"); len(f) > 0 {
+		return f
+	}
+	if f := volumeProbe(ctx, e, id, "set-mode", volumePath, "marker", "0600", ""); len(f) > 0 {
 		return f
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
@@ -335,7 +349,10 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state")}, nil); err != nil {
 		return []report.Finding{report.Failf("compatible dormant reattachment: %v", err)}
 	}
-	return volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "retained")
+	if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "retained"); len(f) > 0 {
+		return f
+	}
+	return volumeProbe(ctx, e, id, "mode", volumePath, "marker", "", "600\n")
 }
 
 func volumeEmpty(ctx context.Context, e *Env) []report.Finding {
@@ -371,6 +388,8 @@ func volumeTmpfs(ctx context.Context, e *Env) []report.Finding {
 		if err != nil {
 			return []report.Finding{report.Failf("tmpfs restart/recreate: %v", err)}
 		}
+		// Cleared tmpfs is a fresh allocation, not retained block storage.
+		// Initial permissions remain SHOULDs even on a replacement root.
 		if f := volumeAccess(ctx, e, id, volumePath, "readable"); len(f) > 0 {
 			return f
 		}

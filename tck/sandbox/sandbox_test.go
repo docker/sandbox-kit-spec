@@ -201,6 +201,7 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 var mutations = map[string][]string{
 	"volume-keys-on-wrapper":            {"volume@1/composition-independent"},
 	"volume-refusal-destroys-storage":   {"volume@1/recreate-config-compatible"},
+	"volume-refusal-resets-mode":        {"volume@1/recreate-config-compatible"},
 	"volume-refuses-matching":           {"volume@1/matching-requests-merge"},
 	"volume-compares-provenance":        {"volume@1/matching-requests-merge"},
 	"volume-compares-optionality":       {"volume@1/matching-requests-merge"},
@@ -210,6 +211,7 @@ var mutations = map[string][]string{
 	"volume-ignores-path":               {"volume@1/instance-and-path-identity"},
 	"volume-keys-on-kit":                {"volume@1/composition-independent"},
 	"volume-setup-probe-error":          {"volume@1/composition-independent"},
+	"volume-retained-read-denied":       {"volume@1/composition-independent"},
 	"volume-keeps-writable-layer":       {"volume@1/composition-independent"},
 	"volume-resets-mode":                {"volume@1/composition-independent"},
 	"volume-forgets-undeclared":         {"volume@1/undeclared-retained"},

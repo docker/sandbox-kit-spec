@@ -138,6 +138,8 @@ prevent seeding or reading test data. Only the fixture probe's explicit
 permission-denied status permits that skip; missing roots and failed
 probes remain failures. Errors after successfully seeding retained block
 storage are not skipped, because they can violate state preservation.
+Tmpfs discarded on stop or recreation receives a fresh root; initial
+accessibility observations for that replacement root can also skip.
 
 `wait-idle` and `status` are required only for adapters claiming
 `com.docker.sandbox/long-running@1`. `wait-idle` **MUST** exercise a real

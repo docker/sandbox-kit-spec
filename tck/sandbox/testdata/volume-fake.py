@@ -138,13 +138,15 @@ def save(sandbox, record):
     (root / 'requests.json').write_text(json.dumps(record['allocated']))
 
 
-def clear_tmpfs(record):
+def clear_tmpfs(record, event):
     for path, config in record['allocated'].items():
         if config['tmpfs']:
             target = destination(record, path)
             shutil.rmtree(target, ignore_errors=True)
             target.mkdir(parents=True)
             target.chmod(int(config['mode'] or '0700', 8))
+            if broken == 'volume-fresh-tmpfs-unreadable-' + event:
+                target.with_suffix('.inaccessible').touch()
 
 
 def run_hooks(record, event):
@@ -172,6 +174,10 @@ def apply(record, kits, overrides, recreating=False):
                 shutil.rmtree(storage / record['storage'] / 'writable', ignore_errors=True)
             if broken == 'volume-refusal-destroys-storage':
                 shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
+            if broken == 'volume-refusal-resets-mode':
+                for child in destination(record, path).iterdir():
+                    if child.is_file():
+                        child.chmod(int(previous['mode'] or '0700', 8))
             if broken != 'volume-ignores-recreate-config':
                 refuse('retained volume configuration changed at ' + path)
     if recreating:
@@ -182,7 +188,7 @@ def apply(record, kits, overrides, recreating=False):
         if broken == 'volume-keys-on-wrapper' and any(Path(kit).name == 'volume-state-published' for kit in kits):
             shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
         if broken != 'volume-tmpfs-persists-recreate':
-            clear_tmpfs(record)
+            clear_tmpfs(record, 'recreate')
     record['kits'], record['args'], record['selected'] = kits, overrides, candidate
     for path, config in candidate.items():
         target = destination(record, path)
@@ -246,7 +252,7 @@ elif verb == 'recreate':
 elif verb in ['stop', 'start']:
     record = load(argv[0])
     if verb == 'stop' and broken != 'volume-tmpfs-persists-stop':
-        clear_tmpfs(record)
+        clear_tmpfs(record, 'stop')
     if verb == 'start':
         run_hooks(record, 'start')
 elif verb == 'exec':
@@ -259,22 +265,26 @@ elif verb == 'exec':
     target = destination(record, path, not mounted)
     name = args[0] if args else ''
     value = args[1] if len(args) > 1 else ''
+    inaccessible_tmpfs = (mounted and broken.startswith('volume-fresh-tmpfs-unreadable-')
+                          and target.with_suffix('.inaccessible').exists())
     if operation in ['writable', 'readable']:
         if broken == 'volume-setup-probe-error' or not target.is_dir():
             sys.exit(1)
-        if mounted and (broken == 'volume-root-not-readable'
-                        or (operation == 'writable' and broken == 'volume-root-not-writable')):
+        if inaccessible_tmpfs or (mounted and (broken == 'volume-root-not-readable'
+                        or (operation == 'writable' and broken == 'volume-root-not-writable'))):
             sys.exit(3)
     elif operation == 'write':
-        if mounted and broken in ['volume-root-not-writable', 'volume-root-not-readable']:
+        if inaccessible_tmpfs or (mounted and broken in ['volume-root-not-writable', 'volume-root-not-readable']):
             raise PermissionError('the agent cannot write the mount root')
         target.mkdir(parents=True, exist_ok=True)
         (target / name).write_text(value)
     elif operation == 'read':
-        if mounted and broken == 'volume-root-not-readable':
+        if inaccessible_tmpfs or (mounted and broken in ['volume-root-not-readable', 'volume-retained-read-denied']):
             raise PermissionError('the agent cannot read the mount root')
         sys.stdout.write((target / name).read_text())
     elif operation == 'absent':
+        if inaccessible_tmpfs:
+            raise PermissionError('the agent cannot inspect the fresh tmpfs root')
         sys.exit(1 if (target / name).exists() else 0)
     elif operation == 'empty':
         if mounted and broken == 'volume-root-not-readable':

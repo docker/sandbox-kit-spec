@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,22 @@ func TestFakeVolumeInstallHooksRunOnlyAtCreate(t *testing.T) {
 	require.Equal(t, "already-installed", probe("read", ""))
 	require.NoError(t, a.Recreate(t.Context(), id))
 	require.Equal(t, "already-installed", probe("read", ""))
+}
+
+func TestVolumeTmpfsObservationsSkipInaccessibleFreshRoots(t *testing.T) {
+	index := slices.IndexFunc(volumeChecks, func(c check) bool {
+		return c.requirement == "volume@1/tmpfs-cleared"
+	})
+	require.GreaterOrEqual(t, index, 0)
+	for _, event := range []string{"stop", "recreate"} {
+		t.Run(event, func(t *testing.T) {
+			rep := runAgainstFake(t, "volume-fresh-tmpfs-unreadable-"+event, volumeChecks[index])
+			require.False(t, rep.Failed(), "%s", rep)
+			require.Len(t, rep.Findings, 1)
+			require.Equal(t, "volume@1/tmpfs-cleared", rep.Findings[0].Requirement)
+			require.Equal(t, report.Skip, rep.Findings[0].Severity)
+		})
+	}
 }
 
 func TestVolumeLifetimeNeedsNoOtherCapabilities(t *testing.T) {
