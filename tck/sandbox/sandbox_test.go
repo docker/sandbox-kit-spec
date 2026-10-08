@@ -207,6 +207,9 @@ var mutations = map[string][]string{
 	"volume-root-not-readable+volume-retains-after-removal":           {"volume@1/removal-deletes-storage"},
 	"volume-root-not-readable+volume-forgets-undeclared":              {"volume@1/undeclared-retained"},
 
+	"volume-mounts-retained-with-selection":                                  {"volume@1/undeclared-retained"},
+	"volume-renamed-root-not-readable+volume-mounts-retained-with-selection": {"volume@1/undeclared-retained"},
+
 	"volume-compares-name":             {"volume@1/matching-requests-merge"},
 	"volume-compares-description":      {"volume@1/matching-requests-merge"},
 	"volume-compares-size-spelling":    {"volume@1/matching-requests-merge"},

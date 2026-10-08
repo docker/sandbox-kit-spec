@@ -234,6 +234,12 @@ func volumeRetained(ctx context.Context, e *Env) []report.Finding {
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state-other")}, map[string]string{"volume_path": newPath}); err != nil {
 		return []report.Finding{report.Failf("rename destination: %v", err)}
 	}
+	if f := volumeProbe(ctx, e, id, "mounted", newPath, "", "", ""); len(f) > 0 {
+		return append(findings, f...)
+	}
+	if f := volumeProbe(ctx, e, id, "unmounted", volumePath, "", "", ""); len(f) > 0 {
+		return append(findings, f...)
+	}
 	if f := volumeAccess(ctx, e, id, newPath, "readable"); len(f) > 0 {
 		if f[0].Severity != report.Skip {
 			return append(findings, f...)

@@ -324,7 +324,10 @@ elif verb == 'exec':
         raise ValueError('unexpected volume probe')
     operation, path, *args = args
     path = posixpath.normpath(path)
-    mounted = path in record['selected'] or (broken == 'volume-mounts-undeclared' and path in record['allocated'])
+    mounted = (path in record['selected']
+               or (broken == 'volume-mounts-undeclared' and path in record['allocated'])
+               or (broken == 'volume-mounts-retained-with-selection'
+                   and record['selected'] and path in record['allocated']))
     target = destination(record, path, not mounted)
     name = args[0] if args else ''
     value = args[1] if len(args) > 1 else ''
