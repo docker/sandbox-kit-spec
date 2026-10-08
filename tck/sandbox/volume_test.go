@@ -15,6 +15,11 @@ func TestVolumeChecks(t *testing.T) {
 	require.False(t, rep.Failed(), "%s", rep)
 }
 
+func TestVolumeChecksDoNotRequireMountRootOwnership(t *testing.T) {
+	rep := runAgainstFake(t, "volume-root-not-owned", volumeChecks...)
+	require.False(t, rep.Failed(), "%s", rep)
+}
+
 func TestVolumeLifetimeNeedsNoOtherCapabilities(t *testing.T) {
 	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume, "KIT_TCK_FAKE_BROKEN="}

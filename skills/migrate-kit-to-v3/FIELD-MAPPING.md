@@ -641,7 +641,8 @@ Before calling a migration done:
 - [ ] the mixin's `ENV` is on the recipe's final stage, and profile.d is used
       only for values that collide or that only a shell needs
 - [ ] entrypoint, env, user and workdir live in the recipe, not the descriptor
-- [ ] every volume declares a `size`
+- [ ] volume sizes preserve the source declaration; an omitted size stays
+      unspecified rather than acquiring an invented capacity limit
 - [ ] v2 comments carried across, deltas marked `# MIGRATION NOTE:`
 - [ ] every `contentFile:` names a file that exists, and every staged
       `*-context.md` is referenced by a descriptor

@@ -95,7 +95,9 @@ func volumeRecompose(ctx context.Context, e *Env) []report.Finding {
 			return f
 		}
 	}
-	if f := volumeProbe(ctx, e, id, "set-mode", volumePath, "", "0755", ""); len(f) > 0 {
+	// A file created by the agent can be chmodded even when the runtime
+	// owns the mount root. Root ownership and initial mode are SHOULDs.
+	if f := volumeProbe(ctx, e, id, "set-mode", volumePath, "marker", "0600", ""); len(f) > 0 {
 		return f
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures("volume-workload"), e.Fixtures("volume-state-other")}, nil); err != nil {
@@ -119,7 +121,7 @@ func volumeRecompose(ctx context.Context, e *Env) []report.Finding {
 			return f
 		}
 	}
-	return volumeProbe(ctx, e, id, "mode", volumePath, "", "", "755\n")
+	return volumeProbe(ctx, e, id, "mode", volumePath, "marker", "", "600\n")
 }
 
 func volumeRetained(ctx context.Context, e *Env) []report.Finding {
@@ -294,6 +296,22 @@ func volumeHooks(ctx context.Context, e *Env) []report.Finding {
 	defer remove()
 	for _, hook := range []string{"install", "startup"} {
 		if f := volumeProbe(ctx, e, id, "read", volumePath, hook, "", "mounted"); len(f) > 0 {
+			return f
+		}
+	}
+	for _, recreate := range []bool{false, true} {
+		if f := volumeProbe(ctx, e, id, "write", volumePath, "startup", "stale", ""); len(f) > 0 {
+			return f
+		}
+		if recreate {
+			err = e.Adapter.Recreate(ctx, id)
+		} else if err = e.Adapter.Stop(ctx, id); err == nil {
+			err = e.Adapter.Start(ctx, id)
+		}
+		if err != nil {
+			return []report.Finding{report.Failf("restart/recreate with mount-observing hooks: %v", err)}
+		}
+		if f := volumeProbe(ctx, e, id, "read", volumePath, "startup", "", "mounted"); len(f) > 0 {
 			return f
 		}
 	}

@@ -121,9 +121,13 @@ An adapter claiming `volume@1` **MUST** support `create --name`, changed
 composition recreation, and `volume-paths`. The suite uses a fresh alias
 to distinguish recreation from removal followed by creation under the
 same name. `volume-paths` **MUST** report actual runtime-managed block
-storage, including retained unmounted paths, and return `[]` after
-instance removal. It **MUST NOT** provision storage or merely echo a
-descriptor or adapter-maintained request list. The adapter **MUST NOT**
+storage, including retained unmounted paths and allocations orphaned by
+instance removal. The suite-facing observation handle **MUST** remain
+usable after instance metadata is removed: an absent instance record
+alone does not establish that its backing allocations were deleted.
+An empty array means no associated block allocation remains. The verb
+**MUST NOT** provision storage or merely echo a descriptor or
+adapter-maintained request list. The adapter **MUST NOT**
 simulate persistence by copying data around a runtime remove/create.
 An adapter without an operation that preserves instance identity and
 volume data on recreation cannot claim `volume@1`.

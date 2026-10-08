@@ -17,8 +17,10 @@ state, claims, broken, verb, *argv = sys.argv[1:]
 state = Path(state)
 instances = state / 'volume-instances'
 storage = state / 'volume-storage'
+observations = state / 'volume-observations'
 instances.mkdir(parents=True, exist_ok=True)
 storage.mkdir(parents=True, exist_ok=True)
+observations.mkdir(parents=True, exist_ok=True)
 primary = '/var/tmp/kit-tck-volume'
 secondary = primary + '-other'
 
@@ -110,6 +112,9 @@ def destination(record, path, writable=False):
 
 def save(sandbox, record):
     record_path(sandbox).write_text(json.dumps(record))
+    # Keep the observation handle independent of live instance metadata;
+    # removal must be checked against backing allocations, not records.
+    (observations / sandbox).write_text(record['storage'])
     root = storage / record['storage']
     root.mkdir(parents=True, exist_ok=True)
     (root / 'requests.json').write_text(json.dumps(record['allocated']))
@@ -122,6 +127,20 @@ def clear_tmpfs(record):
             shutil.rmtree(target, ignore_errors=True)
             target.mkdir(parents=True)
             target.chmod(int(config['mode'] or '0700', 8))
+
+
+def run_hooks(record, event):
+    if (not any(Path(kit).name == 'volume-state-hooks' for kit in record['kits'])
+            or 'com.docker.sandbox/lifecycle@1' not in claims.split(',')):
+        return
+    path = posixpath.normpath(record['args'].get('volume_path', primary))
+    late = (broken == 'volume-after-hooks'
+            or (event == 'start' and broken == 'volume-after-restart-hooks')
+            or (event == 'recreate' and broken == 'volume-after-recreate-hooks'))
+    target = destination(record, path, late)
+    target.mkdir(parents=True, exist_ok=True)
+    for hook in (['startup'] if event == 'start' else ['install', 'startup']):
+        (target / hook).write_text('mounted')
 
 
 def apply(record, kits, overrides, recreating=False):
@@ -151,6 +170,10 @@ def apply(record, kits, overrides, recreating=False):
         target.mkdir(parents=True, exist_ok=True)
         if fresh or broken == 'volume-resets-mode':
             target.chmod(int(config['mode'] or '0700', 8))
+        if not fresh and broken == 'volume-resets-mode':
+            for child in target.iterdir():
+                if child.is_file():
+                    child.chmod(int(config['mode'] or '0700', 8))
         if fresh and broken == 'volume-copies-image':
             (target / 'image-marker').write_text('image')
         record['allocated'][path] = config
@@ -161,12 +184,7 @@ def apply(record, kits, overrides, recreating=False):
                 del record['allocated'][path]
     for path in [primary, secondary, primary + '-control']:
         destination(record, path, True).mkdir(parents=True, exist_ok=True)
-    if any(Path(kit).name == 'volume-state-hooks' for kit in kits) and 'com.docker.sandbox/lifecycle@1' in claims.split(','):
-        path = posixpath.normpath(overrides.get('volume_path', primary))
-        target = destination(record, path, broken == 'volume-after-hooks')
-        target.mkdir(parents=True, exist_ok=True)
-        for hook in ['install', 'startup']:
-            (target / hook).write_text('mounted')
+    run_hooks(record, 'recreate' if recreating else 'create')
 
 
 if verb == 'create':
@@ -183,17 +201,20 @@ if verb == 'create':
     save(sandbox, record)
     print(sandbox)
 elif verb == 'volume-paths':
-    if not record_path(argv[0]).exists():
+    handle = observations / argv[0]
+    root = storage / handle.read_text() if handle.exists() else None
+    if root is None or not (root / 'requests.json').exists():
         print('[]')
     else:
-        record = load(argv[0])
-        print(json.dumps(sorted(path for path, config in record['allocated'].items()
+        record = dict(storage=root.name)
+        allocated = json.loads((root / 'requests.json').read_text())
+        print(json.dumps(sorted(path for path, config in allocated.items()
                                 if not config['tmpfs'] and destination(record, path).exists())))
 elif verb == 'rm':
     sandbox = argv[0]
     record = load(sandbox)
     if broken != 'volume-retains-after-removal':
-        if broken != 'volume-reuses-name':
+        if broken not in ['volume-reuses-name', 'volume-orphans-after-removal']:
             shutil.rmtree(storage / record['storage'], ignore_errors=True)
         record_path(sandbox).unlink()
 elif verb == 'recreate':
@@ -206,6 +227,8 @@ elif verb in ['stop', 'start']:
     record = load(argv[0])
     if verb == 'stop' and broken != 'volume-tmpfs-persists-stop':
         clear_tmpfs(record)
+    if verb == 'start':
+        run_hooks(record, 'start')
 elif verb == 'exec':
     sandbox, separator, probe, operation, path, *args = argv
     if separator != '--' or probe != 'kit-tck-volume':
@@ -230,9 +253,13 @@ elif verb == 'exec':
     elif operation == 'unmounted':
         sys.exit(1 if mounted else 0)
     elif operation == 'mode':
-        print(format(target.stat().st_mode & 0o7777, 'o'))
+        entry = target / name if name else target
+        print(format(entry.stat().st_mode & 0o7777, 'o'))
     elif operation == 'set-mode':
-        target.chmod(int(value, 8))
+        if not name and broken == 'volume-root-not-owned':
+            raise PermissionError('the agent does not own the mount root')
+        entry = target / name if name else target
+        entry.chmod(int(value, 8))
     else:
         raise ValueError('unknown volume probe operation')
 else:

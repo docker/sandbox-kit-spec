@@ -214,7 +214,8 @@ func (a *Adapter) RecreateWith(ctx context.Context, id string, kits []string, ar
 }
 
 // VolumePaths observes every allocated destination, mounted or retained.
-// A removed instance returns an empty list without provisioning storage.
+// It also reports orphaned allocations after instance metadata is removed;
+// only deletion of the backing storage makes the list empty.
 func (a *Adapter) VolumePaths(ctx context.Context, id string) ([]string, error) {
 	res, err := a.run(ctx, "volume-paths", id)
 	if err != nil {
