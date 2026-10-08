@@ -7,6 +7,7 @@ set -euo pipefail
 
 state="${KIT_TCK_FAKE_STATE:?KIT_TCK_FAKE_STATE is required}"
 broken="${KIT_TCK_FAKE_BROKEN:-}"
+permissions="${broken%%+*}"
 
 # What this runtime claims: everything it implements, a subset when the
 # suite narrows it, nothing when broken that way. The refusal duty below
@@ -1001,6 +1002,10 @@ exec)
       fi
       ;;
     /data/marker)
+      if [ "$permissions" = volume-root-not-readable ] || [ "$broken" = volume-retained-read-denied ]; then
+        echo 'permission denied' >&2
+        exit 1
+      fi
       if [ -f "$dir/volume/marker" ]; then cat "$dir/volume/marker"; else
         echo "no such file" >&2
         exit 1
@@ -1191,6 +1196,19 @@ exec)
       ;;
     esac
     ;;
+  kit-tck-volume)
+    [ "$3" = /data ] && [ -d "$dir/volume" ] || exit 1
+    [ "$broken" != volume-setup-probe-error ] || exit 1
+    case "$2" in
+    writable)
+      case "$permissions" in volume-root-not-writable | volume-root-not-readable) exit 3 ;; esac
+      ;;
+    readable)
+      [ "$permissions" != volume-root-not-readable ] || exit 3
+      ;;
+    *) exit 1 ;;
+    esac
+    ;;
   kit-tck-write)
     case "$2" in
     /var/tmp/kit-tck-scratch)
@@ -1225,6 +1243,11 @@ exec)
       : >"$dir/skills-rw/$(basename "$2")"
       ;;
     *)
+      case "$permissions" in volume-root-not-writable | volume-root-not-readable)
+        echo 'permission denied' >&2
+        exit 1
+        ;;
+      esac
       mkdir -p "$(dirname "$dir/volume/$(basename "$2")")"
       printf '%s' "$3" >"$dir/volume/$(basename "$2")"
       ;;

@@ -22,18 +22,29 @@ func TestVolumeChecksDoNotRequireMountRootOwnership(t *testing.T) {
 }
 
 func TestVolumeDataObservationsSkipInaccessibleInitialRoots(t *testing.T) {
+	var allVolumeChecks []check
+	for _, c := range checks {
+		if c.capability == capVolume {
+			allVolumeChecks = append(allVolumeChecks, c)
+		}
+	}
 	for _, variant := range []string{"volume-root-not-writable", "volume-root-not-readable"} {
 		t.Run(variant, func(t *testing.T) {
-			rep := runAgainstFake(t, variant, volumeChecks...)
+			rep := runAgainstFake(t, variant, allVolumeChecks...)
 			require.False(t, rep.Failed(), "%s", rep)
 			skippedLifetime := false
+			skippedPersistence := false
 			for _, finding := range rep.Findings {
 				require.Equal(t, report.Skip, finding.Severity)
 				if finding.Requirement == "volume@1/composition-independent" {
 					skippedLifetime = true
 				}
+				if finding.Requirement == "volume@1/persists-across-recreate" {
+					skippedPersistence = true
+				}
 			}
 			require.True(t, skippedLifetime, "unobservable persistence must skip, not pass")
+			require.True(t, skippedPersistence, "legacy persistence check must also skip")
 		})
 	}
 }

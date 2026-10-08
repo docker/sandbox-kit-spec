@@ -1040,6 +1040,9 @@ func init() {
 				}
 				defer cleanup()
 
+				if findings := volumeAccess(ctx, e, id, "/data", "writable"); len(findings) > 0 {
+					return findings
+				}
 				if _, f := execOutput(ctx, e, id, "kit-tck-write", "/data/marker", "persisted"); f != nil {
 					return []report.Finding{*f}
 				}

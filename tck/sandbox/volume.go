@@ -266,6 +266,7 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 }
 
 func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
+	var observations []report.Finding
 	for _, override := range []map[string]string{
 		{"volume_size": "2g"}, {"volume_size": ""},
 		{"volume_mode": "0755"}, {"volume_mode": ""},
@@ -277,13 +278,18 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 		}
 		findings := func() []report.Finding {
 			defer remove()
-			if f := volumeSeed(ctx, e, id, volumePath, "marker", "unchanged"); len(f) > 0 {
-				return f
+			findings := volumeSeed(ctx, e, id, volumePath, "marker", "unchanged")
+			seeded := len(findings) == 0
+			if !seeded && findings[0].Severity != report.Skip {
+				return findings
 			}
 			if f := volumeProbe(ctx, e, id, "write", volumeControlPath, "marker", "unchanged", ""); len(f) > 0 {
 				return f
 			}
 			for _, path := range []string{volumePath, volumeControlPath} {
+				if path == volumePath && !seeded {
+					continue
+				}
 				if f := volumeProbe(ctx, e, id, "set-mode", path, "marker", "0600", ""); len(f) > 0 {
 					return f
 				}
@@ -300,6 +306,9 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 			// Both markers must survive: volume retention alone cannot
 			// prove refusal happened before the old container was replaced.
 			for _, path := range []string{volumePath, volumeControlPath} {
+				if path == volumePath && !seeded {
+					continue
+				}
 				if f := volumeProbe(ctx, e, id, "read", path, "marker", "", "unchanged"); len(f) > 0 {
 					return f
 				}
@@ -310,16 +319,23 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 			if err := e.Adapter.Recreate(ctx, id); err != nil {
 				return []report.Finding{report.Failf("refusal altered retained inputs: %v", err)}
 			}
+			if f := volumeProbe(ctx, e, id, "mounted", volumePath, "", "", ""); len(f) > 0 {
+				return append(findings, f...)
+			}
+			if !seeded {
+				return findings
+			}
 			if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "unchanged"); len(f) > 0 {
 				return f
 			}
 			return volumeProbe(ctx, e, id, "mode", volumePath, "marker", "", "600\n")
 		}()
-		if len(findings) > 0 {
-			return findings
+		if slices.ContainsFunc(findings, func(f report.Finding) bool { return f.Severity == report.Fail }) {
+			return append(observations, findings...)
 		}
+		observations = append(observations, findings...)
 	}
-	return volumeDormantRecreateConflicts(ctx, e)
+	return append(observations, volumeDormantRecreateConflicts(ctx, e)...)
 }
 
 func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
@@ -328,11 +344,15 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 		return []report.Finding{report.Failf("create retained storage: %v", err)}
 	}
 	defer remove()
-	if f := volumeSeed(ctx, e, id, volumePath, "marker", "retained"); len(f) > 0 {
-		return f
+	findings := volumeSeed(ctx, e, id, volumePath, "marker", "retained")
+	seeded := len(findings) == 0
+	if !seeded && findings[0].Severity != report.Skip {
+		return findings
 	}
-	if f := volumeProbe(ctx, e, id, "set-mode", volumePath, "marker", "0600", ""); len(f) > 0 {
-		return f
+	if seeded {
+		if f := volumeProbe(ctx, e, id, "set-mode", volumePath, "marker", "0600", ""); len(f) > 0 {
+			return f
+		}
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
 		return []report.Finding{report.Failf("undeclare storage: %v", err)}
@@ -367,6 +387,12 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 	}
 	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state")}, nil); err != nil {
 		return []report.Finding{report.Failf("compatible dormant reattachment: %v", err)}
+	}
+	if f := volumeProbe(ctx, e, id, "mounted", volumePath, "", "", ""); len(f) > 0 {
+		return append(findings, f...)
+	}
+	if !seeded {
+		return findings
 	}
 	if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "retained"); len(f) > 0 {
 		return f

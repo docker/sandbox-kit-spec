@@ -199,6 +199,9 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"volume-root-not-writable+volume-ignores-recreate-config": {"volume@1/recreate-config-compatible"},
+	"volume-root-not-readable+volume-forgets-dormant-config":  {"volume@1/recreate-config-compatible"},
+
 	"volume-renamed-root-not-readable+volume-loses-renamed-away-data": {"volume@1/undeclared-retained"},
 	"volume-root-not-writable+volume-orphans-after-removal":           {"volume@1/removal-deletes-storage"},
 	"volume-root-not-readable+volume-retains-after-removal":           {"volume@1/removal-deletes-storage"},
@@ -215,8 +218,8 @@ var mutations = map[string][]string{
 	"volume-shares-instances":           {"volume@1/instance-and-path-identity"},
 	"volume-ignores-path":               {"volume@1/instance-and-path-identity"},
 	"volume-keys-on-kit":                {"volume@1/composition-independent"},
-	"volume-setup-probe-error":          {"volume@1/composition-independent"},
-	"volume-retained-read-denied":       {"volume@1/composition-independent"},
+	"volume-setup-probe-error":          {"volume@1/composition-independent", "volume@1/persists-across-recreate"},
+	"volume-retained-read-denied":       {"volume@1/composition-independent", "volume@1/persists-across-recreate"},
 	"volume-keeps-writable-layer":       {"volume@1/composition-independent"},
 	"volume-resets-mode":                {"volume@1/composition-independent"},
 	"volume-forgets-undeclared":         {"volume@1/undeclared-retained"},
