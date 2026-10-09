@@ -323,16 +323,46 @@ func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
 	return findings
 }
 
+type volumeTransition struct {
+	name                               string
+	initialFixture, replacementFixture string
+	initialArgs, replacementArgs       map[string]string
+}
+
+func volumeRecreateTransitions() []volumeTransition {
+	var transitions []volumeTransition
+	// Empty size/mode is unspecified. Equality refuses both directions,
+	// including a smaller size or the introduction of an explicit setting.
+	for _, change := range []struct{ name, argument, first, second string }{
+		{"size", "volume_size", "1g", "2g"},
+		{"unspecified size", "volume_size", "1g", ""},
+		{"mode", "volume_mode", "0700", "0755"},
+		{"unspecified mode", "volume_mode", "0700", ""},
+	} {
+		for _, reverse := range []bool{false, true} {
+			name, first, second := change.name, change.first, change.second
+			if reverse {
+				name, first, second = "reverse "+name, second, first
+			}
+			transitions = append(transitions, volumeTransition{
+				name: name, initialFixture: "volume-state", replacementFixture: "volume-state",
+				initialArgs:     map[string]string{change.argument: first},
+				replacementArgs: map[string]string{change.argument: second},
+			})
+		}
+	}
+	return append(transitions,
+		volumeTransition{name: "block to tmpfs", initialFixture: "volume-state", replacementFixture: "volume-state-tmpfs"},
+		volumeTransition{name: "tmpfs to block", initialFixture: "volume-state-tmpfs", replacementFixture: "volume-state"},
+	)
+}
+
 func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 	var observations []report.Finding
-	for _, override := range []map[string]string{
-		{"volume_size": "2g"}, {"volume_size": ""},
-		{"volume_mode": "0755"}, {"volume_mode": ""},
-		nil, // Replacement with tmpfs changes the backing kind.
-	} {
-		id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state"}, nil)
+	for _, transition := range volumeRecreateTransitions() {
+		id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, transition.initialFixture}, transition.initialArgs)
 		if err != nil {
-			return []report.Finding{report.Failf("control create: %v", err)}
+			return []report.Finding{report.Failf("%s control create: %v", transition.name, err)}
 		}
 		findings := func() []report.Finding {
 			defer remove()
@@ -352,14 +382,11 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 					return f
 				}
 			}
-			var kits []string
-			if override == nil {
-				kits = []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state-tmpfs")}
-			}
-			err = e.Adapter.RecreateWith(ctx, id, kits, override)
+			kits := []string{e.Fixtures(fixtureWorkload), e.Fixtures(transition.replacementFixture)}
+			err = e.Adapter.RecreateWith(ctx, id, kits, transition.replacementArgs)
 			var refused *adapter.RefusedError
 			if !errors.As(err, &refused) {
-				return []report.Finding{report.Failf("incompatible recreation must refuse: %v", err)}
+				return []report.Finding{report.Failf("%s incompatible recreation must refuse: %v", transition.name, err)}
 			}
 			// Both markers must survive: volume retention alone cannot
 			// prove refusal happened before the old container was replaced.
@@ -380,7 +407,9 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 			if f := volumeProbe(ctx, e, id, "mounted", volumePath, "", "", ""); len(f) > 0 {
 				return append(findings, f...)
 			}
-			if !seeded {
+			// The successful control recreation clears tmpfs legitimately.
+			// Its data and permissions were still required to survive refusal.
+			if !seeded || transition.initialFixture == "volume-state-tmpfs" {
 				return findings
 			}
 			if f := volumeProbe(ctx, e, id, "read", volumePath, "marker", "", "unchanged"); len(f) > 0 {
@@ -397,9 +426,26 @@ func volumeRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
 }
 
 func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Finding {
-	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state"}, nil)
+	var observations []report.Finding
+	for _, transition := range volumeRecreateTransitions() {
+		// Only block storage has a retention duty once undeclared. The
+		// tmpfs-to-block refusal is observed while tmpfs is still selected.
+		if transition.initialFixture == "volume-state-tmpfs" {
+			continue
+		}
+		findings := volumeDormantRecreateConflict(ctx, e, transition)
+		observations = append(observations, findings...)
+		if slices.ContainsFunc(findings, func(f report.Finding) bool { return f.Severity == report.Fail }) {
+			return observations
+		}
+	}
+	return observations
+}
+
+func volumeDormantRecreateConflict(ctx context.Context, e *Env, transition volumeTransition) []report.Finding {
+	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, transition.initialFixture}, transition.initialArgs)
 	if err != nil {
-		return []report.Finding{report.Failf("create retained storage: %v", err)}
+		return []report.Finding{report.Failf("%s create retained storage: %v", transition.name, err)}
 	}
 	defer remove()
 	findings := volumeSeed(ctx, e, id, volumePath, "marker", "retained")
@@ -418,22 +464,23 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 	if f := volumeProbe(ctx, e, id, "write", volumeControlPath, "marker", "unchanged", ""); len(f) > 0 {
 		return f
 	}
-	for _, override := range []map[string]string{{"volume_size": "2g"}, {"volume_mode": "0755"}, nil} {
-		fixture := "volume-state"
-		if override == nil {
-			fixture = "volume-state-tmpfs"
-		}
-		err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures(fixture)}, override)
-		var refused *adapter.RefusedError
-		if !errors.As(err, &refused) {
-			return []report.Finding{report.Failf("incompatible dormant storage must refuse: %v", err)}
-		}
-		if f := volumeProbe(ctx, e, id, "read", volumeControlPath, "marker", "", "unchanged"); len(f) > 0 {
-			return f
-		}
-		if f := volumeProbe(ctx, e, id, "unmounted", volumePath, "", "", ""); len(f) > 0 {
-			return f
-		}
+	if f := volumeProbe(ctx, e, id, "set-mode", volumeControlPath, "marker", "0600", ""); len(f) > 0 {
+		return f
+	}
+	kits := []string{e.Fixtures(fixtureWorkload), e.Fixtures(transition.replacementFixture)}
+	err = e.Adapter.RecreateWith(ctx, id, kits, transition.replacementArgs)
+	var refused *adapter.RefusedError
+	if !errors.As(err, &refused) {
+		return []report.Finding{report.Failf("%s incompatible dormant storage must refuse: %v", transition.name, err)}
+	}
+	if f := volumeProbe(ctx, e, id, "read", volumeControlPath, "marker", "", "unchanged"); len(f) > 0 {
+		return f
+	}
+	if f := volumeProbe(ctx, e, id, "mode", volumeControlPath, "marker", "", "600\n"); len(f) > 0 {
+		return f
+	}
+	if f := volumeProbe(ctx, e, id, "unmounted", volumePath, "", "", ""); len(f) > 0 {
+		return f
 	}
 	// Refusal must keep the workload-only composition and its inputs;
 	// only a compatible, explicit reintroduction may expose the data.
@@ -443,7 +490,7 @@ func volumeDormantRecreateConflicts(ctx context.Context, e *Env) []report.Findin
 	if f := volumeProbe(ctx, e, id, "unmounted", volumePath, "", "", ""); len(f) > 0 {
 		return f
 	}
-	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state")}, nil); err != nil {
+	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures(transition.initialFixture)}, nil); err != nil {
 		return []report.Finding{report.Failf("compatible dormant reattachment: %v", err)}
 	}
 	if f := volumeProbe(ctx, e, id, "mounted", volumePath, "", "", ""); len(f) > 0 {

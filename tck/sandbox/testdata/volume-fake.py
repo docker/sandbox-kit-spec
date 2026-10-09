@@ -88,6 +88,39 @@ def equivalent(a, b):
     return same_size and same_mode and a['tmpfs'] == b['tmpfs']
 
 
+def permits_directional_change(previous, candidate, dormant):
+    if broken.startswith('volume-dormant-'):
+        if not dormant:
+            return False
+        policy = broken.removeprefix('volume-dormant-')
+    else:
+        policy = broken.removeprefix('volume-')
+    if policy == 'allows-size-decrease':
+        old, new = size_value(previous['size']), size_value(candidate['size'])
+        if old is None or new is None or new >= old:
+            return False
+        field = 'size'
+    elif policy == 'allows-mode-decrease':
+        if (not previous['mode'] or not candidate['mode']
+                or int(candidate['mode'], 8) >= int(previous['mode'], 8)):
+            return False
+        field = 'mode'
+    elif policy in ['allows-explicit-size', 'allows-explicit-mode']:
+        field = policy.removeprefix('allows-explicit-')
+        if previous[field] or not candidate[field]:
+            return False
+    elif policy == 'allows-block-after-tmpfs':
+        if not previous['tmpfs'] or candidate['tmpfs']:
+            return False
+        field = 'tmpfs'
+    else:
+        return False
+    # Break only this transition, not simultaneous composition or another
+    # changed setting that an earlier forward-direction case could detect.
+    matched = previous | {field: candidate[field]}
+    return equivalent(matched, candidate)
+
+
 def setting(entry, field, descriptor, overrides):
     # Read the shipped fixture's scalar, including its argument default.
     # Literal settings must not inherit overrides for unrelated Kit args.
@@ -222,7 +255,8 @@ def apply(record, kits, overrides, recreating=False):
                 for child in destination(record, path).iterdir():
                     if child.is_file():
                         child.chmod(int(previous['mode'] or '0700', 8))
-            if broken != 'volume-ignores-recreate-config':
+            if (broken != 'volume-ignores-recreate-config'
+                    and not permits_directional_change(previous, config, path not in record['selected'])):
                 refuse('retained volume configuration changed at ' + path)
     if recreating:
         if broken != 'volume-keeps-writable-layer':
