@@ -144,10 +144,13 @@ often got wrong:
 | `port@1`, `resources@1`, `privileged@1` | inbound ports, limits, elevation | Do not declare on speculation; `privileged@1` is the largest widening available. |
 
 For ACP adapters, verify the launch settings preserve the interactive
-entrypoint's permission posture. ACP 1 background completion depends on
-negotiated extensions. ACP 2 declarations require standard terminal
-lifecycle updates and sub-agent completion updates; a package release
-number is not evidence that the adapter speaks protocol version 2.
+entrypoint's permission posture and that stdin EOF and SIGTERM cancel
+running turns, persist resumable sessions, and exit within five seconds.
+`optional: true` does not exempt an adapter from these guarantees.
+ACP 1 background completion depends on negotiated extensions. ACP 2
+declarations require standard terminal lifecycle updates and sub-agent
+completion updates; a package release number is not evidence that the
+adapter speaks protocol version 2.
 
 Host sharing is a separate grant from `volume@1`, including when the
 in-container path stays the same. Do not supply a host path or assume a

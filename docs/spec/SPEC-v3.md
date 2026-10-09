@@ -745,8 +745,9 @@ candidate's against it:
   anything; lifecycle, agent context, session verbs, and ACP run inside
   the sandbox on the entrypoint's trust plane, and `sbx@1` asks the host
   to launch the workload a particular way and to read an identity the
-  image already states (see their pages). `long-running@1` likewise grants no access; it keeps the
-  workload running independently of attached sessions.
+  image already states (see their pages). `long-running@1` likewise grants
+  no access; it keeps the workload running independently of attached
+  sessions.
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.

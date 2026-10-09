@@ -131,11 +131,12 @@ adapter, including when the adapter is the agent binary itself.
 
 Entries **MUST** union, keyed on the normalized agent name. <!-- tck: acp@1/composition -->
 Different configs for one agent conflict, whether supplied by workloads,
-mixins, or both. An identical restatement is the same entry: comparison uses decoded argv,
-normalized agent names, and the default protocol version; omitted and
-empty `env` maps are equal. As with other capability entries, a required
-contribution makes the merged entry required, and display metadata does
-not determine identity. A set carries the entries of the Kits it lists.
+mixins, or both. An identical restatement is the same entry: comparison
+uses decoded argv, normalized agent names, and the default protocol
+version; omitted and empty `env` maps are equal. As with other capability
+entries, a required contribution makes the merged entry required, and
+display metadata does not determine identity. A set carries the entries
+of the Kits it lists.
 
 An adapter that outlives a host connection, socket reattachment, and
 runtime CLI shortcuts are outside this capability's contract.

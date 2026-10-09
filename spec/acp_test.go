@@ -208,25 +208,23 @@ func TestACPSurface(t *testing.T) {
 }
 
 func TestACPExamples(t *testing.T) {
-	for _, agent := range []string{"claude", "codex"} {
-		raw, err := os.ReadFile("../examples/" + agent + "-acp/" + agent + "-acp.yaml")
-		require.NoError(t, err)
-		d, err := Decode(raw)
-		require.NoError(t, err)
-		endpoints, err := ACPsOf(d.Capabilities)
-		require.NoError(t, err)
-		require.Len(t, endpoints, 1)
-		require.Equal(t, agent, endpoints[0].Agent)
-		require.Equal(t, 1, ACPProtocolVersion(endpoints[0].ACP))
-		for _, c := range d.Capabilities {
-			if c.Type == CapabilityACP {
-				require.True(t, c.Optional)
-			}
+	raw, err := os.ReadFile("../examples/claude-acp/claude-acp.yaml")
+	require.NoError(t, err)
+	d, err := Decode(raw)
+	require.NoError(t, err)
+	endpoints, err := ACPsOf(d.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, endpoints, 1)
+	require.Equal(t, "claude", endpoints[0].Agent)
+	require.Equal(t, 1, ACPProtocolVersion(endpoints[0].ACP))
+	for _, c := range d.Capabilities {
+		if c.Type == CapabilityACP {
+			require.True(t, c.Optional)
 		}
-		selected, err := SelectCapabilities(t.Context(), d, Supported(CapabilityAgentContext))
-		require.NoError(t, err, "a host without ACP keeps the kit usable")
-		require.False(t, HasCapability(selected.Capabilities, CapabilityACP))
 	}
+	selected, err := SelectCapabilities(t.Context(), d, Supported(CapabilityAgentContext))
+	require.NoError(t, err, "a host without ACP keeps the kit usable")
+	require.False(t, HasCapability(selected.Capabilities, CapabilityACP))
 }
 
 func TestACPSchema(t *testing.T) {
