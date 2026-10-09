@@ -733,3 +733,33 @@ func TestSetReExportStillReconcilesConcreteStorage(t *testing.T) {
 		})
 	}
 }
+
+func TestSetReExportRejectsLiteralStorageCollisions(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		first, second spec.Capability
+	}{
+		{"volume size", spec.Capability{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache", "size": "1g"}}, spec.Capability{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/data/../cache", "size": "${{ kit.args.request }}"}}},
+		{"volume mode", spec.Capability{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache"}}, spec.Capability{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache/./", "mode": "${{ kit.env.MODE }}"}}},
+		{"host and deferred volume", spec.Capability{Type: spec.CapabilityHostMount, Config: map[string]any{"path": "/cache"}}, spec.Capability{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache/./", "size": "${{ kit.args.request }}"}}},
+		{"volume and deferred host", spec.Capability{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache/./"}}, spec.Capability{Type: spec.CapabilityHostMount, Config: map[string]any{"path": "/cache", "mode": "${{ kit.args.request }}"}}},
+		{"host mode", spec.Capability{Type: spec.CapabilityHostMount, Config: map[string]any{"path": "/cache"}}, spec.Capability{Type: spec.CapabilityHostMount, Config: map[string]any{"path": "/cache", "mode": "${{ kit.args.request }}"}}},
+	} {
+		for _, reverse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reverse=%t", tc.name, reverse), func(t *testing.T) {
+				capabilities := []spec.Capability{tc.first, tc.second}
+				if reverse {
+					capabilities[0], capabilities[1] = capabilities[1], capabilities[0]
+				}
+				published := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin,
+					Args: map[string]spec.Arg{"request": {Required: true}}, Capabilities: capabilities}
+				raw, err := json.Marshal(published)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, published)
+				require.Error(t, err, "unrelated deferred settings cannot hide literal storage collisions at publication")
+				_, _, err = kitDeclarations(published, spec.Kit{Args: map[string]string{"request": "${{ kit.args.shared }}"}}, map[string]spec.Arg{"shared": {Required: true}})
+				require.Error(t, err, "re-export cannot turn an invalid declaration block into independently reconcilable requests")
+			})
+		}
+	}
+}
