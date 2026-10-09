@@ -91,15 +91,26 @@ func Merge(contributions []Contribution, opts MergeOptions) (*MergeResult, error
 		if opts.ContextPath == "" {
 			return nil, fmt.Errorf("merge: %d agent-context bodies to stage but no ContextPath to stage them at", len(result.ContextSources))
 		}
-		// One entry carries the merged body: every profile indexes it,
-		// and a declaration block states at most one body.
-		for i := range result.Descriptor.Capabilities {
-			c := &result.Descriptor.Capabilities[i]
-			if c.Type == CapabilityAgentContext {
-				c.Config["contentFile"] = opts.ContextPath
-				break
+		// One entry carries the shared body, and every surviving profile
+		// needs it. Prefer the first required profile so selection cannot
+		// discard the body by skipping an optional destination.
+		bodyAt, profiles := -1, 0
+		for i, c := range result.Descriptor.Capabilities {
+			if c.Type != CapabilityAgentContext {
+				continue
+			}
+			profiles++
+			if bodyAt == -1 || (result.Descriptor.Capabilities[bodyAt].Optional && !c.Optional) {
+				bodyAt = i
 			}
 		}
+		if profiles > 1 && result.Descriptor.Capabilities[bodyAt].Optional {
+			// No profile is guaranteed to survive selection. Keep the
+			// original bodies with their independently selected requests,
+			// using the same publication path as conditional groups.
+			return preserveGroups(contributions, opts)
+		}
+		result.Descriptor.Capabilities[bodyAt].Config["contentFile"] = opts.ContextPath
 	}
 	return result, nil
 }
@@ -1159,8 +1170,9 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 	// is not another profile's, so a single profile keeps the first
 	// nonempty name in contribution order and is required when any ask
 	// is, as any other merged entry. A body-only ask thereby follows the
-	// profile that carries a merged set's body, and one agent's required
-	// profile leaves another agent's optional one optional.
+	// first profile, and one agent's required profile leaves another
+	// agent's optional one optional. Publication chooses a required
+	// profile to carry the shared body independently of this strictness.
 	names := make([]string, max(len(profiles), 1))
 	optional := make([]bool, len(names))
 	for i := range optional {

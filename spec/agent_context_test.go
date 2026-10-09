@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,91 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestPublishedAgentContextBodySurvivesProfileSelection(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		optional []bool
+		skip     string
+	}{
+		{"skip optional first", []bool{true, false}, "/first"},
+		{"skip optional second", []bool{false, true}, "/second"},
+		{"keep both required", []bool{false, false}, ""},
+		{"keep both optional", []bool{true, true}, ""},
+		{"skip first of two optional", []bool{true, true}, "/first"},
+		{"skip second of two optional", []bool{true, true}, "/second"},
+		{"skip both optional", []bool{true, true}, "all"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var inputs []Contribution
+			for i, directory := range []string{"/first", "/second"} {
+				inputs = append(inputs, Contribution{Reference: directory, Descriptor: &Descriptor{
+					SchemaVersion: SchemaVersion, Kind: KindMixin,
+					Capabilities: []Capability{{Type: CapabilityAgentContext, Optional: tt.optional[i], Config: map[string]any{
+						"directory": directory, "filename": "AGENTS.md", "content": directory + " instructions",
+					}}},
+				}})
+			}
+			published, err := Merge(inputs, MergeOptions{ContextPath: "/kit/merged.md"})
+			require.NoError(t, err)
+			require.Len(t, published.ContextSources, 2)
+			// Selection consumes a published descriptor, including its group
+			// boundaries after serialization, rather than an in-memory shortcut.
+			raw, err := json.Marshal(published.Descriptor)
+			require.NoError(t, err)
+			d, err := Decode(raw)
+			require.NoError(t, err)
+			selection, err := SelectCapabilities(t.Context(), d, func(_ context.Context, _ Descriptor, c Capability) CapabilityDecision {
+				return CapabilityDecision{Accepted: tt.skip != "all" && c.Config["directory"] != tt.skip}
+			})
+			require.NoError(t, err)
+			d.Capabilities = selection.Capabilities
+			profiles, err := AgentContextsOf(d.Capabilities)
+			require.NoError(t, err)
+			var wantDirectories, wantBodies []string
+			for i, directory := range []string{"/first", "/second"} {
+				if tt.skip == "all" || tt.skip == directory {
+					continue
+				}
+				wantDirectories = append(wantDirectories, directory)
+				if tt.optional[0] && tt.optional[1] {
+					wantBodies = append(wantBodies, published.ContextSources[i].Target)
+				}
+			}
+			if len(wantDirectories) > 0 && (!tt.optional[0] || !tt.optional[1]) {
+				wantBodies = []string{"/kit/merged.md"}
+			}
+			var directories, bodies []string
+			for _, profile := range profiles {
+				directories = append(directories, profile.Directory)
+				if profile.ContentFile != "" {
+					bodies = append(bodies, profile.ContentFile)
+				}
+			}
+			require.Equal(t, wantDirectories, directories)
+			require.Equal(t, wantBodies, bodies, "a surviving profile must retain its context body linkage")
+			if tt.optional[0] && tt.optional[1] {
+				for _, body := range wantBodies {
+					require.NotEmpty(t, body, "conditional bodies must be staged separately")
+				}
+			}
+			composed, err := Compose([]Contribution{{Reference: "published", Descriptor: d}})
+			require.NoError(t, err)
+			effective, err := AgentContextsOf(composed.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, effective, len(wantDirectories))
+			// Republishing the selection exercises the same body collection
+			// runtime handlers need from the retained input contributions.
+			republished, err := Merge([]Contribution{{Reference: "published", Descriptor: d}}, MergeOptions{ContextPath: "/next/context.md"})
+			require.NoError(t, err)
+			var collected []string
+			for _, source := range republished.ContextSources {
+				collected = append(collected, source.Path)
+			}
+			require.Equal(t, wantBodies, collected)
+		})
+	}
+}
 
 func TestAgentContextDirectoryValidation(t *testing.T) {
 	for _, tt := range []struct {
@@ -143,11 +229,13 @@ func TestDifferingExplicitProfilesAreEachMaterialized(t *testing.T) {
 		contributions []Contribution
 		want          []AgentContext
 		wantOptional  []bool
+		wantBodyAt    int
 	}{
-		{"claude first", []Contribution{shell, claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}},
-		{"codex first", []Contribution{codex, shell, claude}, []AgentContext{codexProfile, claudeProfile}, []bool{false, false}},
-		{"restated", []Contribution{shell, claude, codex, claude}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}},
-		{"agents only", []Contribution{claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}},
+		{"claude first", []Contribution{shell, claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}, 0},
+		{"codex first", []Contribution{codex, shell, claude}, []AgentContext{codexProfile, claudeProfile}, []bool{false, false}, 0},
+		{"restated", []Contribution{shell, claude, codex, claude}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}, 0},
+		{"agents only", []Contribution{claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}, 0},
+		{"optional agent first", []Contribution{codex, claude}, []AgentContext{codexProfile, claudeProfile}, []bool{true, false}, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			composed, err := Compose(tt.contributions)
@@ -175,8 +263,8 @@ func TestDifferingExplicitProfilesAreEachMaterialized(t *testing.T) {
 			staged, err := AgentContextsOf(published.Descriptor.Capabilities)
 			require.NoError(t, err)
 			require.Len(t, staged, 2)
-			require.Equal(t, "/kit/merged.md", staged[0].ContentFile, "the merged body rides the first profile")
-			require.Empty(t, staged[1].ContentFile)
+			require.Equal(t, "/kit/merged.md", staged[tt.wantBodyAt].ContentFile, "the merged body rides the first required profile")
+			require.Empty(t, staged[1-tt.wantBodyAt].ContentFile)
 			require.Len(t, published.ContextSources, len(tt.contributions), "every body is staged once for every profile to index")
 			raw, err = json.Marshal(published.Descriptor)
 			require.NoError(t, err)
