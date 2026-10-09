@@ -26,9 +26,16 @@ An agent mixin declares both directory and filename; a tool mixin
 contributes only a body. An explicit agent profile takes precedence over
 a generic workload's legacy filename, regardless of input order. This
 also fixes the shell-based Codex and Claude ACP sets, which declare their
-agent profiles explicitly even when composed from older published mixins. Conflicting explicit profiles
-are refused: this singleton capability does not express several harness
-profiles in one sandbox.
+agent profiles explicitly even when composed from older published mixins.
+
+Several agents can share one sandbox. Each explicit profile is its own
+destination, so the Claude and Codex mixins together produce both
+`/home/agent/.claude/CLAUDE.md` and `/home/agent/.codex/AGENTS.md`, each
+with the runtime guidance and an index of every Kit, the other agent
+included. Profiles naming the same directory and filename are one
+destination. An earlier revision refused differing explicit profiles,
+which broke stacking two agent mixins on a shell from the release that
+introduced the directory field until this was relaxed.
 
 The optional directory extends `agent-context@1` in place. Descriptors
 that omit it retain their default placement. Older strict readers reject

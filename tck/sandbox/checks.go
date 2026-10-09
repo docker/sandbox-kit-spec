@@ -929,14 +929,33 @@ var (
 func init() {
 	checks = append(checks,
 		check{
-			requirement: "agent-context@1/explicit-profile-conflict",
+			// Two agents in one sandbox, as two agent mixins on a shell
+			// compose. Both orders, so a runtime keeping only the first or
+			// only the last explicit profile fails one of them; the mixin
+			// body proves each destination carries the full index.
+			requirement: "agent-context@1/every-explicit-profile",
 			capability:  capAgentContext,
 			run: func(ctx context.Context, e *Env) []report.Finding {
-				_, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, "context-profile", "context-conflict"}, nil)
-				cleanup()
-				var refused *adapter.RefusedError
-				if !errors.As(err, &refused) {
-					return []report.Finding{report.Failf("conflicting explicit context profiles must refuse: %v", err)}
+				profiles := []string{"/home/agent/.codex/CLAUDE.md", "/home/agent/.kit-tck/second/AGENTS.md"}
+				staged := path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md")
+				for _, kits := range [][]string{
+					{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
+					{"context-second-profile", fixtureWorkload, "context-profile", fixtureContext},
+				} {
+					id, cleanup, err := e.sandbox(ctx, kits, nil)
+					if err != nil {
+						return []report.Finding{report.Failf("differing explicit profiles describe several agents and must compose: %v", err)}
+					}
+					defer cleanup()
+					for _, profilePath := range profiles {
+						profile, f := execOutput(ctx, e, id, "cat", profilePath)
+						if f != nil {
+							return []report.Finding{report.Failf("composition %v declares a profile at %s, but it is not readable: %s", kits, profilePath, f.Detail)}
+						}
+						if !strings.Contains(profile, staged) {
+							return []report.Finding{report.Failf("the profile at %s does not surface the mixin context at %s", profilePath, staged)}
+						}
+					}
 				}
 				return nil
 			},
