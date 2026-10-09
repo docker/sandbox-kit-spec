@@ -399,7 +399,8 @@ A workload's `filename:` alone keeps the legacy workspace-sibling profile.
 An agent workload or mixin declares `filename:` together with `directory:`
 at the agent's discovery location. The directory is absolute and canonical;
 Codex uses `/home/agent/.codex`. An explicit destination overrides the
-legacy fallback, and differing explicit destinations conflict. Tool mixins
+legacy fallback, and differing explicit destinations each get a profile,
+so two agent mixins can share a sandbox. Tool mixins
 carry `contentFile` or `content` alone. Staged bodies keep their paths.
 
 ### long-running@1

@@ -558,8 +558,7 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `kit-registry@1`, `agent-sessions@1`, `agent-interactive-sessions@1`,
-`lifecycle@1`, `agent-context@1`, `sbx@1`, `long-running@1`,
-`git-identity@1`.
+`lifecycle@1`, `sbx@1`, `long-running@1`, `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -572,7 +571,10 @@ participating independently, `volume@1` and `host-mount@1` on a shared
 cleaned storage path key,
 `agent-skills@1` on path,
 `agent-skill@1` on effective name, `port@1` on (container, transport),
-`ssh-agent@1` on each phase it names.
+`ssh-agent@1` on each phase it names, `agent-context@1` on its explicit
+profile destination (`directory` plus `filename`), with at most one
+entry without a directory and at most one carrying a body per
+declaration block.
 `usb-device@1` is instance-shaped with no dedup key beyond the exact
 entry.
 
@@ -693,7 +695,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/privileged@1` | [privileged@1](capabilities/com.docker.sandbox/privileged@1.md) | singleton, config-less |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
-| `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | singleton |
+| `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
@@ -919,7 +921,7 @@ error. In that order they reconcile into one descriptor:
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
-| `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles conflict. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file, since the type is a singleton and a sandbox surfaces one profile. |
+| `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
 | `optional` | An entry any of them requires is required in the merged kit: `optional` says its asker degrades without it, and one that does not degrade decides for the set. |
 | Capability `name` | When contributions merge into one entry, the first nonempty name in contribution order **MUST** be retained. Labels do not prevent merging. | <!-- tck: SPEC-v3 §9.5/capability-name-first -->

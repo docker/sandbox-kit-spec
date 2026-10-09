@@ -91,12 +91,26 @@ func Merge(contributions []Contribution, opts MergeOptions) (*MergeResult, error
 		if opts.ContextPath == "" {
 			return nil, fmt.Errorf("merge: %d agent-context bodies to stage but no ContextPath to stage them at", len(result.ContextSources))
 		}
-		for i := range result.Descriptor.Capabilities {
-			c := &result.Descriptor.Capabilities[i]
-			if c.Type == CapabilityAgentContext {
-				c.Config["contentFile"] = opts.ContextPath
+		// One entry carries the shared body, and every surviving profile
+		// needs it. Prefer the first required profile so selection cannot
+		// discard the body by skipping an optional destination.
+		bodyAt, profiles := -1, 0
+		for i, c := range result.Descriptor.Capabilities {
+			if c.Type != CapabilityAgentContext {
+				continue
+			}
+			profiles++
+			if bodyAt == -1 || (result.Descriptor.Capabilities[bodyAt].Optional && !c.Optional) {
+				bodyAt = i
 			}
 		}
+		if profiles > 1 && result.Descriptor.Capabilities[bodyAt].Optional {
+			// No profile is guaranteed to survive selection. Keep the
+			// original bodies with their independently selected requests,
+			// using the same publication path as conditional groups.
+			return preserveGroups(contributions, opts)
+		}
+		result.Descriptor.Capabilities[bodyAt].Config["contentFile"] = opts.ContextPath
 	}
 	return result, nil
 }
@@ -865,13 +879,11 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 		out = append(out, *lifecycle)
 	}
 
-	context, sources, err := m.mergedContext()
+	contexts, sources, err := m.mergedContext()
 	if err != nil {
 		return nil, nil, err
 	}
-	if context != nil {
-		out = append(out, *context)
-	}
+	out = append(out, contexts...)
 	return out, sources, nil
 }
 
@@ -1128,37 +1140,56 @@ func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
 	return c, nil
 }
 
-// mergedContext folds the contributors' agent-context into one entry:
-// the profile filename from whichever contribution owns it, and every
-// body collected separately for publishers to stage.
-func (m *capabilityMerge) mergedContext() (*Capability, []ContextSource, error) {
+// mergedContext folds the contributors' agent-context into the profiles a
+// sandbox materializes: one entry per distinct explicit destination, or
+// the legacy profile when no contribution states one. Every profile
+// indexes every body, so the bodies are collected once, separately, for
+// publishers to stage.
+func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error) {
 	if len(m.context) == 0 {
 		return nil, nil, nil
 	}
 
-	merged := &AgentContext{}
-	filenameFrom := ""
+	destination := func(a *AgentContext) string { return path.Join(a.Directory, a.Filename) }
+	var profiles []AgentContext
+	profileAt := map[string]int{}
 	// Select explicit destinations first so a shell's legacy profile
-	// cannot win merely because it arrived before the agent mixin.
+	// cannot win merely because it arrived before the agent mixin. Each
+	// agent in the sandbox reads its own profile, so differing
+	// destinations are several profiles rather than a conflict.
 	for _, ask := range m.context {
 		if ask.context.Directory == "" {
 			continue
 		}
-		if filenameFrom != "" && (merged.Directory != ask.context.Directory || merged.Filename != ask.context.Filename) {
-			return nil, nil, fmt.Errorf("merge: %s and %s declare conflicting explicit agent-context profiles", filenameFrom, ask.reference)
+		if _, seen := profileAt[destination(ask.context)]; !seen {
+			profileAt[destination(ask.context)] = len(profiles)
+			profiles = append(profiles, AgentContext{Filename: ask.context.Filename, Directory: ask.context.Directory})
 		}
-		filenameFrom = ask.reference
-		merged.Filename = ask.context.Filename
-		merged.Directory = ask.context.Directory
 	}
-	name := ""
-	optional := true
+	// The first profile takes its name and strictness from every ask that
+	// is not another profile's, so a single profile keeps the first
+	// nonempty name in contribution order and is required when any ask
+	// is, as any other merged entry. A body-only ask thereby follows the
+	// first profile, and one agent's required profile leaves another
+	// agent's optional one optional. Publication chooses a required
+	// profile to carry the shared body independently of this strictness.
+	names := make([]string, max(len(profiles), 1))
+	optional := make([]bool, len(names))
+	for i := range optional {
+		optional[i] = true
+	}
+	legacy := AgentContext{}
+	filenameFrom := ""
 	var sources []ContextSource
 	for _, ask := range m.context {
-		if name == "" {
-			name = ask.name
+		at := 0
+		if ask.context.Directory != "" {
+			at = profileAt[destination(ask.context)]
 		}
-		if ask.context.Filename != "" && merged.Directory == "" {
+		if names[at] == "" {
+			names[at] = ask.name
+		}
+		if ask.context.Filename != "" && len(profiles) == 0 {
 			// Only a workload states a legacy profile, and a composition
 			// has one workload, so two is a set that was mis-assembled
 			// rather than a choice to arbitrate.
@@ -1167,7 +1198,7 @@ func (m *capabilityMerge) mergedContext() (*Capability, []ContextSource, error) 
 					filenameFrom, ask.reference)
 			}
 			filenameFrom = ask.reference
-			merged.Filename = ask.context.Filename
+			legacy.Filename = ask.context.Filename
 		}
 		switch {
 		case ask.context.ContentFile != "":
@@ -1176,23 +1207,30 @@ func (m *capabilityMerge) mergedContext() (*Capability, []ContextSource, error) 
 			sources = append(sources, ContextSource{Reference: ask.contribution, Content: ask.context.Content})
 		}
 		if !ask.optional {
-			optional = false
+			optional[at] = false
 		}
 	}
 
-	if merged.Filename == "" && len(sources) == 0 {
-		// Every contribution declared the type and stated nothing in
-		// it; the entry would ask for nothing.
-		return nil, nil, nil
+	if len(profiles) == 0 {
+		if legacy.Filename == "" && len(sources) == 0 {
+			// Every contribution declared the type and stated nothing in
+			// it; the entry would ask for nothing.
+			return nil, nil, nil
+		}
+		profiles = []AgentContext{legacy}
 	}
 
-	c, err := capabilityFrom(CapabilityAgentContext, merged)
-	if err != nil {
-		return nil, nil, err
+	out := make([]Capability, 0, len(profiles))
+	for i := range profiles {
+		c, err := capabilityFrom(CapabilityAgentContext, &profiles[i])
+		if err != nil {
+			return nil, nil, err
+		}
+		c.Optional = optional[i]
+		c.Name = names[i]
+		out = append(out, *c)
 	}
-	c.Optional = optional
-	c.Name = name
-	return c, sources, nil
+	return out, sources, nil
 }
 
 // capabilityFrom renders a typed config back into the untyped Capability
