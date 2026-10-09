@@ -311,8 +311,15 @@ The fixture seeds existing instructions at both destinations; the runtime
 preserves them while adding its guidance and Kit index. The
 `context-profile` mixin declares an explicit `CLAUDE.md` destination
 against the legacy workload, testing directory and filename precedence in
-both input orders. The `context-conflict`
-mixin declares a differing explicit profile, which composition refuses.
+both input orders. The `context-second-profile` mixin declares a second
+agent's explicit `AGENTS.md` in `/home/agent/.kit-tck/second`; composed
+beside `context-profile` in both orders, the suite reads both profiles
+and expects each to index all three staged bodies: both agents' and the
+context mixin's. Two further compositions share half of a destination:
+`context-profile` with its `directory` argument set to
+`/home/agent/.kit-tck/second`, which shares the directory, and
+`context-workload`, whose `AGENTS.md` shares the filename. A runtime
+keying profiles on one half of the destination collapses them.
 
 An adapter that cannot bind credentials **SHOULD NOT** claim
 `com.docker.sandbox/credential@1`, in which case its checks are skipped.

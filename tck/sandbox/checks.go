@@ -45,6 +45,7 @@ const (
 	fixtureCredential               = "credential"
 	fixturePort                     = "port"
 	fixtureUSBDevice                = "usb-device"
+	fixtureACP                      = "acp"
 	fixtureAgentSessions            = "agent-sessions"
 	fixtureAgentInteractiveSessions = "agent-interactive-sessions"
 	fixtureKitRegistry              = "kit-registry"
@@ -220,6 +221,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capPort, fixturePort, false},
 				{capUSBDevice, fixtureUSBDevice, false},
 				{capAgentSessions, fixtureAgentSessions, false},
+				{capACP, fixtureACP, false},
 				{capAgentInteractiveSessions, fixtureAgentInteractiveSessions, false},
 				{capKitRegistry, fixtureKitRegistry, false},
 			} {
@@ -901,6 +903,7 @@ const (
 	capAgentSkills              = "com.docker.sandbox/agent-skills@1"
 	capPort                     = "com.docker.sandbox/port@1"
 	capUSBDevice                = "com.docker.sandbox/usb-device@1"
+	capACP                      = "com.docker.sandbox/acp@1"
 	capAgentSessions            = "com.docker.sandbox/agent-sessions@1"
 	capAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
 	capKitRegistry              = "com.docker.sandbox/kit-registry@1"
@@ -930,14 +933,64 @@ func init() {
 	checks = append(checks, volumeChecks...)
 	checks = append(checks,
 		check{
-			requirement: "agent-context@1/explicit-profile-conflict",
+			// Two agents in one sandbox, as two agent mixins on a shell
+			// compose. Both orders, so a runtime keeping only the first or
+			// only the last explicit profile fails one of them; a shared
+			// directory and a shared filename, so a runtime keying on one
+			// half of the destination collapses two profiles. Every
+			// profile must index every staged body, or an agent misses a
+			// Kit.
+			requirement: "agent-context@1/every-explicit-profile",
 			capability:  capAgentContext,
 			run: func(ctx context.Context, e *Env) []report.Finding {
-				_, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, "context-profile", "context-conflict"}, nil)
-				cleanup()
-				var refused *adapter.RefusedError
-				if !errors.As(err, &refused) {
-					return []report.Finding{report.Failf("conflicting explicit context profiles must refuse: %v", err)}
+				contextBody := path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md")
+				profileBody := path.Join(StagedKitRoot, "context-profile", "context-profile.txt")
+				secondBody := path.Join(StagedKitRoot, "context-second-profile", "context-second-profile.txt")
+				second := "/home/agent/.kit-tck/second/AGENTS.md"
+				for _, c := range []struct {
+					kits     []string
+					args     map[string]string
+					profiles []string
+					bodies   []string
+				}{
+					{
+						kits:     []string{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
+						profiles: []string{"/home/agent/.codex/CLAUDE.md", second},
+						bodies:   []string{contextBody, profileBody, secondBody},
+					},
+					{
+						kits:     []string{"context-second-profile", fixtureWorkload, "context-profile", fixtureContext},
+						profiles: []string{"/home/agent/.codex/CLAUDE.md", second},
+						bodies:   []string{contextBody, profileBody, secondBody},
+					},
+					{
+						kits:     []string{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
+						args:     map[string]string{"directory": "/home/agent/.kit-tck/second"},
+						profiles: []string{"/home/agent/.kit-tck/second/CLAUDE.md", second},
+						bodies:   []string{contextBody, profileBody, secondBody},
+					},
+					{
+						kits:     []string{"context-workload", "context-second-profile", fixtureContext},
+						profiles: []string{"/home/agent/.codex/AGENTS.md", second},
+						bodies:   []string{contextBody, secondBody},
+					},
+				} {
+					id, cleanup, err := e.sandbox(ctx, c.kits, c.args)
+					if err != nil {
+						return []report.Finding{report.Failf("differing explicit profiles describe several agents and must compose: %v", err)}
+					}
+					defer cleanup()
+					for _, profilePath := range c.profiles {
+						profile, f := execOutput(ctx, e, id, "cat", profilePath)
+						if f != nil {
+							return []report.Finding{report.Failf("composition %v declares a profile at %s, but it is not readable: %s", c.kits, profilePath, f.Detail)}
+						}
+						for _, staged := range c.bodies {
+							if !strings.Contains(profile, staged) {
+								return []report.Finding{report.Failf("composition %v: the profile at %s does not index the Kit context at %s", c.kits, profilePath, staged)}
+							}
+						}
+					}
 				}
 				return nil
 			},

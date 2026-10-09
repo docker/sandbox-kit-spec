@@ -1,0 +1,10 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Required ACP endpoint
+description: Requires ACP support so refusal when unclaimed is observable
+capabilities:
+  - type: com.docker.sandbox/acp@1
+    config:
+      agent: kit-tck-agent
+      command: [kit-tck-acp]

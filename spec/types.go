@@ -438,6 +438,9 @@ const (
 	// concept skips an optional declaration or refuses a required one.
 	CapabilityAgentContext = "com.docker.sandbox/agent-context@1"
 
+	// CapabilityACP declares an agent adapter speaking ACP over stdio.
+	CapabilityACP = "com.docker.sandbox/acp@1"
+
 	// CapabilityAgentSessions declares the workload's session control surface:
 	// the argv shapes a harness uses to drive the agent — run one prompt
 	// headlessly, list past sessions, resume or continue one. Not a

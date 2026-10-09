@@ -176,6 +176,32 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	// ACP protocol and host duties need a duplex client connection contract.
+	"acp@1/optional-for-compatibility": "authoring recommendation, judged for the shipped ACP examples by TestACPExamples",
+	"acp@1/config-valid":               "grammar rule, judged by TestACPValidation and TestACPSchema",
+	"acp@1/agent-unique":               "grammar rule, judged by TestACPAgentUniqueness, including normalized names and expansion",
+	"acp@1/sandbox-launch":             "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/provided-agent":             "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/negotiated-features":        "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/no-host-io":                 "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/session-identity":           "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/single-driver":              "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/declaration-grants-nothing": "permission projection rule, judged by TestACPSurface; the runtime adapter has no ACP host operation",
+	"acp@1/transport":                  "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/noninteractive-auth":        "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/native-sessions":            "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/load-session":               "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/sandbox-io":                 "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/mcp-servers":                "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/permission-posture":         "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/model-effort":               "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/background-work":            "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/background-work-v2":         "the adapter contract has no duplex ACP host connection operation or ACP 2 fixture; background terminal output, exit status, and sub-agent completion while idle cannot be observed",
+	"acp@1/shutdown":                   "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/concurrency":                "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/hook-session-id":            "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
+	"acp@1/composition":                "composition rule, judged by TestACPComposition, including sets and selected groups",
+
 	"git-identity@1/source-private":               "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
 	"SPEC-v3 §7.1.1/selection-before-application": "the adapter exposes only final files, records, and grants, not an effect trace during selection; effects applied before selection and then rolled back cannot be observed",
 	"SPEC-v3 §7.1.1/conflicts-before-application": "a refused create returns no sandbox ID and the adapter exposes no failed-create effect trace; the suite can observe conflict refusal but cannot inspect files or hooks applied before that refusal",
