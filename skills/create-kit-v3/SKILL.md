@@ -138,9 +138,19 @@ often got wrong:
 | `sbx@1` | "launch this as an agent" | Workload-only, config-less — and enforced: a mixin declaring it fails validation. |
 | `agent-skill@1` | one bundled skill | `path` names the image directory containing `SKILL.md` and supporting files. The basename is the discovery name unless `config.name` overrides it; the entry-level `name` remains only a display label. |
 | `agent-skills@1` | where an agent discovers skills | Declare on the agent workload or agent mixin. The runtime links or otherwise exposes every selected `agent-skill@1` bundle here, and includes host-shared skills when available and enabled. Missing host skills never block startup; `mode` bounds host-store access only. |
+| `acp@1` | discover and launch an ACP adapter | Declare on the Kit that installs the adapter, workload or mixin. `agent` is the unversioned provides name of its harness; another composed Kit may provide it. `command` is a complete non-TTY stdio command, never an argv tail. `env` overlays the session environment; positive `protocolVersion` defaults to 1. Use `optional: true` for older hosts and keep the verified CLI fallbacks. Protocol capabilities come from initialize; session choices come from session responses and updates. Different configs for one normalized agent conflict. |
 | `agent-sessions@1` | the headless verbs a harness drives (run one prompt, continue, resume, list) | Argv tails appended to the launch argv; `prompt` must reference `{{.Prompt}}` and `resume` `{{.SessionID}}`. **Most agent Kits declare both this and `agent-interactive-sessions@1`**; an agent with no interactive mode declares only this. Verify every flag against the tool's real CLI — never invent one. |
 | `agent-interactive-sessions@1` | the TUI verbs a human-facing host launches (seeded prompt, continue, resume, session picker, list) | The sibling of `agent-sessions@1` for an agent whose CLI has an interactive mode; an agent that also has a headless mode declares both, and one with only a TUI declares just this. **Presence is meaning**: a present key is supported, an absent key is not, and for `continue`, `newSession` and `sessionPicker` `[]` is the launch argv alone (`prompt` and `resume` carry their placeholders, so they are never empty). `newSession` is the exception: omit it when a bare launch opens the TUI, because it then defaults to `lifecycle@1`'s `interactive` launch; if you state both `newSession` and `interactive` they must be the same argv, an explicit `[]` included. `list` is the same command as in `agent-sessions@1`. Declare only verbs you verified. |
 | `port@1`, `resources@1`, `privileged@1` | inbound ports, limits, elevation | Do not declare on speculation; `privileged@1` is the largest widening available. |
+
+For ACP adapters, verify the launch settings preserve the interactive
+entrypoint's permission posture and that stdin EOF and SIGTERM cancel
+running turns, persist resumable sessions, and exit within five seconds.
+`optional: true` does not exempt an adapter from these guarantees.
+ACP 1 background completion depends on negotiated extensions. ACP 2
+declarations require standard terminal lifecycle updates and sub-agent
+completion updates; a package release number is not evidence that the
+adapter speaks protocol version 2.
 
 Host sharing is a separate grant from `volume@1`, including when the
 in-container path stays the same. Do not supply a host path or assume a

@@ -315,6 +315,7 @@ create)
       # Match the fixture name, not a checkout directory that happens to
       # contain a capability name (for example, git-identity).
       case "${kit##*/}" in
+      acp) need="com.docker.sandbox/acp@1" ;;
       bundled-optional | bundled-existing) ;;
       bundled-reader) need="com.docker.sandbox/agent-skills@1" ;;
       bundled-skill | bundled-host-conflict) need="com.docker.sandbox/agent-skill@1" ;;

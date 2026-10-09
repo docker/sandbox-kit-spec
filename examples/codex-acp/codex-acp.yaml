@@ -52,6 +52,8 @@ requires: ["codex >= 0.159.1, < 0.160.0"]
 # has, which the codex-mixin kit declares. The package is installed at
 # build time, so unlike an `npx`-at-startup launcher this needs no
 # registry.npmjs.org access at runtime either.
+# No acp@1 declaration: pinned codex-acp 2.1.1 has no SIGTERM handler,
+# so it cannot promise the bounded cleanup that capability requires.
 capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:

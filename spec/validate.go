@@ -586,6 +586,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 	seenExact := map[string]int{}
 	seenCredential := map[string]int{}
 	seenSSHAgent := map[string]int{}
+	seenACP := map[string]int{}
 	seenVolume := map[string]int{}
 	seenHostMount := map[string]int{}
 	seenSkills := map[string]int{}
@@ -684,6 +685,16 @@ func validateCapabilityBlock(d *Descriptor) error {
 					}
 					seenCredential[key] = i
 				}
+			}
+		}
+
+		if n.Type == CapabilityACP {
+			if agent, ok := n.Config["agent"].(string); ok && !ContainsArgRef(agent) && !ContainsEnvRef(agent) {
+				key := NormalizeCapabilityName(agent)
+				if prev, dup := seenACP[key]; dup {
+					errs.add(fieldErrorf(path+".config.agent", "capabilities[%d]: ACP for agent %q already declared at capabilities[%d]", i, agent, prev))
+				}
+				seenACP[key] = i
 			}
 		}
 
@@ -868,6 +879,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if r.Memory != "" && !sizeBytes.MatchString(r.Memory) {
 				errs.add(fieldErrorf(path+".config.memory", "capabilities[%d]: invalid memory %q", i, r.Memory))
 			}
+		case CapabilityACP:
+			errs.add(validateACP(path, i, n))
 		case CapabilityAgentSessions:
 			var a AgentSessions
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
@@ -1222,6 +1235,9 @@ func validateInteractiveSessionsAuthored(path string, i int, n Capability) error
 // not hide.
 func validatePresenceRules(path string, i int, n Capability) error {
 	var errs ValidationErrors
+	if n.Type == CapabilityACP {
+		return validateACPAuthored(path, i, n)
+	}
 	if n.Type == CapabilityAgentInteractiveSessions {
 		// Whether a verb is stated is its meaning, so its nulls and its
 		// empty command are judged now, whatever another field defers.

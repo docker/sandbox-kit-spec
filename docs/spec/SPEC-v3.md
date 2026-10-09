@@ -569,7 +569,7 @@ other.
 their own key: `credential@1` on (service, phase), with each listed phase
 participating independently, `volume@1` and `host-mount@1` on a shared
 cleaned storage path key,
-`agent-skills@1` on path,
+`agent-skills@1` on path, `acp@1` on normalized agent name,
 `agent-skill@1` on effective name, `port@1` on (container, transport),
 `ssh-agent@1` on each phase it names, `agent-context@1` on its explicit
 profile destination (`directory` plus `filename`), with at most one
@@ -696,6 +696,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
+| `com.docker.sandbox/acp@1` | [acp@1](capabilities/com.docker.sandbox/acp@1.md) | per agent |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
@@ -739,13 +740,14 @@ candidate's against it:
 - `optional` does not change the surface: it changes what happens when the
   host cannot provide, not what is granted when it can.
 - `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-sessions@1`,
-  `agent-interactive-sessions@1`, and `sbx@1` contribute nothing to the
-  surface: resource limits constrain the Kit rather than grant it
-  anything, the next four run inside the sandbox on the entrypoint's
-  trust plane, and `sbx@1` asks the host to launch the workload a
-  particular way and to read an identity the image already states (see
-  their pages). `long-running@1` likewise grants no access; it keeps the
-  workload running independently of attached sessions.
+  `agent-interactive-sessions@1`, `acp@1`, and `sbx@1` contribute nothing
+  to the surface: resource limits constrain the Kit rather than grant it
+  anything; lifecycle, agent context, session verbs, and ACP run inside
+  the sandbox on the entrypoint's trust plane, and `sbx@1` asks the host
+  to launch the workload a particular way and to read an identity the
+  image already states (see their pages). `long-running@1` likewise grants
+  no access; it keeps the workload running independently of attached
+  sessions.
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
@@ -918,6 +920,7 @@ error. In that order they reconcile into one descriptor:
 | `args` | The set's own. The listed Kits' are answered at publish, pinned or re-exported. |
 | Display fields | The set's own: the artifact is a new thing with its own name, publisher, and documentation. |
 | Instance-shaped capabilities | Union, deduplicated on the type's own key ([§7.1](#71-arity)). Two different configs under one key is an error. |
+| `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
