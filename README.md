@@ -143,9 +143,10 @@ not the grammar — are normative for runtime behavior. A host that cannot
 implement a capability refuses it honestly instead of approximating it.
 
 **Let types evolve on their own clock.** The `@1` in a capability type
-versions that type's config schema, so a capability can change shape without
-a descriptor grammar bump and hosts can support types the grammar has never
-heard of.
+versions its contract: the config schema and observable behavior, including
+composition rules and permitted transitions against persistent state. A
+capability can evolve without a descriptor grammar bump, and hosts can
+support types the grammar has never heard of.
 
 For a worked tour — a real Kit, its capabilities, and how a set composes —
 see [docs/kit-intro.md](docs/kit-intro.md).
