@@ -429,6 +429,8 @@ var mutations = map[string][]string{
 	"refuses-second-profile":                {"agent-context@1/every-explicit-profile"},
 	"drops-second-profile":                  {"agent-context@1/every-explicit-profile"},
 	"omits-other-agent-index":               {"agent-context@1/every-explicit-profile"},
+	"keys-profiles-by-directory":            {"agent-context@1/every-explicit-profile"},
+	"keys-profiles-by-filename":             {"agent-context@1/every-explicit-profile"},
 	"context-at-fixed-directory":            {"agent-context@1/directory-honored"},
 	"loses-volume":                          {"volume@1/persists-across-recreate"},
 	"loses-volume-on-restart":               {"volume@1/persists-across-recreate"},

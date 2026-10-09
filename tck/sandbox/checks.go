@@ -931,35 +931,59 @@ func init() {
 		check{
 			// Two agents in one sandbox, as two agent mixins on a shell
 			// compose. Both orders, so a runtime keeping only the first or
-			// only the last explicit profile fails one of them. Every
-			// profile must index all three staged bodies — both agents'
-			// and the tool mixin's — or an agent misses a Kit.
+			// only the last explicit profile fails one of them; a shared
+			// directory and a shared filename, so a runtime keying on one
+			// half of the destination collapses two profiles. Every
+			// profile must index every staged body, or an agent misses a
+			// Kit.
 			requirement: "agent-context@1/every-explicit-profile",
 			capability:  capAgentContext,
 			run: func(ctx context.Context, e *Env) []report.Finding {
-				profiles := []string{"/home/agent/.codex/CLAUDE.md", "/home/agent/.kit-tck/second/AGENTS.md"}
-				bodies := []string{
-					path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md"),
-					path.Join(StagedKitRoot, "context-profile", "context-profile.txt"),
-					path.Join(StagedKitRoot, "context-second-profile", "context-second-profile.txt"),
-				}
-				for _, kits := range [][]string{
-					{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
-					{"context-second-profile", fixtureWorkload, "context-profile", fixtureContext},
+				contextBody := path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md")
+				profileBody := path.Join(StagedKitRoot, "context-profile", "context-profile.txt")
+				secondBody := path.Join(StagedKitRoot, "context-second-profile", "context-second-profile.txt")
+				second := "/home/agent/.kit-tck/second/AGENTS.md"
+				for _, c := range []struct {
+					kits     []string
+					args     map[string]string
+					profiles []string
+					bodies   []string
+				}{
+					{
+						kits:     []string{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
+						profiles: []string{"/home/agent/.codex/CLAUDE.md", second},
+						bodies:   []string{contextBody, profileBody, secondBody},
+					},
+					{
+						kits:     []string{"context-second-profile", fixtureWorkload, "context-profile", fixtureContext},
+						profiles: []string{"/home/agent/.codex/CLAUDE.md", second},
+						bodies:   []string{contextBody, profileBody, secondBody},
+					},
+					{
+						kits:     []string{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
+						args:     map[string]string{"directory": "/home/agent/.kit-tck/second"},
+						profiles: []string{"/home/agent/.kit-tck/second/CLAUDE.md", second},
+						bodies:   []string{contextBody, profileBody, secondBody},
+					},
+					{
+						kits:     []string{"context-workload", "context-second-profile", fixtureContext},
+						profiles: []string{"/home/agent/.codex/AGENTS.md", second},
+						bodies:   []string{contextBody, secondBody},
+					},
 				} {
-					id, cleanup, err := e.sandbox(ctx, kits, nil)
+					id, cleanup, err := e.sandbox(ctx, c.kits, c.args)
 					if err != nil {
 						return []report.Finding{report.Failf("differing explicit profiles describe several agents and must compose: %v", err)}
 					}
 					defer cleanup()
-					for _, profilePath := range profiles {
+					for _, profilePath := range c.profiles {
 						profile, f := execOutput(ctx, e, id, "cat", profilePath)
 						if f != nil {
-							return []report.Finding{report.Failf("composition %v declares a profile at %s, but it is not readable: %s", kits, profilePath, f.Detail)}
+							return []report.Finding{report.Failf("composition %v declares a profile at %s, but it is not readable: %s", c.kits, profilePath, f.Detail)}
 						}
-						for _, staged := range bodies {
+						for _, staged := range c.bodies {
 							if !strings.Contains(profile, staged) {
-								return []report.Finding{report.Failf("composition %v: the profile at %s does not index the Kit context at %s", kits, profilePath, staged)}
+								return []report.Finding{report.Failf("composition %v: the profile at %s does not index the Kit context at %s", c.kits, profilePath, staged)}
 							}
 						}
 					}

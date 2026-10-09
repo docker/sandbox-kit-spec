@@ -782,8 +782,19 @@ create)
     ls "$dir/skills-rw" >"$dir/skills-rw-at-install"
   fi
   # Every explicit profile is a destination; the profile written to each
-  # is the same guidance and index.
+  # is the same guidance and index. The keys-profiles-by-* mutations
+  # collapse two profiles that share only one half of the destination.
   : >"$dir/context-destinations"
+  add_context_destination() {
+    local existing
+    while IFS= read -r existing; do
+      case "$broken" in
+      keys-profiles-by-directory) if [ "${existing%/*}" = "${1%/*}" ]; then return; fi ;;
+      keys-profiles-by-filename) if [ "${existing##*/}" = "${1##*/}" ]; then return; fi ;;
+      esac
+    done <"$dir/context-destinations"
+    printf '%s\n' "$1" >>"$dir/context-destinations"
+  }
   for kit in "${kits[@]}"; do
     case "${kit##*/}" in
     context-workload | context-profile)
@@ -794,13 +805,13 @@ create)
       esac
       context_filename=AGENTS.md
       if [ "${kit##*/}" = context-profile ] && [ "$broken" != ignores-profile-filename ]; then context_filename=CLAUDE.md; fi
-      printf '%s\n' "$context_directory/$context_filename" >>"$dir/context-destinations"
+      add_context_destination "$context_directory/$context_filename"
       ;;
     context-second-profile)
       # drops-second-profile keeps only the first explicit profile, as a
       # runtime reading the composed descriptor's first entry would.
       if [ "$broken" != drops-second-profile ]; then
-        printf '%s\n' /home/agent/.kit-tck/second/AGENTS.md >>"$dir/context-destinations"
+        add_context_destination /home/agent/.kit-tck/second/AGENTS.md
       fi
       ;;
     esac
@@ -972,7 +983,7 @@ exec)
     /var/tmp/skills-rw-at-install) cat "$dir/skills-rw-at-install" ;;
     /home/agent/.config/env-written) cat "$dir/env-written" ;;
     /home/agent/.config/kit-written) cat "$dir/kit-written" ;;
-    /home/agent/.codex/AGENTS.md | /home/agent/.kit-tck/context/AGENTS.md | /home/agent/.codex/CLAUDE.md | /home/agent/.kit-tck/context/CLAUDE.md | /home/agent/.kit-tck/second/AGENTS.md)
+    /home/agent/.codex/AGENTS.md | /home/agent/.kit-tck/context/AGENTS.md | /home/agent/.codex/CLAUDE.md | /home/agent/.kit-tck/context/CLAUDE.md | /home/agent/.kit-tck/second/AGENTS.md | /home/agent/.kit-tck/second/CLAUDE.md)
       if [ -f "$dir/context-destinations" ] && grep -qxF -- "$2" "$dir/context-destinations"; then
         # omits-other-agent-index writes the second agent's profile with
         # only its own Kit, as a runtime indexing per agent would.
