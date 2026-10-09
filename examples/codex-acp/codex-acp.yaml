@@ -52,9 +52,21 @@ requires: ["codex >= 0.159.1, < 0.160.0"]
 # has, which the codex-mixin kit declares. The package is installed at
 # build time, so unlike an `npx`-at-startup launcher this needs no
 # registry.npmjs.org access at runtime either.
-# No acp@1 declaration: pinned codex-acp 2.1.1 has no SIGTERM handler,
-# so it cannot promise the bounded cleanup that capability requires.
 capabilities:
+  # Pinned codex-acp 2.1.1 handles stdin close but has no SIGTERM cleanup
+  # handler. SIGTERM cancellation and session flushing remain unverified;
+  # optionality governs host support, not adapter conformance.
+  - type: com.docker.sandbox/acp@1
+    optional: true
+    description: Drive codex sessions over the Agent Client Protocol
+    config:
+      agent: codex
+      command: [codex-acp]
+      # The adapter otherwise overrides native config with edit approvals
+      # and workspace-only access on each prompt.
+      env:
+        INITIAL_AGENT_MODE: agent-full-access
+
   - type: com.docker.sandbox/agent-context@1
     config:
       contentFile: ./codex-acp-context.md
