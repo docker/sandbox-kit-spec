@@ -599,6 +599,14 @@ func TestSetReExportsVolumeRequests(t *testing.T) {
 		match                                    bool
 	}{
 		{"shared size", "size", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "2g", "", true},
+		{"shared byte size", "size", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "1024", "", true},
+		{"shared fractional byte size", "size", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "1.5", "", true},
+		{"shared large byte size", "size", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "18446744073709551617", "", true},
+		{"equivalent byte size", "size", "${{ kit.args.shared }}", "${{ kit.args.other }}", "1024", "1k", true},
+		{"distinct precise byte sizes", "size", "${{ kit.args.shared }}", "${{ kit.args.other }}", "9007199254740992", "9007199254740993", false},
+		{"shared unpadded mode", "mode", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "755", "", true},
+		{"equivalent unpadded mode", "mode", "${{ kit.args.shared }}", "${{ kit.args.other }}", "755", "0755", true},
+		{"shared zero byte size", "size", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "0", "", true},
 		{"equivalent independent sizes", "size", "${{ kit.args.shared }}", "${{ kit.args.other }}", "1g", "1024m", true},
 		{"conflicting independent sizes", "size", "${{ kit.args.shared }}", "${{ kit.args.other }}", "1g", "2g", false},
 		{"equivalent literal size", "size", "${{ kit.args.shared }}", "1024m", "1g", "", true},

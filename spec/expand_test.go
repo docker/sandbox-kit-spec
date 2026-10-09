@@ -340,3 +340,56 @@ func TestExpandBuildArgsExpandsTaggedStrings(t *testing.T) {
 	require.NoError(t, err)
 	require.YAMLEq(t, `description: 'say "hello"'`, string(out))
 }
+
+func TestExpandArgsKeepsVolumeTextFields(t *testing.T) {
+	for _, phase := range []string{"build", "create"} {
+		for _, size := range []string{"1024", "1.5", "18446744073709551617"} {
+			t.Run(phase+"/"+size, func(t *testing.T) {
+				raw := []byte(`schemaVersion: "3"
+kind: mixin
+args:
+  size: {required: true}
+  mode: {required: true}
+  ram: {required: true}
+capabilities:
+  - type: com.docker.sandbox/port@1
+    config: {container: &numeric "${{ kit.args.mode }}"}
+  - group:
+      capabilities:
+        - type: com.docker.sandbox/volume@1
+          config:
+            path: /cache
+            size: "${{ kit.args.size }}"
+            mode: *numeric
+            tmpfs: "${{ kit.args.ram }}"
+`)
+				d, err := Decode(raw)
+				require.NoError(t, err)
+				if phase == "build" {
+					for name, decl := range d.Args {
+						decl.BuildArg = strings.ToUpper(name)
+						d.Args[name] = decl
+					}
+				}
+				values := map[string]string{"size": size, "mode": "755", "ram": "true"}
+				expand := ExpandCreateArgs
+				if phase == "build" {
+					expand = ExpandBuildArgs
+				}
+				out, err := expand(raw, d.Args, values)
+				require.NoError(t, err)
+				effective, err := Decode(out)
+				require.NoError(t, err)
+				_, err = ValidateExpandedDeclarations(out, effective)
+				require.NoError(t, err)
+				config := effective.Capabilities[1].Group.Capabilities[0].Config
+				require.Equal(t, size, config["size"], "byte spelling and precision survive expansion")
+				require.Equal(t, "755", config["mode"], "octal mode remains text even when shared with a numeric field")
+				require.Equal(t, true, config["tmpfs"], "boolean fields still adopt boolean values")
+				ports, err := PortsOf(effective.Capabilities[:1])
+				require.NoError(t, err)
+				require.Equal(t, 755, ports[0].Container, "numeric fields still adopt numeric values")
+			})
+		}
+	}
+}

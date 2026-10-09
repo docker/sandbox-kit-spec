@@ -162,7 +162,9 @@ Two host mounts at one path, or a host mount and a volume there, conflict.
 Matching volume requests across Kits merge on the cleaned destination;
 different sizes, modes, or backing kinds conflict. Sizes compare by byte
 value (suffixes use powers of 1024), modes by octal value, and omitted
-`tmpfs` is false. An unspecified size or mode differs from an explicit
+`tmpfs` is false. Argument-backed sizes and modes remain strings, including
+byte sizes such as `1024` and unpadded octal modes such as `755`.
+An unspecified size or mode differs from an explicit
 value. Duplicate destinations within one declaration block are rejected.
 When a published set re-exports a volume's text input, publication keeps
 the requests separate until create expands and selects them; matching

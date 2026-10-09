@@ -454,7 +454,10 @@ args:
   differently and stay strings — the shape a version or a zero-padded code
   wears. `NaN` and `±Inf` stay strings too, having no JSON spelling. A
   reference embedded in a larger string, or standing in a map key, is
-  always text.
+  always text. The string fields `size` and `mode` in `volume@1` also
+  remain text, including whole-value references such as a byte size of
+  `1024` or an octal mode of `755`. Numeric and boolean config fields
+  still adopt their corresponding scalar types.
 - **Parameterized entries validate twice.** At build and load, a
   capability entry whose config references an arg passes leniently — type
   grammar and arity hold, typed config checks defer. At create, after

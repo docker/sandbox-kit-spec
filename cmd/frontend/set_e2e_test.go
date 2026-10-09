@@ -241,9 +241,10 @@ schemaVersion: "3"
 kind: mixin
 args:
   size: {required: true}
+  mode: {required: true}
 capabilities:
   - type: com.docker.sandbox/volume@1
-    config: {path: /cache, size: "${{ kit.args.size }}"}
+    config: {path: /cache, size: "${{ kit.args.size }}", mode: "${{ kit.args.mode }}"}
   - type: com.docker.sandbox/volume@1
     config: {path: /literal-cache, size: `+[]string{"1g", "1024m"}[i]+`}
 `, nil)
@@ -254,12 +255,13 @@ schemaVersion: "3"
 kind: set
 args:
   shared_size: {required: true}
+  shared_mode: {required: true}
 kits:
   - ref: `+registry+`/sbx-kit-base:1.0.0
   - ref: `+registry+`/sbx-kit-cache-a:1.0.0
-    args: {size: "${{ kit.args.shared_size }}"}
+    args: {size: "${{ kit.args.shared_size }}", mode: "${{ kit.args.shared_mode }}"}
   - ref: `+registry+`/sbx-kit-cache-b:1.0.0
-    args: {size: "${{ kit.args.shared_size }}"}
+    args: {size: "${{ kit.args.shared_size }}", mode: "${{ kit.args.shared_mode }}"}
 `, nil)
 	raw := e.manifest(registry, "sbx-kit-volume-set", "1.0.0").Annotations[spec.AnnotationDescriptor]
 	d, err := spec.Decode([]byte(raw))
@@ -269,20 +271,24 @@ kits:
 	volumes, err := spec.VolumesOf(spec.DeclaredCapabilities(d.Capabilities))
 	require.NoError(t, err)
 	require.Equal(t, []spec.Volume{
-		{Path: "/cache", Size: "${{ kit.args.shared_size }}"},
+		{Path: "/cache", Size: "${{ kit.args.shared_size }}", Mode: "${{ kit.args.shared_mode }}"},
 		{Path: "/literal-cache", Size: "1g"},
-		{Path: "/cache", Size: "${{ kit.args.shared_size }}"},
+		{Path: "/cache", Size: "${{ kit.args.shared_size }}", Mode: "${{ kit.args.shared_mode }}"},
 	}, volumes, "only unresolved requests remain separate at publication")
 	client, err := fetch.New(fetch.WithPlainHTTP())
 	require.NoError(t, err)
-	result, err := fetch.Assemble(t.Context(), []fetch.Request{{Reference: ref, Args: map[string]string{"shared_size": "2g"}}}, fetch.Options{
-		LayerValidator: fetch.DefaultLayerValidator,
-		Loader:         client.LoadKit,
-	})
-	require.NoError(t, err)
-	volumes, err = spec.VolumesOf(result.Resolved.Descriptor.Capabilities)
-	require.NoError(t, err)
-	require.Equal(t, []spec.Volume{{Path: "/cache", Size: "2g"}, {Path: "/literal-cache", Size: "1g"}}, volumes)
+	for _, size := range []string{"2g", "1024", "1.5", "18446744073709551617"} {
+		t.Run(size, func(t *testing.T) {
+			result, err := fetch.Assemble(t.Context(), []fetch.Request{{Reference: ref, Args: map[string]string{"shared_size": size, "shared_mode": "755"}}}, fetch.Options{
+				LayerValidator: fetch.DefaultLayerValidator,
+				Loader:         client.LoadKit,
+			})
+			require.NoError(t, err)
+			volumes, err := spec.VolumesOf(result.Resolved.Descriptor.Capabilities)
+			require.NoError(t, err)
+			require.Equal(t, []spec.Volume{{Path: "/cache", Size: size, Mode: "755"}, {Path: "/literal-cache", Size: "1g"}}, volumes)
+		})
+	}
 }
 
 // e2e runs the docker commands the test needs, failing the test on the
