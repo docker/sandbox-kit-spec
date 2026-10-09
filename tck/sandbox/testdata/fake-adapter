@@ -809,6 +809,13 @@ create)
     # Surfaced progressively: the profile points at the kit's staged body
     # rather than restating it, which is the reference the check asserts.
     printf '%s\n' "## context" "See /usr/share/sandbox/kit/context/context.md" >"$dir/profile"
+    for kit in "${kits[@]}"; do
+      case "${kit##*/}" in
+      context-profile | context-second-profile)
+        printf '%s\n' "## ${kit##*/}" "See /usr/share/sandbox/kit/${kit##*/}/${kit##*/}.txt" >>"$dir/profile"
+        ;;
+      esac
+    done
   else
     # A runtime ignoring agent-context writes the workload's own profile
     # and surfaces nothing into it.
@@ -967,7 +974,13 @@ exec)
     /home/agent/.config/kit-written) cat "$dir/kit-written" ;;
     /home/agent/.codex/AGENTS.md | /home/agent/.kit-tck/context/AGENTS.md | /home/agent/.codex/CLAUDE.md | /home/agent/.kit-tck/context/CLAUDE.md | /home/agent/.kit-tck/second/AGENTS.md)
       if [ -f "$dir/context-destinations" ] && grep -qxF -- "$2" "$dir/context-destinations"; then
-        cat "$dir/profile"
+        # omits-other-agent-index writes the second agent's profile with
+        # only its own Kit, as a runtime indexing per agent would.
+        if [ "$broken" = omits-other-agent-index ] && [ "$2" = /home/agent/.kit-tck/second/AGENTS.md ]; then
+          grep -v '/context-profile/' "$dir/profile"
+        else
+          cat "$dir/profile"
+        fi
       else
         echo "no such file: $2" >&2
         exit 1

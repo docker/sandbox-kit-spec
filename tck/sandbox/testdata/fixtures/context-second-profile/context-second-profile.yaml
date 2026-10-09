@@ -8,4 +8,4 @@ capabilities:
     config:
       filename: AGENTS.md
       directory: "/home/agent/.kit-tck/second"
-      content: Conformance second agent profile.
+      contentFile: ./context-second-profile.txt

@@ -428,6 +428,7 @@ var mutations = map[string][]string{
 	"overwrites-context-profile":            {"agent-context@1/directory-honored"},
 	"refuses-second-profile":                {"agent-context@1/every-explicit-profile"},
 	"drops-second-profile":                  {"agent-context@1/every-explicit-profile"},
+	"omits-other-agent-index":               {"agent-context@1/every-explicit-profile"},
 	"context-at-fixed-directory":            {"agent-context@1/directory-honored"},
 	"loses-volume":                          {"volume@1/persists-across-recreate"},
 	"loses-volume-on-restart":               {"volume@1/persists-across-recreate"},

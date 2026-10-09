@@ -931,13 +931,18 @@ func init() {
 		check{
 			// Two agents in one sandbox, as two agent mixins on a shell
 			// compose. Both orders, so a runtime keeping only the first or
-			// only the last explicit profile fails one of them; the mixin
-			// body proves each destination carries the full index.
+			// only the last explicit profile fails one of them. Every
+			// profile must index all three staged bodies — both agents'
+			// and the tool mixin's — or an agent misses a Kit.
 			requirement: "agent-context@1/every-explicit-profile",
 			capability:  capAgentContext,
 			run: func(ctx context.Context, e *Env) []report.Finding {
 				profiles := []string{"/home/agent/.codex/CLAUDE.md", "/home/agent/.kit-tck/second/AGENTS.md"}
-				staged := path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md")
+				bodies := []string{
+					path.Join(StagedKitRoot, fixtureContext, fixtureContext+".md"),
+					path.Join(StagedKitRoot, "context-profile", "context-profile.txt"),
+					path.Join(StagedKitRoot, "context-second-profile", "context-second-profile.txt"),
+				}
 				for _, kits := range [][]string{
 					{fixtureWorkload, "context-profile", "context-second-profile", fixtureContext},
 					{"context-second-profile", fixtureWorkload, "context-profile", fixtureContext},
@@ -952,8 +957,10 @@ func init() {
 						if f != nil {
 							return []report.Finding{report.Failf("composition %v declares a profile at %s, but it is not readable: %s", kits, profilePath, f.Detail)}
 						}
-						if !strings.Contains(profile, staged) {
-							return []report.Finding{report.Failf("the profile at %s does not surface the mixin context at %s", profilePath, staged)}
+						for _, staged := range bodies {
+							if !strings.Contains(profile, staged) {
+								return []report.Finding{report.Failf("composition %v: the profile at %s does not index the Kit context at %s", kits, profilePath, staged)}
+							}
 						}
 					}
 				}
