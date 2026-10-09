@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -10,6 +12,30 @@ import (
 	"github.com/docker/sandbox-kit-spec/v3/tck/adapter"
 	"github.com/docker/sandbox-kit-spec/v3/tck/report"
 )
+
+func TestVolumeInstallEmptinessProbe(t *testing.T) {
+	for _, observation := range []string{"empty", "nonempty", "missing"} {
+		t.Run(observation, func(t *testing.T) {
+			dir := t.TempDir()
+			root, control := filepath.Join(dir, "volume"), filepath.Join(dir, "control")
+			if observation != "missing" {
+				require.NoError(t, os.Mkdir(root, 0o755))
+			}
+			if observation == "nonempty" {
+				require.NoError(t, os.WriteFile(filepath.Join(root, ".image-marker"), []byte("image"), 0o644))
+			}
+			probe := filepath.Join(FixtureDir, fixtureWorkload, "kit-tck-volume")
+			out, err := exec.Command("sh", probe, "record-empty", root, control, "before-install").CombinedOutput()
+			require.NoError(t, err, "%s", out)
+			if observation == "nonempty" {
+				require.NoError(t, os.Remove(filepath.Join(root, ".image-marker")))
+			}
+			recorded, err := os.ReadFile(filepath.Join(control, "before-install"))
+			require.NoError(t, err)
+			require.Equal(t, observation, string(recorded), "the observation survives later clearing of the volume")
+		})
+	}
+}
 
 func TestVolumeChecks(t *testing.T) {
 	rep := runAgainstFake(t, "", volumeChecks...)

@@ -246,6 +246,10 @@ var mutations = map[string][]string{
 	"volume-root-not-writable+volume-dormant-allows-explicit-size": {"volume@1/recreate-config-compatible"},
 	"volume-root-not-writable+volume-dormant-allows-explicit-mode": {"volume@1/recreate-config-compatible"},
 
+	"volume-copies-image-before-hooks":                          {"volume@1/initially-empty"},
+	"volume-root-not-writable+volume-copies-image-before-hooks": {"volume@1/initially-empty"},
+	"volume-root-not-readable+volume-copies-image-before-hooks": {"volume@1/initially-empty"},
+
 	"volume-keys-on-wrapper":            {"volume@1/composition-independent"},
 	"volume-ignores-replacement-kits":   {"volume@1/composition-independent"},
 	"volume-ignores-published-kit":      {"volume@1/composition-independent"},

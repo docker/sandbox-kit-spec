@@ -511,10 +511,33 @@ func volumeEmpty(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create: %v", err)}
 	}
 	defer remove()
-	if f := volumeAccess(ctx, e, id, volumePath, "readable"); len(f) > 0 {
-		return f
+	findings := volumeAccess(ctx, e, id, volumePath, "readable")
+	if len(findings) == 0 {
+		findings = volumeProbe(ctx, e, id, "empty", volumePath, "", "", "")
 	}
-	return volumeProbe(ctx, e, id, "empty", volumePath, "", "", "")
+	if slices.ContainsFunc(findings, func(f report.Finding) bool { return f.Severity == report.Fail }) || !e.claims(capLifecycle) {
+		return findings
+	}
+	// Post-create emptiness cannot prove what install hooks saw. Record
+	// that observation outside the mount, before a hook initializes it.
+	// A root hook may observe contents even when the agent cannot.
+	id, remove, err = e.sandbox(ctx, []string{fixtureWorkload, "volume-state-empty-hooks"}, nil)
+	if err != nil {
+		return append(findings, report.Failf("create with emptiness-observing install hook: %v", err))
+	}
+	defer remove()
+	got, failure := execOutput(ctx, e, id, "kit-tck-volume", "read", volumeControlPath, "before-install")
+	if failure != nil {
+		return append(findings, *failure)
+	}
+	switch got {
+	case "empty":
+		return findings
+	case "unreadable":
+		return append(findings, report.Skipf("install hook cannot observe initial volume contents: root is not readable"))
+	default:
+		return append(findings, report.Failf("install hook observed %q at %s before initialization, want empty", got, volumePath))
+	}
 }
 
 func volumeTmpfs(ctx context.Context, e *Env) []report.Finding {

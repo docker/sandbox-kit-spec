@@ -227,6 +227,17 @@ def clear_tmpfs(record, event):
 
 
 def run_hooks(record, event):
+    if (event == 'create'
+            and any(Path(kit).name == 'volume-state-empty-hooks' for kit in record['kits'])
+            and 'com.docker.sandbox/lifecycle@1' in claims.split(',')):
+        path = posixpath.normpath(record['args'].get('volume_path', primary))
+        target = destination(record, path)
+        control = destination(record, primary + '-control', True)
+        control.mkdir(parents=True, exist_ok=True)
+        # Like the fixture's root install hook, this observation does not
+        # require the agent to have access to the volume root.
+        (control / 'before-install').write_text('nonempty' if any(target.iterdir()) else 'empty')
+        (target / 'initialized').write_text('install')
     if (not any(Path(kit).name == 'volume-state-hooks' for kit in record['kits'])
             or 'com.docker.sandbox/lifecycle@1' not in claims.split(',')):
         return
@@ -280,7 +291,7 @@ def apply(record, kits, overrides, recreating=False):
             for child in target.iterdir():
                 if child.is_file():
                     child.chmod(int(config['mode'] or '0700', 8))
-        if fresh and broken == 'volume-copies-image':
+        if fresh and broken in ['volume-copies-image', 'volume-copies-image-before-hooks']:
             (target / 'image-marker').write_text('image')
         record['allocated'][path] = config
     if broken == 'volume-forgets-undeclared':
@@ -296,6 +307,10 @@ def apply(record, kits, overrides, recreating=False):
     for path in [primary, secondary, primary + '-control']:
         destination(record, path, True).mkdir(parents=True, exist_ok=True)
     run_hooks(record, 'recreate' if recreating else 'create')
+    if broken == 'volume-copies-image-before-hooks':
+        # Post-create emptiness alone misses this timing violation.
+        for path in candidate:
+            (destination(record, path) / 'image-marker').unlink(missing_ok=True)
 
 
 if verb == 'create':
