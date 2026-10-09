@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -586,6 +587,77 @@ func TestKitDeclarationsPreserveFinalEnvironment(t *testing.T) {
 			lc, err := spec.LifecycleOf(members)
 			require.NoError(t, err)
 			require.Equal(t, reference+"/.config/tool", lc.Files[0].Path)
+		})
+	}
+}
+
+// Exercise the publisher's re-export path, not default expansion: two
+// independently published Kits feed text references into the set merge.
+func TestSetReExportsVolumeRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, first, second, value, other string
+		match                                    bool
+	}{
+		{"shared size", "size", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "2g", "", true},
+		{"equivalent independent sizes", "size", "${{ kit.args.shared }}", "${{ kit.args.other }}", "1g", "1024m", true},
+		{"conflicting independent sizes", "size", "${{ kit.args.shared }}", "${{ kit.args.other }}", "1g", "2g", false},
+		{"equivalent literal size", "size", "${{ kit.args.shared }}", "1024m", "1g", "", true},
+		{"conflicting literal size", "size", "${{ kit.args.shared }}", "2g", "1g", "", false},
+		{"shared mode", "mode", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "0755", "", true},
+		{"shared destination", "path", "${{ kit.args.shared }}", "${{ kit.args.shared }}", "/cache", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setArgs := map[string]spec.Arg{"shared": {Required: true}, "other": {Required: true}}
+			var inputs []spec.Contribution
+			for i, supplied := range []string{tc.first, tc.second} {
+				config := map[string]any{"path": "/cache", tc.field: "${{ kit.args.request }}"}
+				published := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin,
+					Args:         map[string]spec.Arg{"request": {Required: true}},
+					Capabilities: []spec.Capability{{Type: spec.CapabilityVolume, Config: config}},
+				}
+				raw, err := json.Marshal(published)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, published)
+				require.NoError(t, err)
+				declarations, _, err := kitDeclarations(published, spec.Kit{
+					Args: map[string]string{"request": supplied},
+				}, setArgs)
+				require.NoError(t, err)
+				inputs = append(inputs, spec.Contribution{Reference: fmt.Sprintf("cache-kit-%d", i), Descriptor: declarations})
+			}
+			merged, err := spec.Merge(inputs, spec.MergeOptions{})
+			require.NoError(t, err, "publication cannot judge sizes that still depend on create-phase inputs")
+			merged.Descriptor.Args = setArgs
+			raw, err := publishedSetDescriptor(merged.Descriptor)
+			require.NoError(t, err)
+			members := spec.DeclaredCapabilities(merged.Descriptor.Capabilities)
+			require.Len(t, members, 2, "keep both requests until their concrete settings can reconcile")
+			require.Equal(t, tc.first, members[0].Config[tc.field])
+			require.Equal(t, "cache-kit-0", members[0].Source.Kit)
+			require.Equal(t, "cache-kit-1", members[1].Source.Kit)
+
+			expanded, err := spec.ExpandCreateArgs(raw, setArgs, map[string]string{"shared": tc.value, "other": tc.other})
+			require.NoError(t, err)
+			d, err := spec.Decode(expanded)
+			require.NoError(t, err)
+			_, err = spec.ValidateExpandedDeclarations(expanded, d)
+			require.NoError(t, err)
+			selected, err := spec.SelectCapabilities(t.Context(), d, spec.Supported(spec.CapabilityVolume))
+			require.NoError(t, err)
+			d.Capabilities = selected.Capabilities
+			composed, err := spec.Compose([]spec.Contribution{{Reference: "published-set", Descriptor: d}})
+			if !tc.match {
+				require.Nil(t, composed)
+				require.ErrorContains(t, err, "different com.docker.sandbox/volume@1 configurations at /cache")
+				require.ErrorContains(t, err, "cache-kit-0")
+				require.ErrorContains(t, err, "cache-kit-1")
+				return
+			}
+			require.NoError(t, err)
+			volumes, err := spec.VolumesOf(composed.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, volumes, 1)
+			require.Equal(t, tc.value, composed.Capabilities[0].Config[tc.field])
 		})
 	}
 }

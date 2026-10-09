@@ -115,6 +115,9 @@ again, and incompatible settings refuse recreation. Instance removal
 deletes all its volumes; another create with the same name starts fresh.
 Fresh storage starts empty before hooks. Host mounts still have one
 Kit owner and conflict with volumes at the same destination.
+Re-exported volume text inputs remain separate contributions in a
+published set until create expands and selects their concrete requests.
+Do not replace a configurable size with its default to make a set merge.
 
 Migrate faithfully: preserve every declared host, credential, hook, volume,
 port, env var and instruction, and keep base images verbatim. Where v3 cannot

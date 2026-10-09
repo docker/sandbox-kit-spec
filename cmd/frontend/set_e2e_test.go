@@ -224,6 +224,62 @@ kits:
 		child := &e2e{t: t, builder: e.builder}
 		child.groupSet(frontend, registry)
 	})
+	t.Run("re-exported volume size", func(t *testing.T) {
+		child := &e2e{t: t, builder: e.builder}
+		child.volumeSet(frontend, registry)
+	})
+}
+
+// Both Kits re-export their own size input to the same set-scoped input.
+// Publication leaves that input unresolved; the consumer reconciles it.
+func (e *e2e) volumeSet(frontend, registry string) {
+	t := e.t
+	dir := t.TempDir()
+	for _, stem := range []string{"cache-a", "cache-b"} {
+		e.publish(dir, stem, registry+"/sbx-kit-"+stem+":1.0.0", `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: mixin
+args:
+  size: {required: true}
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    config: {path: /cache, size: "${{ kit.args.size }}"}
+`, nil)
+	}
+	ref := registry + "/sbx-kit-volume-set:1.0.0"
+	e.publish(dir, "volume-set", ref, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: set
+args:
+  shared_size: {required: true}
+kits:
+  - ref: `+registry+`/sbx-kit-base:1.0.0
+  - ref: `+registry+`/sbx-kit-cache-a:1.0.0
+    args: {size: "${{ kit.args.shared_size }}"}
+  - ref: `+registry+`/sbx-kit-cache-b:1.0.0
+    args: {size: "${{ kit.args.shared_size }}"}
+`, nil)
+	raw := e.manifest(registry, "sbx-kit-volume-set", "1.0.0").Annotations[spec.AnnotationDescriptor]
+	d, err := spec.Decode([]byte(raw))
+	require.NoError(t, err)
+	_, err = spec.ValidatePublished([]byte(raw), d)
+	require.NoError(t, err)
+	volumes, err := spec.VolumesOf(spec.DeclaredCapabilities(d.Capabilities))
+	require.NoError(t, err)
+	require.Len(t, volumes, 2)
+	for _, v := range volumes {
+		require.Equal(t, "${{ kit.args.shared_size }}", v.Size)
+	}
+	client, err := fetch.New(fetch.WithPlainHTTP())
+	require.NoError(t, err)
+	result, err := fetch.Assemble(t.Context(), []fetch.Request{{Reference: ref, Args: map[string]string{"shared_size": "2g"}}}, fetch.Options{
+		LayerValidator: fetch.DefaultLayerValidator,
+		Loader:         client.LoadKit,
+	})
+	require.NoError(t, err)
+	volumes, err = spec.VolumesOf(result.Resolved.Descriptor.Capabilities)
+	require.NoError(t, err)
+	require.Equal(t, []spec.Volume{{Path: "/cache", Size: "2g"}}, volumes)
 }
 
 // e2e runs the docker commands the test needs, failing the test on the

@@ -18,9 +18,9 @@ type Contribution struct {
 
 	// Descriptor is the declarations this contribution brings. A
 	// listed kit's is its published descriptor with its create-phase
-	// args already resolved (KitArgValues, ExpandCreateArgs). Publication
-	// preserves final-environment references; Compose requires those to be
-	// expanded before reconciliation.
+	// args pinned or re-exported (KitArgValues, ExpandCreateArgs). Publication
+	// preserves re-exported volume arguments and final-environment references;
+	// Compose requires those to be expanded before reconciliation.
 	Descriptor *Descriptor
 }
 

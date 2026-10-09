@@ -418,14 +418,25 @@ func SelectCapabilities(ctx context.Context, d *Descriptor, selectCapability Sel
 
 func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 	for _, c := range contributions {
-		if c.Descriptor != nil && (HasGroups(c.Descriptor.Capabilities) || HasEnvReferences(c.Descriptor.Capabilities)) {
+		if c.Descriptor == nil {
+			continue
+		}
+		if HasGroups(c.Descriptor.Capabilities) || HasEnvReferences(c.Descriptor.Capabilities) {
 			return true
+		}
+		for _, item := range c.Descriptor.Capabilities {
+			// A set may re-export text inputs such as volume size. Keep
+			// their requests separate until create expands the values:
+			// numeric equivalence cannot judge unresolved placeholders.
+			if item.Type == CapabilityVolume && capabilityIsParameterized(item) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// preserveGroups preserves declarations until selection and environment
+// preserveGroups preserves declarations until selection and template
 // expansion can determine which concrete requests to reconcile.
 // Wrapping ordinary entries preserves their optionality and allows independent
 // singleton contributions without inventing a second publishing-only grammar.

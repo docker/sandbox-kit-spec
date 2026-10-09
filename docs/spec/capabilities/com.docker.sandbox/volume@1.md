@@ -79,7 +79,9 @@ secure erasure of the underlying medium.
 
 Before recreating a sandbox, a runtime **MUST** compare each selected <!-- tck: volume@1/recreate-config-compatible -->
 request with any retained request at its destination using the same
-configuration equivalence as composition. A difference in `size`, `mode`,
+configuration equivalence as composition. This capability permits only
+equivalent retained requests; it does not define a directional transition
+such as accepting a larger minimum size. A difference in `size`, `mode`,
 or `tmpfs` refuses recreation before replacing the container or changing
 storage. It leaves the previous composition and data intact. This applies
 even if a size limit was advisory or permissions were changed inside the
@@ -97,14 +99,22 @@ image. Hooks may initialize it. Reattached storage retains its contents.
 ## Composition
 
 Paths union across the set. Requests at one cleaned destination **MUST** <!-- tck: volume@1/matching-requests-merge -->
-merge when their storage configurations match, at publication and at
-runtime composition. Compare typed configurations after argument and
-environment expansion: clean the path, compare sizes by byte value and
-modes by octal value, and treat omitted `tmpfs` as `false`. Omitted or
-empty `size` and `mode` remain unspecified and differ from explicit
-values. Equivalent spellings such as `1g`, `1024m`, and `1gib`, or `755`
-and `0755`, match. Display metadata and provenance do not affect
+merge when their concrete storage configurations match, at publication
+and at runtime composition. Publication defers requests with re-exported
+text inputs as described below. Compare typed configurations after
+argument and environment expansion: clean the path, compare sizes by
+byte value and modes by octal value, and treat omitted `tmpfs` as `false`.
+Omitted or empty `size` and `mode` remain unspecified and differ from
+explicit values. Equivalent spellings such as `1g`, `1024m`, and `1gib`,
+or `755` and `0755`, match. Display metadata and provenance do not affect
 compatibility; a required request wins over an optional one.
+
+When publication retains a re-exported text argument, it preserves the
+requests separately until create expands their configurations and
+selection completes, using the groups described in
+[SPEC-v3 §9.5](../../SPEC-v3.md#95-merging-a-set). A placeholder size is
+not a different byte value. The merge and conflict rules apply to the
+concrete selected requests after expansion.
 
 Two different storage configurations at one cleaned destination **MUST** <!-- tck: volume@1/no-silent-merge -->
 fail composition. A runtime does not choose one request or combine their
