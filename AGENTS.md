@@ -191,7 +191,8 @@ That means **adding a field is not free** — a descriptor using it cannot
 be read by a frontend or runtime built before it. Before changing a
 capability's config, read the versioning rules in
 [RELEASES.md](RELEASES.md): a config schema that has shipped in a tagged
-release moves its `@N` version and the old version stays published; a
+release moves its `@N` version and the old version stays published,
+unless maintainers approve the draft-stage exception recorded there; a
 capability that has never shipped may still change in place; a
 top-level descriptor change is a `schemaVersion` move and is treated as a
 new specification document. Do not bump `schemaVersion` or a capability

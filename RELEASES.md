@@ -12,7 +12,7 @@ to change. Schema-3 frontend releases and the Go module major share the
 |---|---|---|
 | Module / schema-3 release | git tags `v3.X.Y` (+ Hub `docker/sandbox-kit:3.X.Y`) | A publish of the Go packages (`spec`, `resolve`, `assemble`, `fetch`, `tck`), the schema-3 BuildKit frontend, and `kit-tck` binaries |
 | Schema version | `spec.SchemaVersion`, the descriptor's `schemaVersion: "3"` | The descriptor grammar changes shape incompatibly |
-| Capability version | the `@N` in `com.docker.sandbox/<name>@N` | That capability's config schema changes after it has shipped |
+| Capability version | the `@N` in `com.docker.sandbox/<name>@N` | That capability's config schema or observable behavior changes after it has shipped, subject to the draft-stage exception below |
 | Frontend floating tag | `docker/sandbox-kit:3` | Tracks the highest stable schema-3 frontend release |
 
 A kit's own `version:` and its `provides` entries are a further axis, but
@@ -69,8 +69,8 @@ document (`docs/spec/SPEC-v4.md`) rather than an edit to the current one.
 
 ## Capability versions
 
-Each capability type addresses its own config schema by version, so
-**the version moves when that config schema changes** — the rule
+Each capability type addresses its config schema and observable behavior
+by version, so **the version moves when that contract changes** — the rule
 [SPEC-v3 §7](docs/spec/SPEC-v3.md#7-capabilities) states — and the old
 version stays published: `network-policy@1` and `@2` both exist, and a
 descriptor states one of them.
@@ -81,10 +81,21 @@ worse, because an old runtime accepts it and then enforces the wrong
 policy — a silent misreading of a permission grant rather than a loud
 failure. Both move the version.
 
-The rule has one carve-out worth stating plainly, because it recurs in
-review: a capability that has never appeared in a tagged release has no
-runtime built against it, so its schema may still change in place. The
-moment it ships, that freedom ends.
+A capability that has never appeared in a tagged release may still
+change in place. Once shipped, the versioning rule applies, subject to
+the draft-stage exception below.
+
+The specification is currently an early draft. During this phase,
+maintainers may approve in-place capability contract changes even when
+the capability appeared in a milestone pre-release tag. Those tags do
+not freeze the draft contracts: consumers need the matching draft
+specification and implementation. A pull request making such a change
+records the maintainer-approved exception and its compatibility impact.
+
+The exception ends with the first stable specification release. After
+that, changes to shipped capability meanings, defaults, permitted
+values, reconciliation, or persistent-state transitions require a new
+capability version, and the old contract remains published.
 
 Adding a whole new capability type is additive and moves nothing.
 
