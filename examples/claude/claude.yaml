@@ -144,11 +144,12 @@ capabilities:
       resume: ["--resume", "{{.SessionID}}"]
       sessionPicker: ["--resume"]
 
-  # Volumes persist across container recreation; deterministic naming
-  # reattaches the same sandbox name to the same volumes on recreate, so
-  # session state survives kit changes. Subdirectories rather than all of
-  # ~/.claude/, so kit-managed files (settings.json, .credentials.json)
-  # keep coming from the image and hooks on every create.
+  # Volumes persist when recreating the same sandbox instance, so session
+  # state survives kit changes. Removing the instance deletes its volume
+  # data; creating another under the same name starts with fresh storage.
+  # Mount subdirectories rather than all of ~/.claude/, so kit-managed
+  # files (settings.json, .credentials.json) keep coming from the image
+  # and hooks on every create.
   #
   # Every volume sets a size: sbx formats an unsized kit volume at
   # 512 MiB, so a path that outgrows that fails with ENOSPC mid-session
