@@ -469,7 +469,6 @@ var singletonCapabilities = map[string]bool{
 	CapabilityAgentSessions:            true,
 	CapabilityAgentInteractiveSessions: true,
 	CapabilityLifecycle:                true,
-	CapabilityAgentContext:             true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
 }
@@ -593,6 +592,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 	seenSkills := map[string]int{}
 	seenBundledSkills := map[string]int{}
 	seenPort := map[string]int{}
+	var contexts contextArity
 
 	deferCrossChecks := false
 	invalidCredentials := map[int]bool{}
@@ -700,6 +700,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 
 		if n.Type == CapabilityAgentContext {
 			errs.add(validateContextDirectory(path, i, d.Kind, n))
+			errs.add(contexts.add(path, i, n))
 		}
 
 		// A parameterized entry — its config references a kit arg — defers
@@ -982,6 +983,56 @@ func validateCapabilityBlock(d *Descriptor) error {
 		return errs.err()
 	}
 	errs.add(validateInjectWithinAllow(needs, invalidCredentials))
+	return errs.err()
+}
+
+// contextArity holds agent-context to one entry per explicit profile
+// destination within a declaration block. Judged on which fields are
+// stated, before parameterized entries defer, because a merge folds
+// entries together and would erase the evidence.
+type contextArity struct {
+	destinations   map[string]int
+	undirected     int
+	body           int
+	seenUndirected bool
+	seenBody       bool
+}
+
+func (a *contextArity) add(field string, i int, n Capability) error {
+	var errs ValidationErrors
+	_, hasDirectory := n.Config["directory"]
+	if !hasDirectory {
+		// The legacy profile and a tool's body-only contribution have no
+		// destination of their own to key on.
+		if a.seenUndirected {
+			errs.add(fieldErrorf(field+".type", "capabilities[%d]: agent-context without a directory already declared at capabilities[%d]; only explicit profiles may repeat", i, a.undirected))
+		} else {
+			a.seenUndirected, a.undirected = true, i
+		}
+	}
+	_, hasContent := n.Config["content"]
+	_, hasContentFile := n.Config["contentFile"]
+	if hasContent || hasContentFile {
+		// Publication stages one body per Kit, and every profile indexes it.
+		if a.seenBody {
+			errs.add(fieldErrorf(field+".config", "capabilities[%d]: agent-context body already declared at capabilities[%d]; a Kit contributes one body, which every profile indexes", i, a.body))
+		} else {
+			a.seenBody, a.body = true, i
+		}
+	}
+	directory, literalDirectory := n.Config["directory"].(string)
+	filename, literalFilename := n.Config["filename"].(string)
+	if hasDirectory && literalDirectory && literalFilename && !ContainsArgRef(directory+filename) && !ContainsEnvRef(directory+filename) {
+		if a.destinations == nil {
+			a.destinations = map[string]int{}
+		}
+		key := containerpath.Join(directory, filename)
+		if prev, dup := a.destinations[key]; dup {
+			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context profile %s already declared at capabilities[%d]", i, key, prev))
+		} else {
+			a.destinations[key] = i
+		}
+	}
 	return errs.err()
 }
 

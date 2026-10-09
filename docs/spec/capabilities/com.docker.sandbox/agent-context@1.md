@@ -4,7 +4,9 @@ Written instruction content the agent reads — the AGENTS.md family. A host
 with no such concept skips an optional declaration or refuses a required
 one.
 
-- **Shape**: singleton — at most one entry per descriptor.
+- **Shape**: instance — one entry per explicit profile destination
+  (`directory` plus `filename`); at most one entry without `directory`,
+  and at most one entry carrying a body, per declaration block.
 - **Permission surface**: **no** — instruction text the agent reads, on the
   entrypoint's trust plane.
 
@@ -84,18 +86,39 @@ A runtime **MUST** choose an explicit profile over a legacy workload <!-- tck: a
 profile, independently of composition order. Multiple explicit profiles
 with identical directory and filename describe one destination.
 
-A runtime **MUST** refuse differing explicit profiles as a composition <!-- tck: agent-context@1/explicit-profile-conflict -->
-error. Without an explicit profile, at most one contribution owns the
-legacy filename, as before.
+A runtime **MUST** materialize every distinct explicit profile in the <!-- tck: agent-context@1/every-explicit-profile -->
+composition, each with the runtime guidance and the full Kit index.
+Several agents can share a sandbox, and each reads only its own
+discovery location, so a profile the runtime omitted leaves that agent
+without the guidance. Without an explicit profile, at most one
+contribution owns the legacy filename, as before.
 
-Each contributing body is indexed in the effective profile, including the
-legacy workload's body. Per-kit attribution survives composition — the
-index lists Kits individually, in composition order.
+Each contributing body is indexed in every effective profile, including
+the legacy workload's body and another agent's. Per-kit attribution
+survives composition — the index lists Kits individually, in
+composition order. The composed descriptor carries one entry per
+profile. Each entry is required when any ask naming its destination is;
+a body-only or legacy ask counts toward the first entry, so one agent's
+required profile does not make another agent's optional one required.
+
+A merged set's concatenated body rides the first required profile, or
+the sole profile when it is optional. Skipping an optional destination
+therefore cannot discard the body needed by a surviving profile. When
+several profiles are all optional, publication preserves the original
+declarations in capability groups and stages their bodies separately,
+as for other conditional declarations. Selection then retains each
+accepted profile's body, and the runtime indexes all selected bodies in
+every effective profile.
 
 The optional `directory` field preserves existing descriptors and their
 workspace-sibling default. Context bodies keep their staged paths; only
 the profile containing runtime guidance and the per-kit index moves.
 Older strict readers reject descriptors using the new field.
+
+Several explicit profiles in one composition were briefly refused as a
+conflict. Accepting them changes no field's meaning: a runtime that still
+refuses them fails loudly at create rather than misplacing guidance, and
+already published agent Kits compose without being rebuilt.
 
 See [harness destinations](../../../agent-context-placement.md) for the
 example Kits' discovery paths and loader constraints.

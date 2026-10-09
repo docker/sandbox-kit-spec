@@ -10,4 +10,4 @@ capabilities:
     config:
       filename: CLAUDE.md
       directory: "${{ kit.args.directory }}"
-      content: Conformance explicit agent profile.
+      contentFile: ./context-profile.txt

@@ -405,9 +405,15 @@ func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
 	return nil, nil
 }
 
-// AgentContextOf returns the agent-context declaration's config, or nil
-// when none is declared.
+// AgentContextOf returns the first agent-context entry's config, or nil
+// when none is declared. A composed descriptor carries one entry per
+// explicit profile, and a runtime materializing profiles reads every
+// entry with AgentContextsOf. A second explicit profile is an error
+// rather than ignored, so a caller that would write only the first fails
+// loudly instead of leaving an agent without its guidance.
 func AgentContextOf(capabilities []Capability) (*AgentContext, error) {
+	var first *AgentContext
+	explicit := 0
 	for _, c := range capabilities {
 		if c.Type != CapabilityAgentContext {
 			continue
@@ -416,9 +422,16 @@ func AgentContextOf(capabilities []Capability) (*AgentContext, error) {
 		if err := DecodeCapabilityConfig(c, &a); err != nil {
 			return nil, err
 		}
-		return &a, nil
+		if a.Directory != "" {
+			if explicit++; explicit > 1 {
+				return nil, fmt.Errorf("agent context: several explicit profiles; read every profile with AgentContextsOf")
+			}
+		}
+		if first == nil {
+			first = &a
+		}
 	}
-	return nil, nil
+	return first, nil
 }
 
 // AgentSessionsOf returns the agent-sessions declaration's config, or
@@ -455,9 +468,10 @@ func AgentInteractiveSessionsOf(needs []Capability) (*AgentInteractiveSessions, 
 	return nil, nil
 }
 
-// AgentContextsOf reads all selected context contributions of one Kit. Unlike
-// AgentContextOf (for an effective singleton), it retains separate bodies from
-// selected groups for contributor-specific runtime guidance handlers.
+// AgentContextsOf reads every selected agent-context entry: one Kit's
+// contributions, retaining separate bodies from selected groups for
+// contributor-specific runtime guidance handlers, or a composed
+// descriptor's profiles, one per destination.
 func AgentContextsOf(capabilities []Capability) ([]AgentContext, error) {
 	var result []AgentContext
 	for _, c := range capabilities {

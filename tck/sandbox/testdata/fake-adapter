@@ -217,8 +217,10 @@ create)
     esac
   done
 
+  # The runtime this specification once described: a second agent's
+  # differing profile refused as a conflict.
   for kit in "${kits[@]}"; do
-    if [ "${kit##*/}" = context-conflict ] && [ "$broken" != accepts-context-conflict ]; then
+    if [ "${kit##*/}" = context-second-profile ] && [ "$broken" = refuses-second-profile ]; then
       echo 'refusing: conflicting explicit agent-context profiles' >&2
       exit 2
     fi
@@ -780,23 +782,52 @@ create)
   else
     ls "$dir/skills-rw" >"$dir/skills-rw-at-install"
   fi
+  # Every explicit profile is a destination; the profile written to each
+  # is the same guidance and index. The keys-profiles-by-* mutations
+  # collapse two profiles that share only one half of the destination.
+  : >"$dir/context-destinations"
+  add_context_destination() {
+    local existing
+    while IFS= read -r existing; do
+      case "$broken" in
+      keys-profiles-by-directory) if [ "${existing%/*}" = "${1%/*}" ]; then return; fi ;;
+      keys-profiles-by-filename) if [ "${existing##*/}" = "${1##*/}" ]; then return; fi ;;
+      esac
+    done <"$dir/context-destinations"
+    printf '%s\n' "$1" >>"$dir/context-destinations"
+  }
   for kit in "${kits[@]}"; do
-    if [ "${kit##*/}" = context-workload ] || [ "${kit##*/}" = context-profile ]; then
+    case "${kit##*/}" in
+    context-workload | context-profile)
       case "$broken" in
       ignores-context-directory) context_directory=/home/agent ;;
       workload-profile-wins) if [ "${kit##*/}" = context-profile ]; then context_directory=/home/agent; fi ;;
       context-at-fixed-directory) context_directory=/home/agent/.codex ;;
       esac
-      printf '%s' "$context_directory" >"$dir/context-directory"
       context_filename=AGENTS.md
       if [ "${kit##*/}" = context-profile ] && [ "$broken" != ignores-profile-filename ]; then context_filename=CLAUDE.md; fi
-      printf '%s' "$context_filename" >"$dir/context-filename"
-    fi
+      add_context_destination "$context_directory/$context_filename"
+      ;;
+    context-second-profile)
+      # drops-second-profile keeps only the first explicit profile, as a
+      # runtime reading the composed descriptor's first entry would.
+      if [ "$broken" != drops-second-profile ]; then
+        add_context_destination /home/agent/.kit-tck/second/AGENTS.md
+      fi
+      ;;
+    esac
   done
   if [ "$broken" != "no-context" ]; then
     # Surfaced progressively: the profile points at the kit's staged body
     # rather than restating it, which is the reference the check asserts.
     printf '%s\n' "## context" "See /usr/share/sandbox/kit/context/context.md" >"$dir/profile"
+    for kit in "${kits[@]}"; do
+      case "${kit##*/}" in
+      context-profile | context-second-profile)
+        printf '%s\n' "## ${kit##*/}" "See /usr/share/sandbox/kit/${kit##*/}/${kit##*/}.txt" >>"$dir/profile"
+        ;;
+      esac
+    done
   else
     # A runtime ignoring agent-context writes the workload's own profile
     # and surfaces nothing into it.
@@ -953,9 +984,15 @@ exec)
     /var/tmp/skills-rw-at-install) cat "$dir/skills-rw-at-install" ;;
     /home/agent/.config/env-written) cat "$dir/env-written" ;;
     /home/agent/.config/kit-written) cat "$dir/kit-written" ;;
-    /home/agent/.codex/AGENTS.md | /home/agent/.kit-tck/context/AGENTS.md | /home/agent/.codex/CLAUDE.md | /home/agent/.kit-tck/context/CLAUDE.md)
-      if [ -f "$dir/context-directory" ] && [ "$2" = "$(cat "$dir/context-directory")/$(cat "$dir/context-filename")" ]; then
-        cat "$dir/profile"
+    /home/agent/.codex/AGENTS.md | /home/agent/.kit-tck/context/AGENTS.md | /home/agent/.codex/CLAUDE.md | /home/agent/.kit-tck/context/CLAUDE.md | /home/agent/.kit-tck/second/AGENTS.md | /home/agent/.kit-tck/second/CLAUDE.md)
+      if [ -f "$dir/context-destinations" ] && grep -qxF -- "$2" "$dir/context-destinations"; then
+        # omits-other-agent-index writes the second agent's profile with
+        # only its own Kit, as a runtime indexing per agent would.
+        if [ "$broken" = omits-other-agent-index ] && [ "$2" = /home/agent/.kit-tck/second/AGENTS.md ]; then
+          grep -v '/context-profile/' "$dir/profile"
+        else
+          cat "$dir/profile"
+        fi
       else
         echo "no such file: $2" >&2
         exit 1

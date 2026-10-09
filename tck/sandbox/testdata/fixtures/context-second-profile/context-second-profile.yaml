@@ -1,0 +1,11 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Conformance context-second-profile
+description: A second agent's explicit profile, differing in directory and filename
+capabilities:
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      directory: "/home/agent/.kit-tck/second"
+      contentFile: ./context-second-profile.txt

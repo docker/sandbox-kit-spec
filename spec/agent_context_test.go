@@ -1,10 +1,99 @@
 package spec
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestPublishedAgentContextBodySurvivesProfileSelection(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		optional []bool
+		skip     string
+	}{
+		{"skip optional first", []bool{true, false}, "/first"},
+		{"skip optional second", []bool{false, true}, "/second"},
+		{"keep both required", []bool{false, false}, ""},
+		{"keep both optional", []bool{true, true}, ""},
+		{"skip first of two optional", []bool{true, true}, "/first"},
+		{"skip second of two optional", []bool{true, true}, "/second"},
+		{"skip both optional", []bool{true, true}, "all"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var inputs []Contribution
+			for i, directory := range []string{"/first", "/second"} {
+				inputs = append(inputs, Contribution{Reference: directory, Descriptor: &Descriptor{
+					SchemaVersion: SchemaVersion, Kind: KindMixin,
+					Capabilities: []Capability{{Type: CapabilityAgentContext, Optional: tt.optional[i], Config: map[string]any{
+						"directory": directory, "filename": "AGENTS.md", "content": directory + " instructions",
+					}}},
+				}})
+			}
+			published, err := Merge(inputs, MergeOptions{ContextPath: "/kit/merged.md"})
+			require.NoError(t, err)
+			require.Len(t, published.ContextSources, 2)
+			// Selection consumes a published descriptor, including its group
+			// boundaries after serialization, rather than an in-memory shortcut.
+			raw, err := json.Marshal(published.Descriptor)
+			require.NoError(t, err)
+			d, err := Decode(raw)
+			require.NoError(t, err)
+			selection, err := SelectCapabilities(t.Context(), d, func(_ context.Context, _ Descriptor, c Capability) CapabilityDecision {
+				return CapabilityDecision{Accepted: tt.skip != "all" && c.Config["directory"] != tt.skip}
+			})
+			require.NoError(t, err)
+			d.Capabilities = selection.Capabilities
+			profiles, err := AgentContextsOf(d.Capabilities)
+			require.NoError(t, err)
+			var wantDirectories, wantBodies []string
+			for i, directory := range []string{"/first", "/second"} {
+				if tt.skip == "all" || tt.skip == directory {
+					continue
+				}
+				wantDirectories = append(wantDirectories, directory)
+				if tt.optional[0] && tt.optional[1] {
+					wantBodies = append(wantBodies, published.ContextSources[i].Target)
+				}
+			}
+			if len(wantDirectories) > 0 && (!tt.optional[0] || !tt.optional[1]) {
+				wantBodies = []string{"/kit/merged.md"}
+			}
+			var directories, bodies []string
+			for _, profile := range profiles {
+				directories = append(directories, profile.Directory)
+				if profile.ContentFile != "" {
+					bodies = append(bodies, profile.ContentFile)
+				}
+			}
+			require.Equal(t, wantDirectories, directories)
+			require.Equal(t, wantBodies, bodies, "a surviving profile must retain its context body linkage")
+			if tt.optional[0] && tt.optional[1] {
+				for _, body := range wantBodies {
+					require.NotEmpty(t, body, "conditional bodies must be staged separately")
+				}
+			}
+			composed, err := Compose([]Contribution{{Reference: "published", Descriptor: d}})
+			require.NoError(t, err)
+			effective, err := AgentContextsOf(composed.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, effective, len(wantDirectories))
+			// Republishing the selection exercises the same body collection
+			// runtime handlers need from the retained input contributions.
+			republished, err := Merge([]Contribution{{Reference: "published", Descriptor: d}}, MergeOptions{ContextPath: "/next/context.md"})
+			require.NoError(t, err)
+			var collected []string
+			for _, source := range republished.ContextSources {
+				collected = append(collected, source.Path)
+			}
+			require.Equal(t, wantBodies, collected)
+		})
+	}
+}
 
 func TestAgentContextDirectoryValidation(t *testing.T) {
 	for _, tt := range []struct {
@@ -119,13 +208,131 @@ func TestExplicitAgentProfileOverridesLegacyFallback(t *testing.T) {
 	}
 	_, err := Compose([]Contribution{shell, agent, agent})
 	require.NoError(t, err, "identical explicit profiles describe one destination")
-	other := Contribution{Reference: "codex", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{
-		{Type: CapabilityAgentContext, Config: map[string]any{"filename": "AGENTS.md", "directory": "/home/agent/.codex"}},
+}
+
+func TestDifferingExplicitProfilesAreEachMaterialized(t *testing.T) {
+	shell := Contribution{Reference: "shell", Descriptor: &Descriptor{Kind: KindWorkload, Capabilities: []Capability{
+		{Type: CapabilityAgentContext, Config: map[string]any{"filename": "AGENTS.md", "content": "Shell instructions"}},
 	}}}
-	for _, contributions := range [][]Contribution{{shell, agent, other}, {other, shell, agent}} {
-		_, err := Compose(contributions)
-		require.ErrorContains(t, err, "conflicting explicit agent-context profiles")
-		require.ErrorContains(t, err, "claude")
-		require.ErrorContains(t, err, "codex")
+	claude := Contribution{Reference: "claude", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{
+		{Type: CapabilityAgentContext, Name: "Claude profile", Config: map[string]any{"filename": "CLAUDE.md", "directory": "/home/agent/.claude", "content": "Claude instructions"}},
+	}}}
+	codex := Contribution{Reference: "codex", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{
+		{Type: CapabilityAgentContext, Optional: true, Config: map[string]any{"filename": "AGENTS.md", "directory": "/home/agent/.codex", "content": "Codex instructions"}},
+	}}}
+	claudeProfile := AgentContext{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"}
+	codexProfile := AgentContext{Filename: "AGENTS.md", Directory: "/home/agent/.codex"}
+	// The shell's required body follows the first profile; codex's own ask
+	// is optional, so its profile is required only when it comes first.
+	for _, tt := range []struct {
+		name          string
+		contributions []Contribution
+		want          []AgentContext
+		wantOptional  []bool
+		wantBodyAt    int
+	}{
+		{"claude first", []Contribution{shell, claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}, 0},
+		{"codex first", []Contribution{codex, shell, claude}, []AgentContext{codexProfile, claudeProfile}, []bool{false, false}, 0},
+		{"restated", []Contribution{shell, claude, codex, claude}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}, 0},
+		{"agents only", []Contribution{claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}, 0},
+		{"optional agent first", []Contribution{codex, claude}, []AgentContext{codexProfile, claudeProfile}, []bool{true, false}, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			composed, err := Compose(tt.contributions)
+			require.NoError(t, err)
+			profiles, err := AgentContextsOf(composed.Capabilities)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, profiles, "the shell's legacy profile yields, and each agent keeps its own")
+			var optional []bool
+			for _, c := range composed.Capabilities {
+				optional = append(optional, c.Optional)
+				if c.Config["directory"] == claudeProfile.Directory {
+					require.Equal(t, "Claude profile", c.Name)
+				}
+			}
+			require.Equal(t, tt.wantOptional, optional, "strictness is per destination")
+			_, err = AgentContextOf(composed.Capabilities)
+			require.ErrorContains(t, err, "AgentContextsOf", "a single-profile reader must not silently drop an agent")
+			raw, err := json.Marshal(composed)
+			require.NoError(t, err)
+			_, err = ValidateEffective(raw, composed)
+			require.NoError(t, err)
+
+			published, err := Merge(tt.contributions, MergeOptions{ContextPath: "/kit/merged.md"})
+			require.NoError(t, err)
+			staged, err := AgentContextsOf(published.Descriptor.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, staged, 2)
+			require.Equal(t, "/kit/merged.md", staged[tt.wantBodyAt].ContentFile, "the merged body rides the first required profile")
+			require.Empty(t, staged[1-tt.wantBodyAt].ContentFile)
+			require.Len(t, published.ContextSources, len(tt.contributions), "every body is staged once for every profile to index")
+			raw, err = json.Marshal(published.Descriptor)
+			require.NoError(t, err)
+			_, err = ValidateEffective(raw, published.Descriptor)
+			require.NoError(t, err, "a published set listing two agents must stay valid")
+		})
+	}
+}
+
+// The composition from the regression report: two agent mixins on the
+// shell, each declaring its own discovery profile since 2ddbba6.
+func TestExampleAgentMixinsComposeOnOneShell(t *testing.T) {
+	load := func(name string) Contribution {
+		raw, err := os.ReadFile(filepath.Join("..", "examples", name, name+".yaml"))
+		require.NoError(t, err)
+		d, err := Decode(raw)
+		require.NoError(t, err)
+		values, err := ResolveArgs(d.Args, nil)
+		require.NoError(t, err)
+		raw, err = ExpandCreateArgs(raw, d.Args, values)
+		require.NoError(t, err)
+		d, err = Decode(raw)
+		require.NoError(t, err)
+		d, err = ExpandEnvironment(d, map[string]string{"WORKSPACE_DIR": "/home/agent/workspace"})
+		require.NoError(t, err)
+		return Contribution{Reference: name, Descriptor: d}
+	}
+	composed, err := Compose([]Contribution{load("shell"), load("claude-mixin"), load("codex-mixin")})
+	require.NoError(t, err)
+	profiles, err := AgentContextsOf(composed.Capabilities)
+	require.NoError(t, err)
+	require.Equal(t, []AgentContext{
+		{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"},
+		{Filename: "AGENTS.md", Directory: "/home/agent/.codex"},
+	}, profiles)
+}
+
+func TestAgentContextArity(t *testing.T) {
+	profile := func(directory, filename string) Capability {
+		return Capability{Type: CapabilityAgentContext, Config: map[string]any{"directory": directory, "filename": filename}}
+	}
+	body := Capability{Type: CapabilityAgentContext, Config: map[string]any{"content": "Instructions"}}
+	for _, tt := range []struct {
+		name    string
+		entries []Capability
+		wantErr string
+	}{
+		{"two profiles", []Capability{profile("/home/agent/.claude", "CLAUDE.md"), profile("/home/agent/.codex", "AGENTS.md")}, ""},
+		{"one directory, two filenames", []Capability{profile("/home/agent", "AGENTS.md"), profile("/home/agent", "GEMINI.md")}, ""},
+		{"profiles beside a body", []Capability{profile("/home/agent/.claude", "CLAUDE.md"), body, profile("/home/agent/.codex", "AGENTS.md")}, ""},
+		{"parameterized profiles", []Capability{profile("${{ kit.args.a }}", "AGENTS.md"), profile("${{ kit.args.b }}", "AGENTS.md")}, ""},
+		{"one destination twice", []Capability{
+			profile("/home/agent/.codex", "AGENTS.md"),
+			{Type: CapabilityAgentContext, Config: map[string]any{"directory": "/home/agent/.codex", "filename": "AGENTS.md", "content": "Codex"}},
+		}, "agent-context profile /home/agent/.codex/AGENTS.md already declared at capabilities[0]"},
+		{"two undirected entries", []Capability{body, {Type: CapabilityAgentContext, Config: map[string]any{"filename": "AGENTS.md"}}}, "agent-context without a directory already declared at capabilities[0]"},
+		{"two bodies", []Capability{
+			{Type: CapabilityAgentContext, Config: map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md", "content": "Claude"}},
+			{Type: CapabilityAgentContext, Config: map[string]any{"directory": "/home/agent/.codex", "filename": "AGENTS.md", "contentFile": "/kit/codex.md"}},
+		}, "agent-context body already declared at capabilities[0]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCapabilityBlock(&Descriptor{Kind: KindWorkload, Capabilities: tt.entries})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
 	}
 }
