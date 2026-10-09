@@ -250,6 +250,10 @@ var mutations = map[string][]string{
 	"volume-root-not-writable+volume-copies-image-before-hooks": {"volume@1/initially-empty"},
 	"volume-root-not-readable+volume-copies-image-before-hooks": {"volume@1/initially-empty"},
 
+	"volume-copies-image-before-recreate-hooks":                          {"volume@1/initially-empty"},
+	"volume-root-not-writable+volume-copies-image-before-recreate-hooks": {"volume@1/initially-empty"},
+	"volume-root-not-readable+volume-copies-image-before-recreate-hooks": {"volume@1/initially-empty"},
+
 	"volume-root-not-writable+volume-after-hooks":          {"volume@1/mounted-before-hooks"},
 	"volume-root-not-writable+volume-after-restart-hooks":  {"volume@1/mounted-before-hooks"},
 	"volume-root-not-writable+volume-after-recreate-hooks": {"volume@1/mounted-before-hooks"},

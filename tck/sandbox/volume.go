@@ -526,17 +526,37 @@ func volumeEmpty(ctx context.Context, e *Env) []report.Finding {
 		return append(findings, report.Failf("create with emptiness-observing install hook: %v", err))
 	}
 	defer remove()
-	got, failure := execOutput(ctx, e, id, "kit-tck-volume", "read", volumeControlPath, "before-install")
+	findings = append(findings, volumeHookEmpty(ctx, e, id, "install")...)
+	if slices.ContainsFunc(findings, func(f report.Finding) bool { return f.Severity == report.Fail }) {
+		return findings
+	}
+	// Begin at another destination so recreation allocates fresh storage
+	// at volumePath, where the workload's image-marker exposes copying
+	// image contents. The startup record survives in the writable layer.
+	id, remove, err = e.sandbox(ctx, []string{fixtureWorkload, "volume-state"}, map[string]string{"volume_path": volumePath + "-before-recreate"})
+	if err != nil {
+		return append(findings, report.Failf("create before introducing fresh storage: %v", err))
+	}
+	defer remove()
+	err = e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload), e.Fixtures("volume-state-startup-empty-hooks")}, map[string]string{"volume_path": volumePath})
+	if err != nil {
+		return append(findings, report.Failf("recreate with emptiness-observing startup hook: %v", err))
+	}
+	return append(findings, volumeHookEmpty(ctx, e, id, "startup")...)
+}
+
+func volumeHookEmpty(ctx context.Context, e *Env, id, hook string) []report.Finding {
+	got, failure := execOutput(ctx, e, id, "kit-tck-volume", "read", volumeControlPath, "before-"+hook)
 	if failure != nil {
-		return append(findings, *failure)
+		return []report.Finding{*failure}
 	}
 	switch got {
 	case "empty":
-		return findings
+		return nil
 	case "unreadable":
-		return append(findings, report.Skipf("install hook cannot observe initial volume contents: root is not readable"))
+		return []report.Finding{report.Skipf("%s hook cannot observe initial volume contents: root is not readable", hook)}
 	default:
-		return append(findings, report.Failf("install hook observed %q at %s before initialization, want empty", got, volumePath))
+		return []report.Finding{report.Failf("%s hook observed %q at %s before initialization, want empty", hook, got, volumePath)}
 	}
 }
 
