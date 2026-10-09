@@ -661,3 +661,75 @@ func TestSetReExportsVolumeRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestSetReExportStillReconcilesConcreteStorage(t *testing.T) {
+	for _, tc := range []struct {
+		name, secondType string
+		secondConfig     map[string]any
+		conflict         string
+	}{
+		{"matching volumes", spec.CapabilityVolume, map[string]any{"path": "/cache/./", "size": "1024m", "mode": "755", "tmpfs": false}, ""},
+		{"different size", spec.CapabilityVolume, map[string]any{"path": "/cache", "size": "2g", "mode": "0755"}, "different"},
+		{"different mode", spec.CapabilityVolume, map[string]any{"path": "/cache", "size": "1g", "mode": "0700"}, "different"},
+		{"different backing", spec.CapabilityVolume, map[string]any{"path": "/cache", "size": "1g", "mode": "0755", "tmpfs": true}, "different"},
+		{"host mount collision", spec.CapabilityHostMount, map[string]any{"path": "/cache"}, "host mount has one owner"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setArgs := map[string]spec.Arg{"shared_size": {Required: true}}
+			var inputs []spec.Contribution
+			for i := range 2 {
+				concrete := spec.Capability{Type: spec.CapabilityVolume, Optional: true,
+					Config: map[string]any{"path": "/cache", "size": "1g", "mode": "0755"}}
+				if i == 1 {
+					concrete = spec.Capability{Type: tc.secondType, Name: "Shared cache", Config: tc.secondConfig}
+				}
+				published := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin,
+					Args: map[string]spec.Arg{"size": {Required: true}},
+					Capabilities: []spec.Capability{
+						{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/dynamic", "size": "${{ kit.args.size }}"}},
+						concrete,
+					},
+				}
+				raw, err := json.Marshal(published)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, published)
+				require.NoError(t, err)
+				declarations, _, err := kitDeclarations(published, spec.Kit{
+					Args: map[string]string{"size": "${{ kit.args.shared_size }}"},
+				}, setArgs)
+				require.NoError(t, err)
+				inputs = append(inputs, spec.Contribution{Reference: fmt.Sprintf("cache-kit-%d", i), Descriptor: declarations})
+			}
+			merged, err := spec.Merge(inputs, spec.MergeOptions{})
+			if tc.conflict != "" {
+				require.Nil(t, merged)
+				require.ErrorContains(t, err, tc.conflict)
+				require.ErrorContains(t, err, "cache-kit-0")
+				require.ErrorContains(t, err, "cache-kit-1")
+				return
+			}
+			require.NoError(t, err)
+			merged.Descriptor.Args = setArgs
+			_, err = publishedSetDescriptor(merged.Descriptor)
+			require.NoError(t, err)
+			members := spec.DeclaredCapabilities(merged.Descriptor.Capabilities)
+			require.Len(t, members, 3, "concrete requests collapse while both unresolved requests survive")
+			require.Equal(t, "/dynamic", members[0].Config["path"])
+			require.Equal(t, "/cache", members[1].Config["path"])
+			require.Equal(t, "/dynamic", members[2].Config["path"])
+			require.Equal(t, "Shared cache", members[1].Name)
+			require.Nil(t, merged.Descriptor.Capabilities[1].Group, "concrete storage remains reconcilable by enclosing sets")
+			require.False(t, members[1].Optional, "the required contributor wins")
+			require.Equal(t, &spec.CapabilitySource{Kit: "cache-kit-0", Path: "capabilities[1]"}, members[1].Source)
+			require.Equal(t, "${{ kit.args.shared_size }}", members[0].Config["size"])
+			require.Equal(t, "${{ kit.args.shared_size }}", members[2].Config["size"])
+			_, err = spec.Merge([]spec.Contribution{
+				{Reference: "published-set", Descriptor: merged.Descriptor},
+				{Reference: "larger-cache", Descriptor: &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin,
+					Capabilities: []spec.Capability{{Type: spec.CapabilityVolume, Config: map[string]any{"path": "/cache", "size": "2g", "mode": "0755"}}},
+				}},
+			}, spec.MergeOptions{})
+			require.ErrorContains(t, err, "different com.docker.sandbox/volume@1 configurations at /cache", "enclosing sets still reject concrete conflicts")
+		})
+	}
+}

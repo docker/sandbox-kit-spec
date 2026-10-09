@@ -235,7 +235,7 @@ kits:
 func (e *e2e) volumeSet(frontend, registry string) {
 	t := e.t
 	dir := t.TempDir()
-	for _, stem := range []string{"cache-a", "cache-b"} {
+	for i, stem := range []string{"cache-a", "cache-b"} {
 		e.publish(dir, stem, registry+"/sbx-kit-"+stem+":1.0.0", `# syntax=`+frontend+`
 schemaVersion: "3"
 kind: mixin
@@ -244,6 +244,8 @@ args:
 capabilities:
   - type: com.docker.sandbox/volume@1
     config: {path: /cache, size: "${{ kit.args.size }}"}
+  - type: com.docker.sandbox/volume@1
+    config: {path: /literal-cache, size: `+[]string{"1g", "1024m"}[i]+`}
 `, nil)
 	}
 	ref := registry + "/sbx-kit-volume-set:1.0.0"
@@ -266,10 +268,11 @@ kits:
 	require.NoError(t, err)
 	volumes, err := spec.VolumesOf(spec.DeclaredCapabilities(d.Capabilities))
 	require.NoError(t, err)
-	require.Len(t, volumes, 2)
-	for _, v := range volumes {
-		require.Equal(t, "${{ kit.args.shared_size }}", v.Size)
-	}
+	require.Equal(t, []spec.Volume{
+		{Path: "/cache", Size: "${{ kit.args.shared_size }}"},
+		{Path: "/literal-cache", Size: "1g"},
+		{Path: "/cache", Size: "${{ kit.args.shared_size }}"},
+	}, volumes, "only unresolved requests remain separate at publication")
 	client, err := fetch.New(fetch.WithPlainHTTP())
 	require.NoError(t, err)
 	result, err := fetch.Assemble(t.Context(), []fetch.Request{{Reference: ref, Args: map[string]string{"shared_size": "2g"}}}, fetch.Options{
@@ -279,7 +282,7 @@ kits:
 	require.NoError(t, err)
 	volumes, err = spec.VolumesOf(result.Resolved.Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, []spec.Volume{{Path: "/cache", Size: "2g"}}, volumes)
+	require.Equal(t, []spec.Volume{{Path: "/cache", Size: "2g"}, {Path: "/literal-cache", Size: "1g"}}, volumes)
 }
 
 // e2e runs the docker commands the test needs, failing the test on the

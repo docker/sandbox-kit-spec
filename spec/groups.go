@@ -436,10 +436,10 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 	return false
 }
 
-// preserveGroups preserves declarations until selection and template
-// expansion can determine which concrete requests to reconcile.
-// Wrapping ordinary entries preserves their optionality and allows independent
-// singleton contributions without inventing a second publishing-only grammar.
+// preserveGroups preserves selection boundaries and unresolved declarations.
+// Concrete, ungrouped storage still reconciles at publication.
+// Wrapping the remaining ordinary entries preserves their optionality and
+// allows independent singleton contributions without a publishing-only grammar.
 func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
 	stripped := make([]Contribution, len(contributions))
 	for i, c := range contributions {
@@ -455,6 +455,8 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 		return nil, err
 	}
 	count := 0
+	storage := capabilityMerge{byKey: map[string]keyed{}, optional: map[string]bool{}}
+	storagePositions := map[string]int{}
 	for _, contribution := range contributions {
 		for i, item := range contribution.Descriptor.Capabilities {
 			source := &CapabilitySource{Kit: contribution.Reference, Path: fmt.Sprintf("capabilities[%d]", i)}
@@ -463,6 +465,30 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 				if source.Kit == "" {
 					source.Kit = contribution.Reference
 				}
+			}
+			if item.Group == nil && (item.Type == CapabilityVolume || item.Type == CapabilityHostMount) && !capabilityIsParameterized(item) {
+				// An unrelated deferred request cannot hide a concrete conflict.
+				// Explicit group members stay separate until atomic selection.
+				item.Source = source
+				reference := fmt.Sprintf("%s (%s %s)", contribution.Reference, source.Kit, source.Path)
+				if err := storage.add(reference, item); err != nil {
+					return nil, err
+				}
+				key, err := storage.instanceKey(reference, item)
+				if err != nil {
+					return nil, err
+				}
+				merged := storage.byKey[key].capability
+				merged.Optional = storage.optional[key]
+				if position, seen := storagePositions[key]; seen {
+					result.Descriptor.Capabilities[position] = merged
+				} else {
+					storagePositions[key] = len(result.Descriptor.Capabilities)
+					result.Descriptor.Capabilities = append(result.Descriptor.Capabilities, merged)
+				}
+				// Keeping these entries ordinary lets an enclosing set also
+				// reconcile them without crossing an explicit group boundary.
+				continue
 			}
 			if item.Group == nil {
 				member := item

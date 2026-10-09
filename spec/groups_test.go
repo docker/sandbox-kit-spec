@@ -219,6 +219,44 @@ func TestSelectedCompositionAndPublishedOrder(t *testing.T) {
 	}
 }
 
+func TestConcreteStorageMergePreservesGroupSelection(t *testing.T) {
+	volume := func(size string) Capability {
+		return Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache", "size": size}}
+	}
+	inputs := []Contribution{
+		{Reference: "a", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{volume("1g")}}},
+		{Reference: "b", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
+			{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{{Type: "com.example/feature@1"}, volume("2g")}}},
+			volume("1024m"),
+		}}},
+	}
+	merged, err := Merge(inputs, MergeOptions{})
+	require.NoError(t, err, "a conditional conflict waits for group selection")
+	require.Len(t, merged.Descriptor.Capabilities, 2, "only ungrouped matching storage collapses")
+	require.Len(t, merged.Descriptor.Capabilities[1].Group.Capabilities, 2, "the explicit group remains intact")
+	raw, err := json.Marshal(merged.Descriptor)
+	require.NoError(t, err)
+	_, err = ValidatePublished(raw, merged.Descriptor)
+	require.NoError(t, err)
+	for _, accept := range []bool{false, true} {
+		selected, err := SelectCapabilities(t.Context(), merged.Descriptor, func(_ context.Context, _ Descriptor, c Capability) CapabilityDecision {
+			return CapabilityDecision{Accepted: accept || c.Type != "com.example/feature@1"}
+		})
+		require.NoError(t, err)
+		d := *merged.Descriptor
+		d.Capabilities = selected.Capabilities
+		composed, err := Compose([]Contribution{{Reference: "set", Descriptor: &d}})
+		if accept {
+			require.ErrorContains(t, err, "different com.docker.sandbox/volume@1 configurations at /cache")
+			continue
+		}
+		require.NoError(t, err)
+		volumes, err := VolumesOf(composed.Capabilities)
+		require.NoError(t, err)
+		require.Equal(t, []Volume{{Path: "/cache", Size: "1g"}}, volumes)
+	}
+}
+
 func TestPublishPreservesConditionalContext(t *testing.T) {
 	d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
 		{Type: CapabilityAgentContext, Config: map[string]any{"content": "always"}},
