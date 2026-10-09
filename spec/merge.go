@@ -706,6 +706,12 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 // instanceKey is the key a type dedups on, per §7.1.
 func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, error) {
 	switch n.Type {
+	case CapabilityACP:
+		var a ACP
+		if err := decodeForMerge(reference, n, &a); err != nil {
+			return "", err
+		}
+		return n.Type + "\x00" + NormalizeCapabilityName(a.Agent), nil
 	case CapabilityCredential:
 		var c Credential
 		if err := decodeForMerge(reference, n, &c); err != nil {
@@ -808,6 +814,11 @@ func sameRequest(a, b Capability) bool {
 		return false
 	}
 	switch a.Type {
+	case CapabilityACP:
+		var aa, ab ACP
+		if DecodeCapabilityConfig(a, &aa) == nil && DecodeCapabilityConfig(b, &ab) == nil {
+			return sameACP(aa, ab)
+		}
 	case CapabilityPort:
 		var pa, pb Port
 		if DecodeCapabilityConfig(a, &pa) == nil && DecodeCapabilityConfig(b, &pb) == nil {

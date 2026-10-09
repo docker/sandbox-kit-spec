@@ -621,6 +621,26 @@ workload's directory. A shipped script the two shapes share has to be copied
 into both, and the copies then have to move together — say so in a comment in
 each, because nothing enforces it.
 
+## ACP adapters
+
+A Kit installing an ACP adapter can add `com.docker.sandbox/acp@1`
+with `optional: true`. Set `agent` to the unversioned `provides` name of
+its harness and `command` to the complete stdio command, not an argv
+tail. The agent may come from another composed Kit; declare `requires`
+when that dependency is necessary. Workloads and mixins may both declare
+ACP. Keep verified headless and interactive session verbs as fallbacks.
+Protocol capabilities come from `initialize`; modes, models, and config
+options come from session responses and updates, not descriptor config.
+`env` overlays the adapter process environment and `protocolVersion`
+defaults to major version 1. Two adapters for one normalized agent must
+agree on their configs. See the
+[capability contract](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/capabilities/com.docker.sandbox/acp@1.md)
+for the guarantees a declaration promises. Match the interactive
+entrypoint's permission posture in the adapter's launch settings. ACP 1
+background completion depends on negotiated extensions; ACP 2 requires
+standard terminal lifecycle updates and sub-agent completion updates.
+An adapter package's release number is not its ACP protocol version.
+
 ## Gotcha checklist
 
 Before calling a migration done:

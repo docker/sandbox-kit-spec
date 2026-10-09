@@ -43,7 +43,16 @@ requires: ["claude"]
 # has, which the claude-mixin kit declares. The package is installed at
 # build time, so unlike an `npx`-at-startup launcher this needs no
 # registry.npmjs.org access at runtime either.
+# The adapter reads permissions.defaultMode from the user settings that
+# claude-mixin seeds, preserving the interactive permission posture.
 capabilities:
+  - type: com.docker.sandbox/acp@1
+    optional: true
+    description: Drive claude sessions over the Agent Client Protocol
+    config:
+      agent: claude
+      command: [claude-agent-acp]
+
   - type: com.docker.sandbox/agent-context@1
     config:
       contentFile: ./claude-acp-context.md
