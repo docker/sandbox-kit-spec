@@ -579,7 +579,10 @@ func volumeHooks(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("create with mount-observing hooks: %v", err)}
 	}
 	defer remove()
-	if f := volumeAccess(ctx, e, id, volumePath, "writable"); len(f) > 0 {
+	// The root hook makes the existing startup marker writable by the
+	// agent. Reading and overwriting hook markers does not require
+	// permission to create directory entries in the mount root.
+	if f := volumeAccess(ctx, e, id, volumePath, "readable"); len(f) > 0 {
 		return f
 	}
 	for _, hook := range []string{"install", "startup"} {

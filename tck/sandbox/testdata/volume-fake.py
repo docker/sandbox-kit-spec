@@ -249,6 +249,8 @@ def run_hooks(record, event):
     target.mkdir(parents=True, exist_ok=True)
     for hook in (['install', 'startup'] if event == 'create' else ['startup']):
         (target / hook).write_text('mounted')
+        if hook == 'startup':
+            (target / hook).chmod(0o666)
 
 
 def apply(record, kits, overrides, recreating=False):
@@ -399,8 +401,14 @@ elif verb == 'exec':
                                                       and permissions == 'volume-root-not-writable'):
             sys.exit(3)
     elif operation == 'write':
-        if inaccessible_tmpfs or inaccessible_root or (mounted and permissions == 'volume-root-not-writable'):
+        if inaccessible_tmpfs or inaccessible_root:
             raise PermissionError('the agent cannot write the mount root')
+        if mounted and permissions == 'volume-root-not-writable':
+            entry = target / name
+            # Root-owned hook markers may grant file writes without
+            # granting creation of entries in the mount root.
+            if not entry.is_file() or not entry.stat().st_mode & 0o002:
+                raise PermissionError('the agent cannot create or overwrite this entry')
         target.mkdir(parents=True, exist_ok=True)
         (target / name).write_text(value)
     elif operation == 'read':

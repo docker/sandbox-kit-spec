@@ -37,6 +37,38 @@ func TestVolumeInstallEmptinessProbe(t *testing.T) {
 	}
 }
 
+func TestVolumeProbeOverwritesMarkerWithoutWritableRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+	root := filepath.Join(t.TempDir(), "volume")
+	require.NoError(t, os.Mkdir(root, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "startup"), []byte("mounted"), 0o666))
+	require.NoError(t, os.Chmod(filepath.Join(root, "startup"), 0o666))
+	require.NoError(t, os.Chmod(root, 0o555))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(root, 0o755)) })
+	probe := filepath.Join(FixtureDir, fixtureWorkload, "kit-tck-volume")
+	out, err := exec.Command("sh", probe, "write", root, "startup", "stale").CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	content, err := os.ReadFile(filepath.Join(root, "startup"))
+	require.NoError(t, err)
+	require.Equal(t, "stale", string(content))
+	_, err = exec.Command("sh", probe, "write", root, "new-marker", "forbidden").CombinedOutput()
+	require.Error(t, err, "writing an existing file does not grant directory-entry creation")
+	_, err = os.Stat(filepath.Join(root, "new-marker"))
+	require.True(t, os.IsNotExist(err))
+}
+
+func TestVolumeHookOrderDoesNotRequireWritableRoot(t *testing.T) {
+	index := slices.IndexFunc(volumeChecks, func(c check) bool {
+		return c.requirement == "volume@1/mounted-before-hooks"
+	})
+	require.GreaterOrEqual(t, index, 0)
+	rep := runAgainstFake(t, "volume-root-not-writable", volumeChecks[index])
+	require.False(t, rep.Failed(), "%s", rep)
+	require.Empty(t, rep.Findings, "readable hook markers must be judged, not skipped")
+}
+
 func TestVolumeChecks(t *testing.T) {
 	rep := runAgainstFake(t, "", volumeChecks...)
 	require.False(t, rep.Failed(), "%s", rep)
