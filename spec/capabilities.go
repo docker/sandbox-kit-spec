@@ -407,9 +407,13 @@ func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
 
 // AgentContextOf returns the first agent-context entry's config, or nil
 // when none is declared. A composed descriptor carries one entry per
-// explicit profile; a runtime materializing profiles reads every entry
-// with AgentContextsOf.
+// explicit profile, and a runtime materializing profiles reads every
+// entry with AgentContextsOf. A second explicit profile is an error
+// rather than ignored, so a caller that would write only the first fails
+// loudly instead of leaving an agent without its guidance.
 func AgentContextOf(capabilities []Capability) (*AgentContext, error) {
+	var first *AgentContext
+	explicit := 0
 	for _, c := range capabilities {
 		if c.Type != CapabilityAgentContext {
 			continue
@@ -418,9 +422,16 @@ func AgentContextOf(capabilities []Capability) (*AgentContext, error) {
 		if err := DecodeCapabilityConfig(c, &a); err != nil {
 			return nil, err
 		}
-		return &a, nil
+		if a.Directory != "" {
+			if explicit++; explicit > 1 {
+				return nil, fmt.Errorf("agent context: several explicit profiles; read every profile with AgentContextsOf")
+			}
+		}
+		if first == nil {
+			first = &a
+		}
 	}
-	return nil, nil
+	return first, nil
 }
 
 // AgentSessionsOf returns the agent-sessions declaration's config, or

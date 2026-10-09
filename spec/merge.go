@@ -1155,13 +1155,19 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 			profiles = append(profiles, AgentContext{Filename: ask.context.Filename, Directory: ask.context.Directory})
 		}
 	}
-	// The first profile takes its name from every ask that is not another
-	// profile's, so a single profile keeps the first nonempty name in
-	// contribution order, as any other merged entry does.
+	// The first profile takes its name and strictness from every ask that
+	// is not another profile's, so a single profile keeps the first
+	// nonempty name in contribution order and is required when any ask
+	// is, as any other merged entry. A body-only ask thereby follows the
+	// profile that carries a merged set's body, and one agent's required
+	// profile leaves another agent's optional one optional.
 	names := make([]string, max(len(profiles), 1))
+	optional := make([]bool, len(names))
+	for i := range optional {
+		optional[i] = true
+	}
 	legacy := AgentContext{}
 	filenameFrom := ""
-	optional := true
 	var sources []ContextSource
 	for _, ask := range m.context {
 		at := 0
@@ -1189,7 +1195,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 			sources = append(sources, ContextSource{Reference: ask.contribution, Content: ask.context.Content})
 		}
 		if !ask.optional {
-			optional = false
+			optional[at] = false
 		}
 	}
 
@@ -1202,15 +1208,13 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		profiles = []AgentContext{legacy}
 	}
 
-	// Optionality is shared: a host that handles the type writes every
-	// profile, so one required ask requires all of them.
 	out := make([]Capability, 0, len(profiles))
 	for i := range profiles {
 		c, err := capabilityFrom(CapabilityAgentContext, &profiles[i])
 		if err != nil {
 			return nil, nil, err
 		}
-		c.Optional = optional
+		c.Optional = optional[i]
 		c.Name = names[i]
 		out = append(out, *c)
 	}

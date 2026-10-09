@@ -136,14 +136,18 @@ func TestDifferingExplicitProfilesAreEachMaterialized(t *testing.T) {
 	}}}
 	claudeProfile := AgentContext{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"}
 	codexProfile := AgentContext{Filename: "AGENTS.md", Directory: "/home/agent/.codex"}
+	// The shell's required body follows the first profile; codex's own ask
+	// is optional, so its profile is required only when it comes first.
 	for _, tt := range []struct {
 		name          string
 		contributions []Contribution
 		want          []AgentContext
+		wantOptional  []bool
 	}{
-		{"claude first", []Contribution{shell, claude, codex}, []AgentContext{claudeProfile, codexProfile}},
-		{"codex first", []Contribution{codex, shell, claude}, []AgentContext{codexProfile, claudeProfile}},
-		{"restated", []Contribution{shell, claude, codex, claude}, []AgentContext{claudeProfile, codexProfile}},
+		{"claude first", []Contribution{shell, claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}},
+		{"codex first", []Contribution{codex, shell, claude}, []AgentContext{codexProfile, claudeProfile}, []bool{false, false}},
+		{"restated", []Contribution{shell, claude, codex, claude}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}},
+		{"agents only", []Contribution{claude, codex}, []AgentContext{claudeProfile, codexProfile}, []bool{false, true}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			composed, err := Compose(tt.contributions)
@@ -151,12 +155,16 @@ func TestDifferingExplicitProfilesAreEachMaterialized(t *testing.T) {
 			profiles, err := AgentContextsOf(composed.Capabilities)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, profiles, "the shell's legacy profile yields, and each agent keeps its own")
+			var optional []bool
 			for _, c := range composed.Capabilities {
-				require.False(t, c.Optional, "one required ask requires every profile")
+				optional = append(optional, c.Optional)
 				if c.Config["directory"] == claudeProfile.Directory {
 					require.Equal(t, "Claude profile", c.Name)
 				}
 			}
+			require.Equal(t, tt.wantOptional, optional, "strictness is per destination")
+			_, err = AgentContextOf(composed.Capabilities)
+			require.ErrorContains(t, err, "AgentContextsOf", "a single-profile reader must not silently drop an agent")
 			raw, err := json.Marshal(composed)
 			require.NoError(t, err)
 			_, err = ValidateEffective(raw, composed)

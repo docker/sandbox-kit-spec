@@ -97,7 +97,10 @@ Each contributing body is indexed in every effective profile, including
 the legacy workload's body and another agent's. Per-kit attribution
 survives composition — the index lists Kits individually, in
 composition order. The composed descriptor carries one entry per
-profile; a merged set's body rides the first of them.
+profile; a merged set's body rides the first of them. Each entry is
+required when any ask naming its destination is; a body-only or legacy
+ask counts toward the first entry, so one agent's required profile does
+not make another agent's optional one required.
 
 The optional `directory` field preserves existing descriptors and their
 workspace-sibling default. Context bodies keep their staged paths; only
