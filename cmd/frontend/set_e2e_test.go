@@ -242,11 +242,13 @@ kind: mixin
 args:
   size: {required: true}
   mode: {required: true}
+  literal_size: {buildArg: CACHE_SIZE, default: "`+[]string{"1024", "1k"}[i]+`"}
+  literal_mode: {buildArg: CACHE_MODE, default: "`+[]string{"755", "0755"}[i]+`"}
 capabilities:
   - type: com.docker.sandbox/volume@1
     config: {path: /cache, size: "${{ kit.args.size }}", mode: "${{ kit.args.mode }}"}
-  - type: com.docker.sandbox/volume@1
-    config: {path: /literal-cache, size: `+[]string{"1g", "1024m"}[i]+`}
+  - <<: {type: com.docker.sandbox/volume@1}
+    config: {path: /literal-cache, size: "${{ kit.args.literal_size }}", mode: "${{ kit.args.literal_mode }}"}
 `, nil)
 	}
 	ref := registry + "/sbx-kit-volume-set:1.0.0"
@@ -272,7 +274,7 @@ kits:
 	require.NoError(t, err)
 	require.Equal(t, []spec.Volume{
 		{Path: "/cache", Size: "${{ kit.args.shared_size }}", Mode: "${{ kit.args.shared_mode }}"},
-		{Path: "/literal-cache", Size: "1g"},
+		{Path: "/literal-cache", Size: "1024", Mode: "755"},
 		{Path: "/cache", Size: "${{ kit.args.shared_size }}", Mode: "${{ kit.args.shared_mode }}"},
 	}, volumes, "only unresolved requests remain separate at publication")
 	client, err := fetch.New(fetch.WithPlainHTTP())
@@ -286,7 +288,7 @@ kits:
 			require.NoError(t, err)
 			volumes, err := spec.VolumesOf(result.Resolved.Descriptor.Capabilities)
 			require.NoError(t, err)
-			require.Equal(t, []spec.Volume{{Path: "/cache", Size: size, Mode: "755"}, {Path: "/literal-cache", Size: "1g"}}, volumes)
+			require.Equal(t, []spec.Volume{{Path: "/cache", Size: size, Mode: "755"}, {Path: "/literal-cache", Size: "1024", Mode: "755"}}, volumes)
 		})
 	}
 }

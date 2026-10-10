@@ -232,17 +232,17 @@ func ExpandBuildArgs(raw []byte, decls map[string]Arg, values map[string]string)
 		}
 		var capabilityType string
 		if n.Kind == yaml.MappingNode {
-			for i := 0; i < len(n.Content); i += 2 {
-				if n.Content[i].Value == "type" {
-					typ := n.Content[i+1]
-					if typ.Kind == yaml.AliasNode {
-						typ = typ.Alias
-					}
-					if typ.Kind == yaml.ScalarNode {
-						capabilityType = typ.Value
-					}
-				}
+			// Decode only the header so yaml.v3 resolves inherited types
+			// with its merge precedence before config scalars are typed.
+			// Other fields stay in the authored tree, including merges.
+			var header struct {
+				Type any `yaml:"type"`
 			}
+			if err := n.Decode(&header); err != nil {
+				expandErr = err
+				return
+			}
+			capabilityType, _ = header.Type.(string)
 		}
 		keys := map[string]bool{}
 		for i, child := range n.Content {

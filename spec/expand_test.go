@@ -393,3 +393,53 @@ capabilities:
 		}
 	}
 }
+
+func TestExpandBuildArgsUsesMergedCapabilityType(t *testing.T) {
+	volumeConfig := `{path: /cache, size: "${{ kit.args.size }}", mode: "${{ kit.args.mode }}"}`
+	portConfig := `{container: "${{ kit.args.size }}"}`
+	for _, tc := range []struct {
+		name, header, config, prefix string
+		volume                       bool
+	}{
+		{"inline merge", "<<: {type: com.docker.sandbox/volume@1}", volumeConfig, "", true},
+		{"merge sequence", "<<: [{type: com.docker.sandbox/volume@1}, {type: com.docker.sandbox/port@1}]", volumeConfig, "", true},
+		{"merge sequence port first", "<<: [{type: com.docker.sandbox/port@1}, {type: com.docker.sandbox/volume@1}]", portConfig, "", false},
+		{"nested merge", "<<: {<<: {type: com.docker.sandbox/volume@1}}", volumeConfig, "", true},
+		{"aliased merge", "<<: *source", volumeConfig, "  - &source {type: com.docker.sandbox/volume@1, config: {path: /source}}\n", true},
+		{"direct volume overrides merge", "<<: {type: com.docker.sandbox/port@1}\ntype: com.docker.sandbox/volume@1", volumeConfig, "", true},
+		{"direct port overrides merge", "<<: {type: com.docker.sandbox/volume@1}\ntype: com.docker.sandbox/port@1", portConfig, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := []byte(`schemaVersion: "3"
+kind: mixin
+args:
+  size: {buildArg: SIZE, required: true}
+  mode: {buildArg: MODE, required: true}
+capabilities:
+` + tc.prefix + `  - ` + strings.ReplaceAll(tc.header, "\n", "\n    ") + `
+    config: ` + tc.config + `
+`)
+			d, err := Decode(raw)
+			require.NoError(t, err)
+			_, err = ValidateRaw(raw, d)
+			require.NoError(t, err)
+			out, err := ExpandBuildArgs(raw, d.Args, map[string]string{"size": "1024", "mode": "755"})
+			require.NoError(t, err)
+			require.Contains(t, string(out), "<<:", "expansion preserves the authored merge")
+			published, err := Decode(out)
+			require.NoError(t, err)
+			_, err = ValidatePublished(out, published)
+			require.NoError(t, err)
+			request := published.Capabilities[len(published.Capabilities)-1:]
+			if tc.volume {
+				volumes, err := VolumesOf(request)
+				require.NoError(t, err)
+				require.Equal(t, []Volume{{Path: "/cache", Size: "1024", Mode: "755"}}, volumes)
+			} else {
+				ports, err := PortsOf(request)
+				require.NoError(t, err)
+				require.Equal(t, 1024, ports[0].Container, "the effective type controls scalar typing")
+			}
+		})
+	}
+}
