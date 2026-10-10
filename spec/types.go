@@ -246,9 +246,11 @@ type Kit struct {
 
 // Capability is one typed, versioned capability request. The type string is
 // <namespace>/<name>@<version>: the namespace admits host-specific
-// capability types without touching this grammar, and the version moves
-// when the type's config schema does — capabilities evolve without a
-// descriptor schema-major bump.
+// capability types without touching this grammar. The version covers the
+// capability contract: config schema and observable behavior, including
+// composition and persistent-state transitions. Capabilities evolve without
+// a descriptor schema-major bump; RELEASES.md defines when versions move
+// and the maintainer-approved draft-stage exception.
 type Capability struct {
 	// Group is the alternative to an ordinary entry. It is not a capability
 	// type and must be selected before typed accessors are used.
@@ -260,7 +262,7 @@ type Capability struct {
 	optionalSet bool
 	groupSet    bool
 
-	// Type names the capability and its config-schema version, e.g.
+	// Type names the capability and its contract version, e.g.
 	// "com.docker.sandbox/network-policy@1".
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 

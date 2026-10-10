@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/volume@1",
-  "description": "Config schema for one volume need: a persistent (or tmpfs) path and its characteristics. Instance-shaped, keyed by cleaned path. Matching configurations across Kits merge; differing configurations conflict. Storage belongs to the sandbox instance. The @1 in the type names this schema; it moves when the schema does.",
+  "description": "Config schema for one volume need: a persistent (or tmpfs) path and its characteristics. Instance-shaped, keyed by cleaned path. Matching configurations across Kits merge; differing configurations conflict. Storage belongs to the sandbox instance. The @1 names the capability contract, including this config schema and observable reconciliation and storage-lifetime behavior. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception.",
   "type": "object",
   "additionalProperties": false,
   "required": [
