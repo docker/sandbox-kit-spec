@@ -454,7 +454,10 @@ args:
   differently and stay strings — the shape a version or a zero-padded code
   wears. `NaN` and `±Inf` stay strings too, having no JSON spelling. A
   reference embedded in a larger string, or standing in a map key, is
-  always text.
+  always text. The string fields `size` and `mode` in `volume@1` also
+  remain text, including whole-value references such as a byte size of
+  `1024` or an octal mode of `755`. Numeric and boolean config fields
+  still adopt their corresponding scalar types.
 - **Parameterized entries validate twice.** At build and load, a
   capability entry whose config references an arg passes leniently — type
   grammar and arity hold, typed config checks defer. At create, after
@@ -526,7 +529,7 @@ capabilities:
 
 | Field | Type | Rules |
 |---|---|---|
-| `type` | string | REQUIRED. `<namespace>/<name>@<version>`: dotted lowercase namespace, hyphenated lowercase name, integer config-schema version. The version moves when the type's config schema does — capability types evolve without a descriptor schema-major bump. |
+| `type` | string | REQUIRED. `<namespace>/<name>@<version>`: dotted lowercase namespace, hyphenated lowercase name, integer capability-contract version. The version covers the config schema and observable behavior — capability types evolve without a descriptor schema-major bump. [RELEASES.md](../../RELEASES.md#capability-versions) defines when it moves, including the draft-stage exception. |
 | `name` | string | optional. Human-readable display label; spaces and duplicate names are allowed. |
 | `optional` | bool | The Kit degrades gracefully without it: an unknown or unprovidable optional entry is skipped and recorded; a required one fails resolution closed. |
 | `config` | map | Type-specific request payload. Strictly decoded for well-known types (unknown config keys are errors); carried opaquely for unknown types. |
@@ -565,7 +568,7 @@ other**: a descriptor states one of them, never both. They describe the
 same grant, so a host given both would have to guess which bounds the
 other.
 
-**Instance-shaped types appear once per thing requested**, deduplicated on
+**Instance-shaped types appear once per thing requested**, identified by
 their own key: `credential@1` on (service, phase), with each listed phase
 participating independently, `volume@1` and `host-mount@1` on a shared
 cleaned storage path key,
@@ -579,6 +582,30 @@ declaration block.
 entry.
 
 Exact-duplicate entries of any type are rejected.
+
+Across selected contributions, keys determine which requests reconcile,
+not whether they may merge. Credentials and host mounts have one owner
+and conflict even when their configurations match. Matching volume and
+port requests collapse; differing requests conflict. SSH-agent permissions
+union per phase. [§9.5](#95-merging-a-set) and the capability pages specify
+the type-specific rules for publication and runtime composition alike.
+
+Composition reconciliation combines the selected requests for one
+operation. Compatibility with existing state decides whether a new
+request may replace a retained one. Each versioned capability contract
+defines its reconciliation policy and, where it manages persistent
+state, its permitted transitions. Runtimes supporting that type commit
+to the same observable rules; storage layout and other implementation
+details remain runtime-owned.
+
+For `volume@1`, composition merges equal storage configurations, and
+recreation permits only an equivalent request for retained storage.
+Equality and immutable settings are this capability's policies, not
+general rules for instance-shaped capabilities. A future
+`flexible-volume@1` could instead treat sizes as minimum requirements,
+reconcile simultaneous requests to their maximum, and permit increases
+while refusing decreases. That transition would be directional; this
+specification defines no such capability or resizing operation.
 
 ### 7.1.1 Capability groups
 
@@ -919,7 +946,11 @@ error. In that order they reconcile into one descriptor:
 | `licenses` | Union. The artifact ships every one of their layers, so a narrower list would misreport it — and §9.3 derives an annotation from it. | <!-- tck: SPEC-v3 §9.5/licenses-union -->
 | `args` | The set's own. The listed Kits' are answered at publish, pinned or re-exported. |
 | Display fields | The set's own: the artifact is a new thing with its own name, publisher, and documentation. |
-| Instance-shaped capabilities | Union, deduplicated on the type's own key ([§7.1](#71-arity)). Two different configs under one key is an error. |
+| Instance-shaped capabilities | Reconcile on the type's own key ([§7.1](#71-arity)) according to its versioned contract, as specified below and in its capability page. The key does not prescribe equality, merging, or compatibility with retained state. |
+| `volume@1` | Matching typed storage configurations at one cleaned path collapse; different sizes, modes, or backing kinds conflict. Storage belongs to the sandbox instance, independently of the declaring Kit. |
+| `credential@1` | One owner per (service, phase); overlapping requests conflict even when identical. |
+| `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
+| `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
@@ -928,6 +959,18 @@ error. In that order they reconcile into one descriptor:
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
 | `optional` | An entry any of them requires is required in the merged kit: `optional` says its asker degrades without it, and one that does not degrade decides for the set. |
 | Capability `name` | When contributions merge into one entry, the first nonempty name in contribution order **MUST** be retained. Labels do not prevent merging. | <!-- tck: SPEC-v3 §9.5/capability-name-first -->
+
+These rules reconcile selected requests, independently of any retained
+state. At recreation, each capability's transition policy additionally
+judges the resulting request against existing state. For `volume@1`,
+that policy refuses a change to retained storage settings.
+
+A volume request with re-exported text inputs remains a separate
+contribution until create-phase expansion and selection. Publication
+preserves its optionality and source attribution through a one-member
+group ([§7.1.1](#711-capability-groups)); runtime composition then
+compares concrete configurations. An unresolved reference is not evidence
+of a configuration conflict.
 
 A merged descriptor **MUST** be identical across every platform a <!-- tck: SPEC-v3 §9.5/declarations-platform-independent -->
 multi-platform set builds for: the annotation is written once per
@@ -1067,8 +1110,12 @@ What runs is never a published artifact: at create, a resolver produces a
 locked set and an assembler emits an ordinary image — config synthesized
 from the merged declarations, layers concatenated in dependency order —
 identified by the lock, which is what makes recreate exact. Local handles,
-state keying, and lock formats are runtime concerns outside this
-specification; the descriptor carries no top-level identity name on purpose.
+state-key representations, and lock formats are runtime concerns outside
+this specification; the descriptor carries no top-level identity name on
+purpose. The volume capability defines the observable storage lifetime:
+restart and recreation preserve an instance, while removal ends it and a
+new create begins another. Kit or lock changes do not change that storage
+identity.
 
 ---
 

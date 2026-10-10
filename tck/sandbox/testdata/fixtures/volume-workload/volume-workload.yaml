@@ -1,0 +1,5 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Replacement conformance workload
+description: A distinct workload identity with the same storage probes

@@ -251,8 +251,11 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	require.NotContains(t, at(t, credential, "definitions", "tomlValue")["type"].([]any), "null")
 
 	volume := loadJSON(t, perTypeSchemaPath(CapabilityVolume))
-	require.Equal(t, octalMode.String(), literalPattern(t, at(t, volume, "properties", "mode")))
-	require.Equal(t, sizeBytes.String(), literalPattern(t, at(t, volume, "properties", "size")))
+	// Optional volume settings accept an empty string as unspecified,
+	// including after create-argument expansion. Other types keep their
+	// own presence rules and literal patterns.
+	require.Equal(t, "^("+strings.TrimSuffix(strings.TrimPrefix(octalMode.String(), "^"), "$")+")?$", literalPattern(t, at(t, volume, "properties", "mode")))
+	require.Equal(t, "^("+strings.TrimSuffix(strings.TrimPrefix(sizeBytes.String(), "^"), "$")+")?$", literalPattern(t, at(t, volume, "properties", "size")))
 	assertAcceptsKitArg(t, at(t, volume, "properties", "size"), "bearing")
 	assertAcceptsKitArg(t, at(t, volume, "properties", "mode"), "bearing")
 	assertAcceptsKitArg(t, at(t, volume, "properties", "path"), "bearing")

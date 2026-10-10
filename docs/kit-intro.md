@@ -132,9 +132,11 @@ the whole ask through one mechanism — or refuses the parts it does not
 understand. A `required` request that cannot be met fails resolution closed;
 an `optional` one is skipped and recorded.
 
-The `@1` names the version of that type's *config schema*, so capability
-types can evolve without a descriptor grammar bump. Well-known types are
-strictly decoded and documented one page each under
+The `@1` names the version of that type's *capability contract*: its config
+schema and observable behavior, including composition rules and permitted
+transitions against persistent state. Capability types can evolve without
+a descriptor grammar bump. Well-known types are strictly decoded and
+documented one page each under
 [spec/capabilities/](spec/capabilities/com.docker.sandbox); unknown types are
 carried opaquely so a host can support its own.
 

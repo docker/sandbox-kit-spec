@@ -7,6 +7,7 @@ set -euo pipefail
 
 state="${KIT_TCK_FAKE_STATE:?KIT_TCK_FAKE_STATE is required}"
 broken="${KIT_TCK_FAKE_BROKEN:-}"
+permissions="${broken%%+*}"
 
 # What this runtime claims: everything it implements, a subset when the
 # suite narrows it, nothing when broken that way. The refusal duty below
@@ -23,6 +24,21 @@ esac
 host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
+
+# Volume lifetime probes have their own instance model. Removing an
+# instance cannot be used to emulate recreation in that model.
+volume_helper="$(dirname "${BASH_SOURCE[0]}")/volume-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    case "$arg" in
+    */volume-state* | */volume-workload)
+      exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
+      ;;
+    esac
+  done
+elif [ "$verb" = volume-paths ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
+  exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
+fi
 
 # The group fixture's observable files, ordering, records and grant surface.
 write_group_state() {
@@ -1024,6 +1040,10 @@ exec)
       fi
       ;;
     /data/marker)
+      if [ "$permissions" = volume-root-not-readable ] || [ "$broken" = volume-retained-read-denied ]; then
+        echo 'permission denied' >&2
+        exit 1
+      fi
       if [ -f "$dir/volume/marker" ]; then cat "$dir/volume/marker"; else
         echo "no such file" >&2
         exit 1
@@ -1214,6 +1234,19 @@ exec)
       ;;
     esac
     ;;
+  kit-tck-volume)
+    [ "$3" = /data ] && [ -d "$dir/volume" ] || exit 1
+    [ "$broken" != volume-setup-probe-error ] || exit 1
+    case "$2" in
+    writable)
+      case "$permissions" in volume-root-not-writable | volume-root-not-readable) exit 3 ;; esac
+      ;;
+    readable)
+      [ "$permissions" != volume-root-not-readable ] || exit 3
+      ;;
+    *) exit 1 ;;
+    esac
+    ;;
   kit-tck-write)
     case "$2" in
     /var/tmp/kit-tck-scratch)
@@ -1248,6 +1281,11 @@ exec)
       : >"$dir/skills-rw/$(basename "$2")"
       ;;
     *)
+      case "$permissions" in volume-root-not-writable | volume-root-not-readable)
+        echo 'permission denied' >&2
+        exit 1
+        ;;
+      esac
       mkdir -p "$(dirname "$dir/volume/$(basename "$2")")"
       printf '%s' "$3" >"$dir/volume/$(basename "$2")"
       ;;

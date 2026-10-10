@@ -89,9 +89,10 @@ var covers = map[string][]string{
 	// every claimant.
 	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused"},
 
-	// The volume check observes stop/start retention (the MUST) before
-	// recreating (the SHOULD plus the writable-layer control).
-	"volume@1/persists-across-recreate": {"volume@1/persists-across-restart", "volume@1/should-survive-recreate"},
+	// The writable-layer control distinguishes persistence from keeping
+	// the old container; composition changes exercise reattachment too.
+	"volume@1/persists-across-recreate": {"volume@1/persists-across-restart"},
+	"volume@1/composition-independent":  {"volume@1/reattach-preserves-state"},
 }
 
 // kitCovers maps a kit-suite CHECK, by its unique name, onto the anchored
@@ -201,7 +202,6 @@ var waived = map[string]string{
 	"acp@1/hook-session-id":            "the adapter contract has no duplex ACP host connection operation; completed exec results cannot observe this protocol or host-session duty",
 	"acp@1/composition":                "composition rule, judged by TestACPComposition, including sets and selected groups",
 
-	"volume@1/reattach-checks-kit-identity":       "the adapter exposes recreate for an existing sandbox, but no input for assigning the same sandbox identity to a different Kit after removal; cross-Kit removal and reattachment cannot be observed with this contract",
 	"git-identity@1/source-private":               "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
 	"SPEC-v3 §7.1.1/selection-before-application": "the adapter exposes only final files, records, and grants, not an effect trace during selection; effects applied before selection and then rolled back cannot be observed",
 	"SPEC-v3 §7.1.1/conflicts-before-application": "a refused create returns no sandbox ID and the adapter exposes no failed-create effect trace; the suite can observe conflict refusal but cannot inspect files or hooks applied before that refusal",
@@ -288,7 +288,6 @@ var waived = map[string]string{
 	"privileged@1/widening-gates":                    "gate semantics are surface diffs, judged by the spec package's tests",
 	"resources@1/max-of-declarations":                "needs a multi-declaration fixture; not exercised yet",
 	"resources@1/never-undercut-workload":            "needs a multi-declaration fixture; not exercised yet",
-	"volume@1/no-silent-merge":                       "needs a two-kit same-path fixture; not exercised yet",
 
 	// Statements about what a runtime must not trust or must keep to
 	// itself are unobservable from inside a sandbox.
@@ -359,10 +358,9 @@ var waived = map[string]string{
 	"usb-device@1/matching-devices-passed": "needs host hardware the suite cannot assume",
 	"usb-device@1/grant-scoped-to-match":   "needs host hardware the suite cannot assume",
 
-	"volume@1/mounted-before-hooks":  "needs a volume-writing install hook fixture; not exercised yet",
 	"volume@1/tmpfs-ram-backed":      "RAM-backing has no reliable in-sandbox symptom",
-	"volume@1/size-and-mode-applied": "SHOULD; needs size/mode fixtures not present yet",
-	"volume@1/agent-writable-root":   "SHOULD; needs a non-root writability probe fixture",
+	"volume@1/size-and-mode-applied": "SHOULD; the suite probes reattached permissions but does not independently judge initial permissions or capacity enforcement",
+	"volume@1/agent-writable-root":   "SHOULD; data probes need usable mounts but no check independently reports initial root ownership or writability",
 }
 
 // specDocs are the documents whose normative statements the guard

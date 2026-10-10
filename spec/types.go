@@ -246,9 +246,11 @@ type Kit struct {
 
 // Capability is one typed, versioned capability request. The type string is
 // <namespace>/<name>@<version>: the namespace admits host-specific
-// capability types without touching this grammar, and the version moves
-// when the type's config schema does — capabilities evolve without a
-// descriptor schema-major bump.
+// capability types without touching this grammar. The version covers the
+// capability contract: config schema and observable behavior, including
+// composition and persistent-state transitions. Capabilities evolve without
+// a descriptor schema-major bump; RELEASES.md defines when versions move
+// and the maintainer-approved draft-stage exception.
 type Capability struct {
 	// Group is the alternative to an ordinary entry. It is not a capability
 	// type and must be selected before typed accessors are used.
@@ -260,7 +262,7 @@ type Capability struct {
 	optionalSet bool
 	groupSet    bool
 
-	// Type names the capability and its config-schema version, e.g.
+	// Type names the capability and its contract version, e.g.
 	// "com.docker.sandbox/network-policy@1".
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -806,14 +808,15 @@ func SkillsWritable(s AgentSkills) bool {
 	return SkillsMode(s) == SkillsReadWrite
 }
 
-// Volume is CapabilityVolume's config: one persistent (or tmpfs) path
-// and its characteristics.
+// Volume is CapabilityVolume's config: instance-owned storage at a cleaned
+// destination, independent of the Kit that requested it.
 type Volume struct {
 	Path string `json:"path" yaml:"path"`
 	Size string `json:"size,omitempty" yaml:"size,omitempty"`
 	// Tmpfs makes the path a tmpfs mount instead of a block volume.
 	Tmpfs bool `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
-	// Mode is an octal permission string, e.g. "1777".
+	// Mode is initial octal permissions, e.g. "1777". Reattachment does
+	// not reset permissions changed inside the sandbox.
 	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 

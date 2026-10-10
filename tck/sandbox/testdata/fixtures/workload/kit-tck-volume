@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+operation="$1"; root="$2"; name="${3:-}"; value="${4:-}"
+case "$operation" in
+writable) test -d "$root"; { test -w "$root" && test -x "$root"; } || exit 3 ;;
+readable) test -d "$root"; { test -r "$root" && test -x "$root"; } || exit 3 ;;
+write) mkdir -p "$root"; printf '%s' "$value" >"$root/$name" ;;
+read) cat "$root/$name" ;;
+absent) test ! -e "$root/$name" ;;
+empty) test -d "$root"; test -z "$(ls -A "$root")" ;;
+record-empty)
+    # Record before initialization, outside the mount under observation.
+    # Explicit permission denial is distinct from a missing/broken root.
+    if [ ! -d "$root" ]; then result=missing
+    elif [ ! -r "$root" ] || [ ! -x "$root" ]; then result=unreadable
+    elif contents=$(ls -A "$root"); then
+        if [ -z "$contents" ]; then result=empty; else result=nonempty; fi
+    else result=probe-error; fi
+    mkdir -p "$name"
+    chmod 0755 "$name"
+    printf '%s' "$result" >"$name/$value"
+    chmod 0644 "$name/$value"
+    ;;
+mounted) awk -v p="$root" '$5 == p {found=1} END {exit !found}' /proc/self/mountinfo ;;
+unmounted) awk -v p="$root" '$5 == p {found=1} END {exit found}' /proc/self/mountinfo ;;
+mode) stat -c '%a' "$root${name:+/$name}" ;;
+set-mode) chmod "$value" "$root${name:+/$name}" ;;
+*) exit 1 ;;
+esac

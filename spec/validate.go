@@ -456,9 +456,9 @@ func RequireAuthoredProvides(d *Descriptor) error {
 var needType = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$`)
 
 // singletonCapabilities are policy-shaped types: at most one entry each.
-// Instance-shaped types (credential, volume, port, usb-device) appear
-// once per thing requested and dedup on their own key; unknown types
-// dedup on the exact request (type + config).
+// Instance-shaped types appear once per thing requested within each
+// declaration block. Cross-contribution reconciliation belongs to merge;
+// a shared instance key does not imply that a type permits merging.
 var singletonCapabilities = map[string]bool{
 	CapabilityGitIdentity:              true,
 	CapabilityNetworkPolicy:            true,
@@ -703,6 +703,28 @@ func validateCapabilityBlock(d *Descriptor) error {
 			errs.add(contexts.add(path, i, n))
 		}
 
+		// Literal destinations determine declaration arity even when size,
+		// mode, or another setting waits for expansion. Publication can
+		// otherwise separate the entries and erase an invalid block.
+		if n.Type == CapabilityVolume || n.Type == CapabilityHostMount {
+			if destination, ok := n.Config["path"].(string); ok && !ContainsArgRef(destination) && !ContainsEnvRef(destination) {
+				key := containerpath.Clean(destination)
+				own, other := seenVolume, seenHostMount
+				label, otherLabel := "volume", "host mount"
+				if n.Type == CapabilityHostMount {
+					own, other = seenHostMount, seenVolume
+					label, otherLabel = otherLabel, label
+				}
+				if prev, dup := own[key]; dup {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s for %q already declared at capabilities[%d]", i, label, destination, prev))
+				}
+				own[key] = i
+				if prev, dup := other[key]; dup {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, destination, otherLabel, prev))
+				}
+			}
+		}
+
 		// A parameterized entry — its config references a kit arg — defers
 		// its typed validation to ValidateEffective, after expansion has
 		// resolved every placeholder: a string placeholder cannot pass a
@@ -769,13 +791,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if v.Mode != "" && !octalMode.MatchString(v.Mode) {
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, v.Mode))
 			}
-			if prev, dup := seenVolume[v.Path]; dup {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume for %q already declared at capabilities[%d]", i, v.Path, prev))
-			}
-			seenVolume[v.Path] = i
-			if prev, dup := seenHostMount[containerpath.Clean(v.Path)]; dup {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q conflicts with host mount at capabilities[%d]", i, v.Path, prev))
-			}
 		case CapabilityHostMount:
 			var mount HostMount
 			if err := DecodeCapabilityConfig(n, &mount); err != nil {
@@ -787,15 +802,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 			if _, stated := n.Config["mode"]; stated && !octalMode.MatchString(mount.Mode) {
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
-			}
-			if prev, dup := seenHostMount[mount.Path]; dup {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount for %q already declared at capabilities[%d]", i, mount.Path, prev))
-			}
-			seenHostMount[mount.Path] = i
-			for volumePath, prev := range seenVolume {
-				if containerpath.Clean(volumePath) == mount.Path {
-					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q conflicts with volume at capabilities[%d]", i, mount.Path, prev))
-				}
 			}
 		case CapabilityAgentSkill:
 			key, err := validateBundledSkill(path, n)

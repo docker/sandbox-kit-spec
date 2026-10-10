@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -143,7 +144,7 @@ func SurfaceOf(d *Descriptor) Surface {
 				s.Services = append(s.Services, capabilitySurfaceEntry(n))
 				continue
 			}
-			s.StoragePaths = append(s.StoragePaths, v.Path)
+			s.StoragePaths = append(s.StoragePaths, path.Clean(v.Path))
 		case CapabilityHostMount:
 			var mount HostMount
 			if err := DecodeCapabilityConfig(n, &mount); err != nil {

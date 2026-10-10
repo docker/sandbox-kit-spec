@@ -192,3 +192,9 @@ COPY --chmod=0755 kit-tck-git-identity /usr/local/bin/kit-tck-git-identity
 RUN git config --global user.name "Image Author" \
  && git config --global user.email image@example.invalid \
  && git config --global alias.kit-tck-guest status
+
+# The image marker distinguishes a fresh empty mount from copying image
+# contents into it. The unmounted path remains writable for the control.
+COPY --chmod=0755 kit-tck-volume /usr/local/bin/kit-tck-volume
+RUN mkdir -p /var/tmp/kit-tck-volume /var/tmp/kit-tck-volume-other \
+ && printf image > /var/tmp/kit-tck-volume/image-marker

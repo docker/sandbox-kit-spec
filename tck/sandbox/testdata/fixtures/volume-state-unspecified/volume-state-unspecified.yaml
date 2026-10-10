@@ -1,0 +1,19 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Instance storage
+description: Storage requests whose identity survives composition changes
+args:
+  volume_path:
+    default: /var/tmp/kit-tck-volume
+  volume_size:
+    default: 1g
+  volume_mode:
+    default: "0700"
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    source: {kit: registry.example/storage:latest, path: "capabilities[0]"}
+    config:
+      path: "${{ kit.args.volume_path }}"
+  - type: com.docker.sandbox/volume@1
+    config: {path: /var/tmp/kit-tck-volume-other, size: 1g, mode: "0700"}

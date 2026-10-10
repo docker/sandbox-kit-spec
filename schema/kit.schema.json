@@ -251,7 +251,7 @@
         "type": {
           "type": "string",
           "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$",
-          "description": "<namespace>/<name>@<config-schema-version>. The namespace admits host-specific capability types; the version moves when the type's config schema does."
+          "description": "<namespace>/<name>@<capability-contract-version>. The namespace admits host-specific capability types. The version covers the config schema and observable behavior, including composition and persistent-state transitions. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception."
         },
         "name": {
           "type": "string",

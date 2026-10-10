@@ -18,9 +18,9 @@ type Contribution struct {
 
 	// Descriptor is the declarations this contribution brings. A
 	// listed kit's is its published descriptor with its create-phase
-	// args already resolved (KitArgValues, ExpandCreateArgs). Publication
-	// preserves final-environment references; Compose requires those to be
-	// expanded before reconciliation.
+	// args pinned or re-exported (KitArgValues, ExpandCreateArgs). Publication
+	// preserves re-exported volume arguments and final-environment references;
+	// Compose requires those to be expanded before reconciliation.
 	Descriptor *Descriptor
 }
 
@@ -642,12 +642,6 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 	if n.Type == CapabilityHostMount || prev.capability.Type == CapabilityHostMount {
 		return fmt.Errorf("merge: %s and %s both declare storage at the same path; a host mount has one owner", prev.reference, reference)
 	}
-	// Matching storage settings do not grant permission to share state:
-	// volume@1 forbids two Kits declaring the same mount destination.
-	if n.Type == CapabilityVolume {
-		return fmt.Errorf("merge: %s and %s both declare %s at %s; volume paths cannot be shared",
-			prev.reference, reference, n.Type, strings.TrimPrefix(key, n.Type+"\x00"))
-	}
 	// A credential does not union the way the rest do, identical
 	// configs included. Resolve refuses two kits declaring one
 	// (service, phase) outright — one credential, one owner — so
@@ -683,6 +677,10 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		return nil
 	}
 	if !sameRequest(prev.capability, n) {
+		if n.Type == CapabilityVolume {
+			return fmt.Errorf("merge: %s and %s declare different %s configurations at %s",
+				prev.reference, reference, n.Type, strings.TrimPrefix(key, n.Type+"\x00"))
+		}
 		return fmt.Errorf("merge: %s and %s both declare %s but ask for different things; one of them has to change",
 			prev.reference, reference, describeCapability(n))
 	}
@@ -717,7 +715,8 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		(*slot).reference, reference, label)
 }
 
-// instanceKey is the key a type dedups on, per §7.1.
+// instanceKey identifies requests to reconcile, per §7.1. The type's
+// composition contract decides whether matching keys merge or conflict.
 func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, error) {
 	switch n.Type {
 	case CapabilityACP:
@@ -828,6 +827,11 @@ func sameRequest(a, b Capability) bool {
 		return false
 	}
 	switch a.Type {
+	case CapabilityVolume:
+		var va, vb Volume
+		if DecodeCapabilityConfig(a, &va) == nil && DecodeCapabilityConfig(b, &vb) == nil {
+			return SameVolumeRequest(va, vb)
+		}
 	case CapabilityACP:
 		var aa, ab ACP
 		if DecodeCapabilityConfig(a, &aa) == nil && DecodeCapabilityConfig(b, &ab) == nil {

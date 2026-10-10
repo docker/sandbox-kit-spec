@@ -1,0 +1,25 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Instance storage
+description: Storage requests whose identity survives composition changes
+args:
+  volume_path:
+    default: /var/tmp/kit-tck-volume/
+  volume_size:
+    default: 1024m
+  volume_mode:
+    default: "0700"
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    name: Equivalent storage
+    description: Second contributor display metadata
+    optional: true
+    source: {kit: registry.example/other-storage:latest, path: "capabilities[1]"}
+    config:
+      tmpfs: false
+      path: "${{ kit.args.volume_path }}"
+      size: "${{ kit.args.volume_size }}"
+      mode: "700"
+  - type: com.docker.sandbox/volume@1
+    config: {path: /var/tmp/kit-tck-volume-other, size: 1g, mode: "0700"}

@@ -1288,49 +1288,60 @@ func TestOnlyAnExactReferenceIsAReExport(t *testing.T) {
 	require.ErrorContains(t, err, "embeds a reference in a larger value")
 }
 
-// volume@1/no-silent-merge forbids sharing a destination even when
-// both Kits ask for the same storage. Equivalent path spellings must
-// not bypass the conflict in publication or runtime composition.
-func TestCompositionRefusesSharedVolumePaths(t *testing.T) {
+// Publication and runtime composition use the same equivalence, including
+// requiredness and diagnostics. Neither API may depend on path spelling.
+func TestCompositionReconcilesVolumePaths(t *testing.T) {
 	for _, tc := range []struct {
-		name, path, extra string
+		name, first, second string
+		match               bool
 	}{
-		{"identical", "/data/cache", ""},
-		{"different size", "/data/cache", ", size: 10g"},
-		{"different mode", "/data/cache", ", mode: '0755'"},
-		{"tmpfs", "/data/cache", ", tmpfs: true"},
-		{"dot", "/data/./cache", ""},
-		{"parent", "/data/other/../cache", ""},
-		{"trailing slash", "/data/cache/", ""},
+		{"identical", "path: /data/cache", "path: /data/cache", true},
+		{"dot", "path: /data/cache", "path: /data/./cache", true},
+		{"parent", "path: /data/cache", "path: /data/other/../cache", true},
+		{"trailing slash", "path: /data/cache", "path: /data/cache/", true},
+		{"default tmpfs", "path: /data/cache", "path: /data/cache, tmpfs: false", true},
+		{"equivalent size", "path: /data/cache, size: 1g", "path: /data/cache, size: 1024m", true},
+		{"equivalent mode", "path: /data/cache, mode: '0755'", "path: /data/cache, mode: '755'", true},
+		{"different size", "path: /data/cache, size: 1g", "path: /data/cache, size: 2g", false},
+		{"unspecified size", "path: /data/cache", "path: /data/cache, size: 1g", false},
+		{"different mode", "path: /data/cache, mode: '0700'", "path: /data/cache, mode: '0755'", false},
+		{"unspecified mode", "path: /data/cache", "path: /data/cache, mode: '0755'", false},
+		{"different backing", "path: /data/cache", "path: /data/cache, tmpfs: true", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, optional := range []bool{false, true} {
-				t.Run(fmt.Sprintf("optional=%t", optional), func(t *testing.T) {
-					vol := `schemaVersion: "3"
+				vol := `schemaVersion: "3"
 kind: mixin
 capabilities:
   - type: com.docker.sandbox/volume@1
     optional: %t
-    config: {path: %s%s}
+    config: {%s}
 `
-					inputs := []Contribution{
-						contribute(t, "first-kit", fmt.Sprintf(vol, optional, "/data/cache", "")),
-						contribute(t, "second-kit", fmt.Sprintf(vol, optional, tc.path, tc.extra)),
-					}
-					for _, input := range inputs {
-						_, err := Validate(input.Descriptor)
-						require.NoError(t, err)
-					}
-					published, err := Merge(inputs, MergeOptions{})
+				inputs := []Contribution{
+					contribute(t, "first-kit", fmt.Sprintf(vol, optional, tc.first)),
+					contribute(t, "second-kit", fmt.Sprintf(vol, false, tc.second)),
+				}
+				for _, input := range inputs {
+					_, err := Validate(input.Descriptor)
+					require.NoError(t, err)
+				}
+				published, err := Merge(inputs, MergeOptions{})
+				composed, composeErr := Compose(inputs)
+				if !tc.match {
 					require.Nil(t, published)
+					require.Nil(t, composed)
 					require.ErrorContains(t, err, "first-kit capabilities[0]")
 					require.ErrorContains(t, err, "second-kit capabilities[0]")
-					require.ErrorContains(t, err, CapabilityVolume)
 					require.ErrorContains(t, err, "/data/cache")
-					composed, composeErr := Compose(inputs)
-					require.Nil(t, composed)
 					require.EqualError(t, composeErr, err.Error())
-				})
+					continue
+				}
+				require.NoError(t, err)
+				require.NoError(t, composeErr)
+				require.Equal(t, published.Descriptor, composed)
+				require.Len(t, composed.Capabilities, 1)
+				require.False(t, composed.Capabilities[0].Optional)
+				require.Equal(t, inputs[0].Descriptor.Capabilities[0].Config, composed.Capabilities[0].Config)
 			}
 		})
 	}

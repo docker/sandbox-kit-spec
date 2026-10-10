@@ -54,8 +54,11 @@ capabilities:
 
   # The engine store doubles as the kit build cache; removing the sandbox
   # is cache GC. Sized for multi-arch host-attached builds; override with
-  # --kit-arg volumeSize=100g. Raising size does not grow an already-
-  # formatted volume — recreate (or wipe) once after changing it.
+  # --kit-arg volumeSize=100g. To increase size, remove the sandbox and
+  # create a new instance with the larger request. Removal deletes this
+  # cache and all other instance volume data. Recreation with a changed
+  # size is refused; wiping files neither resets the retained request
+  # nor grows the allocation.
   - type: com.docker.sandbox/volume@1
     config: {path: /var/lib/docker, size: "${{ kit.args.volumeSize }}"}
 

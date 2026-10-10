@@ -64,12 +64,13 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, at most one `--skills-host-mode readonly\|off`, at most one `--skills-host-store missing\|empty`, at most one `--ssh-agent <socket>`, at most one `--ssh-known-hosts <file>`, at most one `--git-identity-config <absolute-path>\|off` | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, and `--git-identity-config <absolute-path>\|off` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
-| `recreate` | `<id>` | — | Replace the sandbox's container with a fresh writable layer, preserving only declared volume state |
-| `rm` | `<id>` | — | Discard the sandbox |
+| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container within the same instance, preserving block-volume storage |
+| `rm` | `<id>` | — | End the instance and delete all its volume storage |
+| `volume-paths` | `<id>` | JSON array of cleaned destination paths | Observe allocated block storage, including unmounted destinations |
 | `wait-idle` | `<id>` | — | Disconnect the final client session and wait beyond the normal auto-stop grace period |
 | `status` | `<id>` | `running` or `stopped` | Observe sandbox state without starting it or attaching a session |
 | `host-mounts` | `<kit-ref>` | JSON array of `{id, path, hostPath}` | List retained host directories for the resolved Kit identity |
@@ -97,15 +98,50 @@ It **MUST** run the command as the sandbox's agent identity: several
 requirements are about who the sandbox does things as, and an `exec` of
 the runtime's choosing would answer for a user the agent never is.
 
-`stop` followed by `start` **MUST** preserve the sandbox's filesystem.
+`stop` followed by `start` **MUST** preserve the sandbox's writable layer
+and block-volume contents; tmpfs contents are discarded.
 This pair is what separates the lifecycle phases: `install` hooks run once
 at create, `startup` hooks on every boot.
 
 `recreate` **MUST** replace the container — discarding the writable layer —
-while preserving declared volume state. Because stop/start preserves
-everything, it cannot distinguish a volume from an ordinary directory;
+while preserving the instance's block-volume storage, including paths
+no longer selected. With replacement references, the adapter **MUST**
+recreate the same instance with that composition; without them it reuses
+the previous references. Argument overrides replace values by name;
+other create-time inputs, including host bindings, remain unchanged.
+The adapter **MUST** keep the suite-facing id usable after recreation,
+even if the runtime changes its container handle. Deliberate refusal
+returns `2` and leaves the previous composition and storage intact.
+Because stop/start preserves the writable layer, it cannot distinguish
+a block volume from an ordinary directory;
 recreate is the observation that can, and the suite verifies the layer was
 really discarded before crediting anything to the volume.
+
+An adapter claiming `volume@1` **MUST** support `create --name`, changed
+composition recreation, and `volume-paths`. The suite uses a fresh alias
+to distinguish recreation from removal followed by creation under the
+same name. `volume-paths` **MUST** report actual runtime-managed block
+storage, including retained unmounted paths and allocations orphaned by
+instance removal. The suite-facing observation handle **MUST** remain
+usable after instance metadata is removed: an absent instance record
+alone does not establish that its backing allocations were deleted.
+An empty array means no associated block allocation remains. The verb
+**MUST NOT** provision storage or merely echo a descriptor or
+adapter-maintained request list. The adapter **MUST NOT**
+simulate persistence by copying data around a runtime remove/create.
+An adapter without an operation that preserves instance identity and
+volume data on recreation cannot claim `volume@1`.
+
+Volume data probes run as the agent. Mount-root accessibility is a SHOULD,
+so contents observations report SKIP when the initial root's permissions
+prevent seeding or reading test data. Only the fixture probe's explicit
+permission-denied status permits that skip; missing roots and failed
+probes remain failures. Errors after successfully seeding retained block
+storage are not skipped, because they can violate state preservation.
+Tmpfs discarded on stop or recreation receives a fresh root; initial
+accessibility observations for that replacement root can also skip.
+Removal and retention checks continue their independent allocation,
+mounting, and already-seeded storage observations after a contents skip.
 
 `wait-idle` and `status` are required only for adapters claiming
 `com.docker.sandbox/long-running@1`. `wait-idle` **MUST** exercise a real
