@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ func TestMCPServerValidation(t *testing.T) {
 		{"name": "docs-2", "transport": "streamable-http", "port": 8080},
 		{"name": "docs", "transport": "streamable-http", "port": 1, "path": "/"},
 		{"name": "docs", "transport": "streamable-http", "port": 65535, "path": "/v1/mcp;x=1"},
+		{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/m%20cp/%e2%9c%93"},
 		{"name": "docs", "transport": "stdio", "arguments": []any{"--read-only", ""}},
 		{"name": "docs", "transport": "streamable-http", "port": 8080, "arguments": []any{"serve", "--port", "8080"}},
 	} {
@@ -55,6 +57,8 @@ func TestMCPServerValidation(t *testing.T) {
 		{"fragment path", `{"name":"docs","transport":"streamable-http","port":8080,"path":"/mcp#x"}`, "absolute URL path"},
 		{"space path", `{"name":"docs","transport":"streamable-http","port":8080,"path":"/m cp"}`, "absolute URL path"},
 		{"empty path", `{"name":"docs","transport":"streamable-http","port":8080,"path":""}`, "absolute URL path"},
+		{"bad escape", `{"name":"docs","transport":"streamable-http","port":8080,"path":"/mcp%ZZ"}`, "absolute URL path"},
+		{"short escape", `{"name":"docs","transport":"streamable-http","port":8080,"path":"/mcp%4"}`, "absolute URL path"},
 		{"arg name", `{"name":"${{ kit.args.name }}","transport":"stdio"}`, "must be literal"},
 		{"arg port", `{"name":"docs","transport":"streamable-http","port":"${{ kit.args.port }}"}`, "must be literal"},
 		{"env path", `{"name":"docs","transport":"streamable-http","port":8080,"path":"${{ kit.env.MCP_PATH }}"}`, "must be literal"},
@@ -198,6 +202,26 @@ func TestMCPServerComposition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "docs", m.Name)
 
+	// A restatement that omits the HTTP path asks for the endpoint an
+	// explicit /mcp names, so the two collapse; a different path or a
+	// different launch is a second author.
+	http := func(config map[string]any) Contribution {
+		return Contribution{Reference: fmt.Sprint(config), Descriptor: &Descriptor{
+			SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{mcpServerEntry(config)},
+		}}
+	}
+	base := map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080}
+	explicit := map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/mcp"}
+	_, err = Merge([]Contribution{http(base), http(explicit)}, MergeOptions{})
+	require.NoError(t, err)
+	for _, other := range []map[string]any{
+		{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/v2"},
+		{"name": "docs", "transport": "streamable-http", "port": 8080, "arguments": []any{"--x"}},
+	} {
+		_, err = Merge([]Contribution{http(base), http(other)}, MergeOptions{})
+		require.ErrorContains(t, err, "both declare mcp-server", other)
+	}
+
 	// A set cannot carry a server onto an agent: the agent is a second
 	// workload, and the merged declarations would be refused besides.
 	agent := Contribution{Reference: "agent", Descriptor: &Descriptor{
@@ -245,13 +269,17 @@ func TestMCPServerSchema(t *testing.T) {
 	arguments := at(t, props, "arguments")
 	require.Equal(t, "array", arguments["type"])
 	require.Equal(t, float64(1), arguments["minItems"])
-	require.ElementsMatch(t, []any{"string", "number", "boolean"}, at(t, arguments, "items")["type"])
+	require.Equal(t, "string", at(t, arguments, "items")["type"])
 
 	// The schema patterns must judge exactly what validation does; Go's
 	// RE2 and the schema's ECMA dialect agree on these character classes.
 	name := regexp.MustCompile(at(t, props, "name")["pattern"].(string))
 	for _, v := range []string{"docs", "a", "docs-2", "Docs", "docs.x", "-docs", "docs-", ""} {
 		require.Equal(t, mcpServerName.MatchString(v), name.MatchString(v), v)
+	}
+	path := regexp.MustCompile(at(t, props, "path")["pattern"].(string))
+	for _, v := range []string{"/", "/mcp", "/v1/mcp;x=1", "/m%20cp", "/%e2%9c%93", "/mcp%ZZ", "/mcp%4", "/mcp%", "mcp", "/mcp?x", "/m cp"} {
+		require.Equal(t, mcpServerPath.MatchString(v), path.MatchString(v), v)
 	}
 
 	// Transport-dependent presence rules live in allOf, mirroring

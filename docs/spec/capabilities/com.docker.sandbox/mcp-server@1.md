@@ -65,8 +65,8 @@ capabilities:
 | `name` | string | Required. The name the gateway serves the server under: one lowercase DNS label (`[a-z0-9]`, inner hyphens, at most 63 characters). |
 | `transport` | string | Required. `stdio` or `streamable-http`. |
 | `port` | integer | Required for `streamable-http`, forbidden for `stdio`. The container port, 1-65535, the endpoint listens on. |
-| `path` | string | Optional for `streamable-http`, forbidden for `stdio`; defaults to `/mcp`. An absolute URL path built from RFC 3986 path characters: no query, fragment, or whitespace. |
-| `arguments` | list\<string\> | Optional. The argv the entrypoint runs with in place of the image's cmd. Non-empty when present (omit it to run the cmd); no element contains NUL. An element is passed verbatim, as one argv entry; a number or boolean, which a whole-value arg reference becomes at create (§6), is passed as its spelling. |
+| `path` | string | Optional for `streamable-http`, forbidden for `stdio`; defaults to `/mcp`. An absolute URL path built from RFC 3986 path characters, with `%` only as a two-hex-digit escape: no query, fragment, or whitespace. |
+| `arguments` | list\<string\> | Optional. The argv the entrypoint runs with in place of the image's cmd. Non-empty when present (omit it to run the cmd); no element contains NUL. An element is passed verbatim, as one argv entry. |
 
 `arguments` is the registry formats' command line. The MCP Registry's
 `server.json` places `packageArguments` after the image and Docker's
@@ -77,6 +77,14 @@ arg resolving to the empty string yields an empty entry rather than
 none. Spell an optional value into its flag
 (`--root=${{ kit.args.root }}`) when the entrypoint must not see a bare
 empty argument.
+
+A whole-value arg reference adopts its value's type when it expands
+(§6), so an element of an expanded or set-pinned descriptor may be a
+number or a boolean; it is passed as its spelling, which adoption
+guarantees is the value supplied. Validation cannot tell such an
+element from an authored literal, so it accepts both. Quote numeric
+and boolean elements when authoring: unquoted, YAML decodes `1.0` and
+`0x10` as numbers, and they reach the entrypoint as `1` and `16`.
 
 The MCP specification's deprecated HTTP+SSE transport is not admitted.
 A version of this capability that accepted it could not later drop it.

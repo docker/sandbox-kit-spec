@@ -29,21 +29,17 @@
     },
     "path": {
       "type": "string",
-      "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$",
+      "pattern": "^/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$",
       "default": "/mcp",
-      "description": "Absolute URL path of the streamable-HTTP endpoint, without query or fragment. Forbidden for stdio."
+      "description": "Absolute URL path of the streamable-HTTP endpoint, without query or fragment, and with % only as a two-hex-digit escape. Forbidden for stdio."
     },
     "arguments": {
       "type": "array",
       "minItems": 1,
       "items": {
-        "type": [
-          "string",
-          "number",
-          "boolean"
-        ]
+        "type": "string"
       },
-      "description": "Argv the entrypoint runs with in place of the image's cmd, as `docker run <image> <args>` would pass it. Elements may reference ${{ kit.args.<name> }} but not kit.env; a number or boolean, which a whole-value reference becomes at create, is passed as its spelling. Omit it to run the image's cmd."
+      "description": "Argv the entrypoint runs with in place of the image's cmd, as `docker run <image> <args>` would pass it. Elements are strings and may reference ${{ kit.args.<name> }} but not kit.env; quote numbers and booleans, which YAML would otherwise decode and re-spell. Omit it to run the image's cmd."
     }
   },
   "allOf": [

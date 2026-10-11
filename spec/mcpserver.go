@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -34,8 +35,9 @@ var (
 
 	// mcpServerPath is an absolute URL path built from RFC 3986 pchars:
 	// no query, fragment, or whitespace, which a gateway would otherwise
-	// have to re-encode or silently drop.
-	mcpServerPath = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$`)
+	// have to re-encode or silently drop, and `%` only as a complete
+	// escape, which a URL parser would otherwise refuse.
+	mcpServerPath = regexp.MustCompile(`^/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$`)
 )
 
 // MCPServer is CapabilityMCPServer's config. Everything else about how
@@ -53,10 +55,16 @@ type MCPServer struct {
 }
 
 // MCPArguments is an argv tail. Each element is text, but a whole-value
-// arg reference adopts its value's type at create (SPEC-v3 §6), so a
-// number or boolean decodes back to the spelling it expanded from:
+// arg reference adopts its value's type when it expands (SPEC-v3 §6),
+// so a number or boolean decodes back to the spelling it expanded from:
 // typedScalar adopts only spellings that render back identically, and
 // json.Number keeps an integer exact past float64's precision.
+//
+// Build-phase expansion, create-phase expansion, and a set pinning its
+// kits' args all hand adopted scalars to the validators an authored
+// descriptor goes through, so decoding cannot refuse an authored
+// literal without refusing them. The editor schema, which only ever
+// sees authored text, admits strings alone.
 type MCPArguments []string
 
 func (a *MCPArguments) UnmarshalJSON(data []byte) error {
@@ -102,6 +110,17 @@ func MCPServerPath(m MCPServer) string {
 		return DefaultMCPPath
 	}
 	return m.Path
+}
+
+// sameMCPServer reports whether two declarations name one endpoint and
+// one launch, reading an omitted HTTP path as the default it stands for.
+func sameMCPServer(a, b MCPServer) bool {
+	for _, m := range []*MCPServer{&a, &b} {
+		if m.Transport == MCPTransportStreamableHTTP {
+			m.Path = MCPServerPath(*m)
+		}
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 // MCPServerOf returns the server declaration among selected capabilities,
