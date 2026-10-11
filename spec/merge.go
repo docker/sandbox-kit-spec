@@ -410,8 +410,8 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // asking at once means: network policies union, lifecycle hooks
 // concatenate, and the types that describe the whole sandbox rather
 // than a grant to it — resources, agent-sessions,
-// agent-interactive-sessions — admit one author, because two different
-// answers cannot both be the sandbox's.
+// agent-interactive-sessions, mcp-server — admit one author, because two
+// different answers cannot both be the sandbox's.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
 		byKey:    map[string]keyed{},
@@ -525,6 +525,7 @@ type capabilityMerge struct {
 
 	resources *keyed
 	sessions  *keyed
+	mcpServer *keyed
 
 	interactiveSessions *keyed
 	newSession          []string
@@ -592,6 +593,9 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 
 	case CapabilityResources:
 		return mergeSole(&m.resources, reference, n, "resources")
+
+	case CapabilityMCPServer:
+		return mergeSole(&m.mcpServer, reference, n, "mcp-server")
 
 	case CapabilityAgentSessions:
 		// Remembered for the list agreement in finish. This type was never
@@ -713,7 +717,7 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		}
 		return nil
 	}
-	return fmt.Errorf("merge: %s and %s both declare %s; it describes the whole sandbox, so it has one author",
+	return fmt.Errorf("merge: %s and %s both declare %s; it describes the whole composition, so it has one author",
 		(*slot).reference, reference, label)
 }
 
@@ -848,6 +852,11 @@ func sameRequest(a, b Capability) bool {
 		if DecodeCapabilityConfig(a, &sa) == nil && DecodeCapabilityConfig(b, &sb) == nil {
 			return sa.Path == sb.Path && SkillsMode(sa) == SkillsMode(sb)
 		}
+	case CapabilityMCPServer:
+		var ma, mb MCPServer
+		if DecodeCapabilityConfig(a, &ma) == nil && DecodeCapabilityConfig(b, &mb) == nil {
+			return sameMCPServer(ma, mb)
+		}
 	}
 	return capabilityIdentity(a) == capabilityIdentity(b)
 }
@@ -873,6 +882,9 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 
 	if m.resources != nil {
 		out = append(out, m.resources.capability)
+	}
+	if m.mcpServer != nil {
+		out = append(out, m.mcpServer.capability)
 	}
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)

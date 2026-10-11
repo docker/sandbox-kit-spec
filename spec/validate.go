@@ -57,6 +57,7 @@ func Validate(d *Descriptor) (warnings []string, err error) {
 	errs.add(validateIconURL(d.IconURL))
 	errs.add(validateCapabilityNames(d))
 	errs.add(validateCapabilityEntries(d))
+	errs.add(validateMCPServerRole(d))
 	errs.add(validateArgs(d.Args))
 	errs.add(validateRecipe(d))
 	errs.add(validateKits(d))
@@ -471,6 +472,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
+	CapabilityMCPServer:                true,
 }
 
 // deref unwraps pointer and interface layers, the way JSON marshaling
@@ -881,6 +883,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 		case CapabilityACP:
 			errs.add(validateACP(path, i, n))
+		case CapabilityMCPServer:
+			errs.add(validateMCPServer(path, i, n))
 		case CapabilityAgentSessions:
 			var a AgentSessions
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
@@ -1237,6 +1241,9 @@ func validatePresenceRules(path string, i int, n Capability) error {
 	var errs ValidationErrors
 	if n.Type == CapabilityACP {
 		return validateACPAuthored(path, i, n)
+	}
+	if n.Type == CapabilityMCPServer {
+		return validateMCPServerAuthored(path, i, n)
 	}
 	if n.Type == CapabilityAgentInteractiveSessions {
 		// Whether a verb is stated is its meaning, so its nulls and its

@@ -441,6 +441,11 @@ const (
 	// CapabilityACP declares an agent adapter speaking ACP over stdio.
 	CapabilityACP = "com.docker.sandbox/acp@1"
 
+	// CapabilityMCPServer declares that a workload's image is an MCP
+	// server: the host attaches it to a sandbox's MCP gateway rather than
+	// launching it as a sandbox.
+	CapabilityMCPServer = "com.docker.sandbox/mcp-server@1"
+
 	// CapabilityAgentSessions declares the workload's session control surface:
 	// the argv shapes a harness uses to drive the agent — run one prompt
 	// headlessly, list past sessions, resume or continue one. Not a
