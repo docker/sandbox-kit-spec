@@ -1,0 +1,30 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Hello MCP
+author: "Christian Dupuis <cd@docker.com>"
+description: >-
+  Smallest possible MCP server Kit: a stdio server with one greet tool,
+  attached to a sandbox's MCP gateway rather than run as a sandbox.
+
+kind: workload
+provides: ["hello-mcp@1.0.0"]
+
+args:
+  # Resolved for each attachment and handed to the server on its
+  # command line through mcp-server@1 arguments below.
+  greeting:
+    default: hello
+    pattern: "^[A-Za-z][A-Za-z ,!]{0,31}$"
+    description: Word the greet tool opens with
+
+capabilities:
+  # The image's entrypoint is the server, so the host attaches this Kit
+  # to a sandbox's gateway and never boots it as a sandbox. The server
+  # needs no egress, so it declares no network policy and gets none.
+  # arguments replace the image's cmd, as docker run <image> <args>
+  # would; the endpoint fields stay literal.
+  - type: com.docker.sandbox/mcp-server@1
+    config:
+      name: hello
+      transport: stdio
+      arguments: ["--greeting=${{ kit.args.greeting }}"]
