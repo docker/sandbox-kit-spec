@@ -203,6 +203,28 @@ var waived = map[string]string{
 	"acp@1/declaration-grants-nothing": "permission projection rule, judged by TestACPSurface",
 	"acp@1/composition":                "composition rule, judged by TestACPComposition, including sets and selected groups",
 
+	// Attaching a server to a gateway is a host operation the adapter
+	// contract does not have; only refusing to boot one is observable.
+	"mcp-server@1/workload-only":              "grammar rule, judged by TestMCPServerRole",
+	"mcp-server@1/required":                   "grammar rule, judged by TestMCPServerRole, including group members",
+	"mcp-server@1/config-valid":               "grammar rule, judged by TestMCPServerValidation, TestMCPServerArguments, and TestMCPServerSchema",
+	"mcp-server@1/literal":                    "grammar rule, judged by TestMCPServerValidation and TestMCPServerArguments",
+	"mcp-server@1/server-only":                "grammar rule, judged by TestMCPServerRole and, for sets, TestMCPServerComposition",
+	"mcp-server@1/stdio-stream":               "a server guarantee: kit-tck validate reads the published artifact and does not run its entrypoint, and the runtime adapter has no attach operation that would",
+	"mcp-server@1/http-endpoint":              "a server guarantee: kit-tck validate reads the published artifact and does not run its entrypoint, and the runtime adapter has no attach operation that would",
+	"mcp-server@1/attach-explicit":            "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/attach-args":                "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/launch":                     "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/stdio-connect":              "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/http-connect":               "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/ready-before-advertised":    "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/gateway-name":               "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/isolated":                   "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/own-boundary":               "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/lifetime":                   "the adapter contract has no MCP gateway attach operation; only refusing to boot a server as a sandbox can be observed",
+	"mcp-server@1/declaration-grants-nothing": "permission projection rule, judged by TestMCPServerSurface; the runtime adapter has no attach operation",
+	"mcp-server@1/composition":                "composition rule, judged by TestMCPServerComposition",
+
 	"git-identity@1/source-private":               "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
 	"SPEC-v3 §7.1.1/selection-before-application": "the adapter exposes only final files, records, and grants, not an effect trace during selection; effects applied before selection and then rolled back cannot be observed",
 	"SPEC-v3 §7.1.1/conflicts-before-application": "a refused create returns no sandbox ID and the adapter exposes no failed-create effect trace; the suite can observe conflict refusal but cannot inspect files or hooks applied before that refusal",

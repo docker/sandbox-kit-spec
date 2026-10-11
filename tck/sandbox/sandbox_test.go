@@ -600,6 +600,7 @@ var mutations = map[string][]string{
 	"runs-image-entrypoint":                 {"sbx@1/entrypoint-not-pid-one"},
 	"workspace-at-fixed-path":               {"sbx@1/workspace-at-workdir"},
 	"accept-unknown":                        {"SPEC-v3 §7.3/unknown-required-refused"},
+	"boots-mcp-server":                      {"mcp-server@1/not-a-sandbox"},
 	"refuses-everything":                    {"conformance.md §2.1/baseline-create-succeeds"},
 	"no-context":                            {"agent-context@1/body-readable", "agent-context@1/directory-honored"},
 	"ignores-context-directory":             {"agent-context@1/directory-honored"},
