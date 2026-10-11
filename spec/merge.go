@@ -852,6 +852,11 @@ func sameRequest(a, b Capability) bool {
 		if DecodeCapabilityConfig(a, &sa) == nil && DecodeCapabilityConfig(b, &sb) == nil {
 			return sa.Path == sb.Path && SkillsMode(sa) == SkillsMode(sb)
 		}
+	case CapabilityMCPServer:
+		var ma, mb MCPServer
+		if DecodeCapabilityConfig(a, &ma) == nil && DecodeCapabilityConfig(b, &mb) == nil {
+			return sameMCPServer(ma, mb)
+		}
 	}
 	return capabilityIdentity(a) == capabilityIdentity(b)
 }
