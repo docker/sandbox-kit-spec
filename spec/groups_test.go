@@ -326,7 +326,7 @@ func TestDeferredPublicationRefusesConcreteConflicts(t *testing.T) {
 		{"credential in a required group", group(false, credential, port), credential, "one credential has one owner"},
 		{"credential alone in an optional group", group(true, credential), credential, ""},
 		{"credential in an optional group", group(true, credential, port), credential, ""},
-		{"different resources", resources(1), resources(2), "it describes the whole sandbox"},
+		{"different resources", resources(1), resources(2), "it describes the whole composition"},
 		{"different acp", acp("claude-acp"), acp("other-acp"), "ask for different things"},
 		{"identical ports", port, port, ""},
 		{"agent-context profiles", context, context, ""},

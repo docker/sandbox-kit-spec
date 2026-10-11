@@ -183,6 +183,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityLifecycle, s: "ready", config: map[string]any{"startup": []any{map[string]any{"command": "echo " + ref}}}, field: "startup"},
 		{typ: CapabilityAgentContext, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content"},
 		{typ: CapabilityAgentContextV2, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content"},
+		{typ: CapabilityMCPServer, s: "debug", config: map[string]any{"name": "docs", "transport": "stdio", "command": []any{"docs-mcp", ref}}, field: "command"},
 		{typ: CapabilityACP, s: "debug", config: map[string]any{"agent": "claude", "command": []any{"claude-acp"}, "env": map[string]any{"LOG": ref}}, field: "env"},
 		{typ: CapabilityAgentSessions, s: "opus", config: map[string]any{"prompt": []any{"--model", ref, "-p", SessionPromptPlaceholder}}, field: "prompt"},
 		{typ: CapabilityAgentInteractiveSessions, s: "opus", config: map[string]any{"newSession": []any{"--model", ref}}, field: "newSession"},

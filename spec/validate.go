@@ -479,7 +479,6 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
-	CapabilityMCPServer:                true,
 }
 
 // deref unwraps pointer and interface layers, the way JSON marshaling
@@ -687,6 +686,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.parts[0], key.parts[1], prev))
+				}
+			}
+		case CapabilityMCPServer:
+			for _, key := range c.keys {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
+					errs.add(fieldErrorf(path+".config.name", "capabilities[%d]: MCP server %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
 		case CapabilityACP:
@@ -904,7 +909,7 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 
 	switch n.Type {
 	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
-		CapabilityAgentContext, CapabilityAgentContextV2:
+		CapabilityAgentContext, CapabilityAgentContextV2, CapabilityMCPServer:
 		c.keys = entryKeys(n)
 	case CapabilityACP:
 		c.keys, c.agent = entryKeys(n), n.Config["agent"]

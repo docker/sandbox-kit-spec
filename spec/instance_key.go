@@ -63,6 +63,7 @@ type InstanceKey struct {
 
 	// Parts is the key within Space, in order:
 	//
+	//   - mcp-server@1: the server name
 	//   - acp@1: the agent name, normalized by NormalizeCapabilityName
 	//   - credential@1: the service, then the phase
 	//   - ssh-agent@1: the phase
@@ -128,6 +129,9 @@ func keyAsWritten(c Capability) (InstanceKey, Arity, error) {
 // keys as the instance-shaped types, and validation keys a declaration
 // block's entries through it, so they agree on what identifies an entry.
 var instanceKeys = map[string]keyDefinition{
+	CapabilityMCPServer: keyOn([]string{"name"}, func(m MCPServer) ([]string, error) {
+		return []string{m.Name}, nil
+	}),
 	CapabilityACP: keyOn([]string{"agent"}, func(a ACP) ([]string, error) {
 		return []string{NormalizeCapabilityName(a.Agent)}, nil
 	}),

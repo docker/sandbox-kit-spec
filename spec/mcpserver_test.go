@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -17,6 +16,10 @@ func stdioServer() Capability {
 	return mcpServerEntry(map[string]any{"name": "docs", "transport": "stdio"})
 }
 
+func commandServer(name string) Capability {
+	return mcpServerEntry(map[string]any{"name": name, "transport": "stdio", "command": []any{name + "-mcp"}})
+}
+
 func TestMCPServerValidation(t *testing.T) {
 	for _, config := range []map[string]any{
 		{"name": "docs", "transport": "stdio"},
@@ -27,6 +30,9 @@ func TestMCPServerValidation(t *testing.T) {
 		{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/m%20cp/%e2%9c%93"},
 		{"name": "docs", "transport": "stdio", "arguments": []any{"--read-only", ""}},
 		{"name": "docs", "transport": "streamable-http", "port": 8080, "arguments": []any{"serve", "--port", "8080"}},
+		{"name": "docs", "transport": "stdio", "command": []any{"docs-mcp", "--stdio"}},
+		{"name": "docs", "transport": "stdio", "command": "exec docs-mcp --stdio"},
+		{"name": "docs", "transport": "streamable-http", "port": 8080, "command": []any{"docs-mcp", "serve"}},
 	} {
 		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindWorkload, Capabilities: []Capability{mcpServerEntry(config)}}
 		_, err := Validate(d)
@@ -63,14 +69,19 @@ func TestMCPServerValidation(t *testing.T) {
 		{"arg port", `{"name":"docs","transport":"streamable-http","port":"${{ kit.args.port }}"}`, "must be literal"},
 		{"env path", `{"name":"docs","transport":"streamable-http","port":8080,"path":"${{ kit.env.MCP_PATH }}"}`, "must be literal"},
 		{"arg name beside arguments", `{"name":"${{ kit.args.name }}","transport":"stdio","arguments":["--x"]}`, "must be literal"},
-		{"env argument", `{"name":"docs","transport":"stdio","arguments":["--home=${{ kit.env.HOME }}"]}`, "not kit.env"},
+		{"arg name beside command", `{"name":"${{ kit.args.name }}","transport":"stdio","command":["docs-mcp"]}`, "must be literal"},
 		{"empty arguments", `{"name":"docs","transport":"stdio","arguments":[]}`, "must not be empty"},
 		{"null arguments", `{"name":"docs","transport":"stdio","arguments":null}`, "must not be null"},
 		{"null argument", `{"name":"docs","transport":"stdio","arguments":["--x",null]}`, "must not be null"},
 		{"object argument", `{"name":"docs","transport":"stdio","arguments":[{"x":1}]}`, "must be a string"},
 		{"string arguments", `{"name":"docs","transport":"stdio","arguments":"--x"}`, "list of strings"},
 		{"nul argument", `{"name":"docs","transport":"stdio","arguments":["--x\u0000y"]}`, "NUL"},
-		{"unknown field", `{"name":"docs","transport":"stdio","command":["server"]}`, "unknown field"},
+		{"empty command", `{"name":"docs","transport":"stdio","command":[]}`, "must name a command"},
+		{"blank command", `{"name":"docs","transport":"stdio","command":"  "}`, "must name a command"},
+		{"null command", `{"name":"docs","transport":"stdio","command":null}`, "must not be null"},
+		{"nul command", `{"name":"docs","transport":"stdio","command":["docs\u0000mcp"]}`, "NUL"},
+		{"command and arguments", `{"name":"docs","transport":"stdio","command":["docs-mcp"],"arguments":["--x"]}`, "state the whole argv in command"},
+		{"unknown field", `{"name":"docs","transport":"stdio","image":"docs"}`, "unknown field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := []byte(`{"schemaVersion":"3","kind":"workload","args":{"name":{"default":"docs"},"port":{"default":"8080"}},"capabilities":[{"type":"` + CapabilityMCPServer + `","config":` + tc.config + `}]}`)
@@ -95,7 +106,12 @@ capabilities:
     config:
       name: files
       transport: stdio
-      arguments: ["--root=${{ kit.args.root }}", "${{ kit.args.value }}"]
+      arguments: ["--root=${{ kit.args.root }}", "${{ kit.args.value }}", "--home=${{ kit.env.HOME }}"]
+  - type: ` + CapabilityMCPServer + `
+    config:
+      name: notes
+      transport: stdio
+      command: ["notes-mcp", "--root=${{ kit.args.root }}"]
 `)
 	d, err := Decode(raw)
 	require.NoError(t, err)
@@ -104,16 +120,23 @@ capabilities:
 
 	// A whole-value reference adopts a number or boolean type at create;
 	// the argv entry must still be exactly what the installer supplied.
+	// kit.env waits for the final container environment (§6.1).
 	for _, value := range []string{"plain", "", "8080", "-1", "1.5", "0.0000001", "9007199254740993", "true", "1.0", "007", "1e5"} {
 		effective, err := ExpandCreateArgs(raw, d.Args, map[string]string{"root": "/srv", "value": value})
 		require.NoError(t, err, value)
-		expanded, err := Decode(effective)
+		created, err := Decode(effective)
 		require.NoError(t, err, value)
-		_, err = ValidateEffective(effective, expanded)
+		servers, err := MCPServersOf(created.Capabilities)
 		require.NoError(t, err, value)
-		m, err := MCPServerOf(expanded.Capabilities)
+		require.Equal(t, MCPArguments{"--root=/srv", value, "--home=${{ kit.env.HOME }}"}, servers[0].Server.Arguments, value)
+
+		final, err := ExpandEnvironment(created, map[string]string{"HOME": "/home/agent"})
 		require.NoError(t, err, value)
-		require.Equal(t, MCPArguments{"--root=/srv", value}, m.Arguments, value)
+		servers, err = MCPServersOf(final.Capabilities)
+		require.NoError(t, err, value)
+		require.Len(t, servers, 2, value)
+		require.Equal(t, MCPArguments{"--root=/srv", value, "--home=/home/agent"}, servers[0].Server.Arguments, value)
+		require.Equal(t, CommandLine{"notes-mcp", "--root=/srv"}, servers[1].Server.Command, value)
 	}
 }
 
@@ -121,131 +144,147 @@ func TestMCPServerRole(t *testing.T) {
 	workload := func(capabilities ...Capability) *Descriptor {
 		return &Descriptor{SchemaVersion: SchemaVersion, Kind: KindWorkload, Capabilities: capabilities}
 	}
-	// The types that bound the server's own container, plus third-party
-	// types the grammar cannot judge, travel beside the declaration.
+	mixin := func(capabilities ...Capability) *Descriptor {
+		return &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: capabilities}
+	}
+
+	// A server is a sandbox like any other: everything that bounds or
+	// extends one travels beside it, and so do servers of its own.
 	_, err := Validate(workload(
 		stdioServer(),
+		commandServer("notes"),
 		Capability{Type: CapabilityNetworkPolicy, Config: map[string]any{"runtime": map[string]any{"allow": []any{"api.example.com:443"}}}},
 		Capability{Type: CapabilityCredential, Optional: true, Config: map[string]any{"service": "example", "phase": "runtime",
 			"apiKey": map[string]any{"name": "EXAMPLE_TOKEN", "proxyManaged": true, "inject": []any{map[string]any{"domain": "api.example.com", "header": "Authorization", "format": "Bearer %s"}}}}},
 		Capability{Type: CapabilityResources, Config: map[string]any{"memory": "512m"}},
+		Capability{Type: CapabilityLongRunning},
+		Capability{Type: CapabilityPort, Config: map[string]any{"container": 8080}},
 		Capability{Type: "com.example/telemetry@1", Optional: true},
 	))
 	require.NoError(t, err)
 
-	mixin := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{stdioServer()}}
-	_, err = Validate(mixin)
-	require.ErrorContains(t, err, "workload-only")
-
-	optional := stdioServer()
+	// An agent Kit can carry servers of its own, optional and grouped
+	// ones included, as long as each says how it starts.
+	optional := commandServer("search")
 	optional.Optional = true
-	_, err = Validate(workload(optional))
-	require.ErrorContains(t, err, "must not be optional")
-
-	_, err = Validate(workload(Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{stdioServer()}}}))
-	require.ErrorContains(t, err, "must not be a group member")
-
-	_, err = Validate(workload(stdioServer(), stdioServer()))
-	require.ErrorContains(t, err, "already declared")
-
-	for _, sandboxOnly := range []Capability{
-		{Type: CapabilitySbx},
-		{Type: CapabilityLongRunning},
-		{Type: CapabilityPrivileged},
-		{Type: CapabilityLifecycle, Config: map[string]any{"startup": []any{map[string]any{"command": "true"}}}},
-		{Type: CapabilityAgentSkills, Config: map[string]any{"path": "/home/agent/.skills"}},
-		{Type: CapabilityACP, Config: map[string]any{"agent": "docs", "command": []any{"docs"}}},
-		{Type: CapabilityPort, Config: map[string]any{"container": 8080}},
-	} {
-		_, err := Validate(workload(stdioServer(), sandboxOnly))
-		require.ErrorContains(t, err, "does not apply to a Kit declaring", sandboxOnly.Type)
-		// The rule follows the declaration into groups, where a host
-		// selecting the member would otherwise build what it forbids.
-		_, err = Validate(workload(stdioServer(), Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{sandboxOnly}}}))
-		require.ErrorContains(t, err, "does not apply to a Kit declaring", sandboxOnly.Type)
-	}
-	// Without the declaration none of this applies.
-	_, err = Validate(workload(Capability{Type: CapabilitySbx}))
+	_, err = Validate(workload(
+		Capability{Type: CapabilitySbx},
+		commandServer("notes"),
+		optional,
+		Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{commandServer("files")}}},
+	))
 	require.NoError(t, err)
+	_, err = Validate(workload(Capability{Type: CapabilitySbx}, stdioServer()))
+	require.ErrorContains(t, err, "that launch is the agent")
+
+	_, err = Validate(mixin(commandServer("notes")))
+	require.NoError(t, err)
+	_, err = Validate(mixin(stdioServer()))
+	require.ErrorContains(t, err, "a mixin has none")
+
+	launch := func(name string) Capability {
+		return mcpServerEntry(map[string]any{"name": name, "transport": "stdio"})
+	}
+	_, err = Validate(workload(launch("docs"), launch("other")))
+	require.ErrorContains(t, err, "a sandbox has one launch")
+	// Group members count: selecting both would leave two servers
+	// claiming the one launch.
+	_, err = Validate(workload(launch("docs"), Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{launch("other")}}}))
+	require.ErrorContains(t, err, "a sandbox has one launch")
+
+	_, err = Validate(workload(stdioServer(), commandServer("docs")))
+	require.ErrorContains(t, err, "already declared")
+	_, err = Validate(workload(commandServer("docs"), Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{commandServer("docs")}}}))
+	require.ErrorContains(t, err, "already declared")
 }
 
 func TestMCPServerAccessor(t *testing.T) {
-	m, err := MCPServerOf([]Capability{{Type: CapabilityResources, Config: map[string]any{"memory": "1g"}}})
+	servers, err := MCPServersOf([]Capability{{Type: CapabilityResources, Config: map[string]any{"memory": "1g"}}})
 	require.NoError(t, err)
-	require.Nil(t, m)
+	require.Empty(t, servers)
 
-	m, err = MCPServerOf([]Capability{mcpServerEntry(map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080})})
+	optional := commandServer("notes")
+	optional.Optional = true
+	optional.Name = "Notes"
+	servers, err = MCPServersOf([]Capability{
+		mcpServerEntry(map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080}),
+		optional,
+	})
 	require.NoError(t, err)
-	require.Equal(t, "docs", m.Name)
-	require.Equal(t, 8080, *m.Port)
-	require.Equal(t, DefaultMCPPath, MCPServerPath(*m))
-	require.Nil(t, m.Arguments)
+	require.Len(t, servers, 2)
+	docs := servers[0].Server
+	require.Equal(t, "docs", docs.Name)
+	require.Equal(t, 8080, *docs.Port)
+	require.Equal(t, DefaultMCPPath, MCPServerPath(docs))
+	require.True(t, MCPServerRunsLaunch(docs))
+	require.Nil(t, docs.Arguments)
+	require.False(t, servers[0].Optional)
+	require.Equal(t, "notes", servers[1].Server.Name)
+	require.Equal(t, "Notes", servers[1].Name)
+	require.True(t, servers[1].Optional)
+	require.False(t, MCPServerRunsLaunch(servers[1].Server))
 
-	m, err = MCPServerOf([]Capability{mcpServerEntry(map[string]any{"name": "docs", "transport": "stdio", "arguments": []any{"serve", "--stdio"}})})
+	servers, err = MCPServersOf([]Capability{
+		mcpServerEntry(map[string]any{"name": "docs", "transport": "stdio", "arguments": []any{"serve", "--stdio"}}),
+		mcpServerEntry(map[string]any{"name": "sh", "transport": "stdio", "command": "exec docs-mcp"}),
+	})
 	require.NoError(t, err)
-	require.Equal(t, MCPArguments{"serve", "--stdio"}, m.Arguments)
+	require.Equal(t, MCPArguments{"serve", "--stdio"}, servers[0].Server.Arguments)
+	require.Equal(t, CommandLine{"sh", "-c", "exec docs-mcp"}, servers[1].Server.Command)
 
-	_, err = MCPServerOf([]Capability{{Group: &CapabilityGroup{Capabilities: []Capability{stdioServer()}}}})
+	_, err = MCPServersOf([]Capability{{Group: &CapabilityGroup{Capabilities: []Capability{stdioServer()}}}})
 	require.ErrorContains(t, err, "select groups first")
 }
 
 func TestMCPServerComposition(t *testing.T) {
-	server := Contribution{Reference: "server", Descriptor: &Descriptor{
-		SchemaVersion: SchemaVersion, Kind: KindWorkload, Capabilities: []Capability{stdioServer()},
-	}}
-	content := Contribution{Reference: "content", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin}}
-	published := mergeOK(t, server, content).Descriptor
-	require.Equal(t, KindWorkload, published.Kind)
+	contribution := func(reference, kind string, capabilities ...Capability) Contribution {
+		return Contribution{Reference: reference, Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: kind, Capabilities: capabilities}}
+	}
+
+	// A mixin brings a server into whatever workload it joins, an agent
+	// included; the workload's own launch entry stays its own.
+	server := contribution("server", KindWorkload, stdioServer())
+	notes := contribution("notes", KindMixin, commandServer("notes"))
+	published := mergeOK(t, server, notes).Descriptor
 	_, err := Validate(published)
 	require.NoError(t, err)
-	m, err := MCPServerOf(published.Capabilities)
+	servers, err := MCPServersOf(published.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, "docs", m.Name)
+	require.Len(t, servers, 2)
+	require.True(t, MCPServerRunsLaunch(servers[0].Server))
+	require.Equal(t, "notes", servers[1].Server.Name)
 
-	// A restatement that omits the HTTP path asks for the endpoint an
-	// explicit /mcp names, so the two collapse; a different path or a
-	// different launch is a second author.
-	http := func(config map[string]any) Contribution {
-		return Contribution{Reference: fmt.Sprint(config), Descriptor: &Descriptor{
-			SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{mcpServerEntry(config)},
-		}}
-	}
-	base := map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080}
-	explicit := map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/mcp"}
-	_, err = Merge([]Contribution{http(base), http(explicit)}, MergeOptions{})
+	agent := contribution("agent", KindWorkload, Capability{Type: CapabilitySbx})
+	published = mergeOK(t, agent, notes).Descriptor
+	_, err = Validate(published)
 	require.NoError(t, err)
+
+	// Entries union on name. A restatement that omits the HTTP path asks
+	// for the endpoint an explicit /mcp names, so the two collapse; a
+	// different path or a different start is a second author.
+	http := func(reference string, config map[string]any) Contribution {
+		return contribution(reference, KindMixin, mcpServerEntry(config))
+	}
+	base := map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080, "command": []any{"docs-mcp"}}
+	explicit := map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/mcp", "command": []any{"docs-mcp"}}
+	merged := mergeOK(t, http("base", base), http("explicit", explicit)).Descriptor
+	servers, err = MCPServersOf(merged.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, servers, 1)
 	for _, other := range []map[string]any{
-		{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/v2"},
-		{"name": "docs", "transport": "streamable-http", "port": 8080, "arguments": []any{"--x"}},
+		{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/v2", "command": []any{"docs-mcp"}},
+		{"name": "docs", "transport": "streamable-http", "port": 8080, "command": []any{"docs-mcp", "--x"}},
+		{"name": "docs", "transport": "stdio", "command": []any{"docs-mcp"}},
 	} {
-		_, err = Merge([]Contribution{http(base), http(other)}, MergeOptions{})
-		require.ErrorContains(t, err, "both declare mcp-server", other)
+		_, err = Merge([]Contribution{http("base", base), http("other", other)}, MergeOptions{})
+		require.ErrorContains(t, err, "ask for different things", other)
 	}
-
-	// A set cannot carry a server onto an agent: the agent is a second
-	// workload, and the merged declarations would be refused besides.
-	agent := Contribution{Reference: "agent", Descriptor: &Descriptor{
-		SchemaVersion: SchemaVersion, Kind: KindWorkload, Capabilities: []Capability{{Type: CapabilitySbx}},
-	}}
-	_, err = Merge([]Contribution{server, agent}, MergeOptions{})
-	require.Error(t, err)
-
-	// A mixin that brings a sandbox-only type is refused on the merged
-	// descriptor, where it would otherwise become the server's.
-	sandboxMixin := Contribution{Reference: "sandbox-mixin", Descriptor: &Descriptor{
-		SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{{Type: CapabilityLongRunning}},
-	}}
-	merged, err := Merge([]Contribution{server, sandboxMixin}, MergeOptions{})
-	if err == nil {
-		_, err = Validate(merged.Descriptor)
-	}
-	require.ErrorContains(t, err, "does not apply to a Kit declaring")
 }
 
 func TestMCPServerSurface(t *testing.T) {
 	d := &Descriptor{Capabilities: []Capability{stdioServer()}}
 	require.Equal(t, SurfaceOf(&Descriptor{}), SurfaceOf(d))
-	d.Capabilities[0] = mcpServerEntry(map[string]any{"name": "other", "transport": "streamable-http", "port": 9000})
+	d.Capabilities[0] = mcpServerEntry(map[string]any{"name": "other", "transport": "streamable-http", "port": 9000, "command": []any{"other-mcp"}})
 	require.Equal(t, SurfaceOf(&Descriptor{}), SurfaceOf(d))
 }
 
@@ -270,6 +309,9 @@ func TestMCPServerSchema(t *testing.T) {
 	require.Equal(t, "array", arguments["type"])
 	require.Equal(t, float64(1), arguments["minItems"])
 	require.Equal(t, "string", at(t, arguments, "items")["type"])
+	// command is the same command line acp@1 states.
+	acp := loadJSON(t, perTypeSchemaPath(CapabilityACP))
+	require.Equal(t, at(t, acp, "properties", "command")["oneOf"], at(t, props, "command")["oneOf"])
 
 	// The schema patterns must judge exactly what validation does; Go's
 	// RE2 and the schema's ECMA dialect agree on these character classes.
@@ -282,13 +324,16 @@ func TestMCPServerSchema(t *testing.T) {
 		require.Equal(t, mcpServerPath.MatchString(v), path.MatchString(v), v)
 	}
 
-	// Transport-dependent presence rules live in allOf, mirroring
-	// validateMCPServerAuthored and validateMCPServer.
+	// Presence rules live in allOf, mirroring validateMCPServerAuthored
+	// and validateMCPServer.
 	rules := schema["allOf"].([]any)
-	require.Len(t, rules, 2)
+	require.Len(t, rules, 3)
 	stdio := rules[0].(map[string]any)
 	require.Equal(t, MCPTransportStdio, at(t, stdio, "if", "properties", "transport")["const"])
 	http := rules[1].(map[string]any)
 	require.Equal(t, MCPTransportStreamableHTTP, at(t, http, "if", "properties", "transport")["const"])
 	require.Equal(t, []any{"port"}, at(t, http, "then")["required"])
+	command := rules[2].(map[string]any)
+	require.Equal(t, []any{"command"}, at(t, command, "if")["required"])
+	require.Equal(t, []any{"arguments"}, at(t, command, "then", "not")["required"])
 }

@@ -174,28 +174,6 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 		},
 	},
 	{
-		// Unlike the unclaimed-refusal probes, this one runs whatever the
-		// runtime claims: a runtime that does not know mcp-server@1 refuses
-		// it as an unknown required type, and one that does know it must
-		// still never boot the server image as a sandbox. The fixture is a
-		// workload, so it is composed alone.
-		requirement: "mcp-server@1/not-a-sandbox",
-		run: func(ctx context.Context, e *Env) []report.Finding {
-			id, cleanup, err := e.sandbox(ctx, []string{fixtureMCPServer}, nil)
-			var refused *adapter.RefusedError
-			switch {
-			case errors.As(err, &refused):
-				return nil
-			case err != nil:
-				return []report.Finding{report.Failf("create failed for a reason other than refusal: %v", err)}
-			default:
-				cleanup()
-				return []report.Finding{report.Failf(
-					"an MCP server kit was booted as sandbox %s instead of being refused", id)}
-			}
-		},
-	},
-	{
 		// The refusal checks below accept exit 2, so without this control
 		// an adapter refusing every create would pass them while every
 		// capability check skips — blanket refusal certified as
@@ -247,6 +225,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capUSBDevice, fixtureUSBDevice, false},
 				{capAgentSessions, fixtureAgentSessions, false},
 				{capACP, fixtureACP, false},
+				{capMCPServer, fixtureMCPServer, false},
 				{capAgentInteractiveSessions, fixtureAgentInteractiveSessions, false},
 				{capKitRegistry, fixtureKitRegistry, false},
 			} {
@@ -929,6 +908,7 @@ const (
 	capPort                     = "com.docker.sandbox/port@1"
 	capUSBDevice                = "com.docker.sandbox/usb-device@1"
 	capACP                      = "com.docker.sandbox/acp@1"
+	capMCPServer                = "com.docker.sandbox/mcp-server@1"
 	capAgentSessions            = "com.docker.sandbox/agent-sessions@1"
 	capAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
 	capKitRegistry              = "com.docker.sandbox/kit-registry@1"

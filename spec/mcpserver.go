@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// MCP transports a server Kit's entrypoint can speak. SSE is absent on
+// MCP transports a server in a sandbox can speak. SSE is absent on
 // purpose: the MCP specification deprecated it in favor of streamable
 // HTTP, and a version of this capability that admits it cannot drop it.
 const (
@@ -40,18 +40,40 @@ var (
 	mcpServerPath = regexp.MustCompile(`^/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$`)
 )
 
-// MCPServer is CapabilityMCPServer's config. Everything else about how
-// the server starts — entrypoint, environment, user, working directory —
-// is the image config's, as for any workload.
+// MCPServer is CapabilityMCPServer's config: one MCP server a sandbox
+// runs, and how an MCP client reaches it.
 type MCPServer struct {
 	Name      string `json:"name" yaml:"name"`
 	Transport string `json:"transport" yaml:"transport"`
 	Port      *int   `json:"port,omitempty" yaml:"port,omitempty"`
 	Path      string `json:"path,omitempty" yaml:"path,omitempty"`
-	// Arguments replaces the image's cmd, as `docker run <image> <args>`
+	// Command starts the server inside the sandbox. Without one, the
+	// server is the workload's launch — §8's entrypoint plus cmd — which
+	// is how a Kit packaging a single server says so without restating
+	// its own entrypoint.
+	Command CommandLine `json:"command,omitempty" yaml:"command,omitempty"`
+	// Arguments replaces the launch's cmd, as `docker run <image> <args>`
 	// does: the placement the MCP Registry's packageArguments and Docker's
-	// catalog command both assume for an OCI server.
+	// catalog command both assume for an OCI server. A command entry has
+	// no cmd to replace, so it states its whole argv in Command instead.
 	Arguments MCPArguments `json:"arguments,omitempty" yaml:"arguments,omitempty"`
+}
+
+// MCPServerRunsLaunch reports whether the server is the workload's
+// launch rather than a command of its own.
+func MCPServerRunsLaunch(m MCPServer) bool {
+	return len(m.Command) == 0
+}
+
+// MCPServerCapability retains the selection and display metadata of a
+// server declaration.
+// The server is a named field rather than embedded: both carry a Name,
+// the server's for the gateway and the entry's for display.
+type MCPServerCapability struct {
+	Server      MCPServer
+	Optional    bool
+	Name        string
+	Description string
 }
 
 // MCPArguments is an argv tail. Each element is text, but a whole-value
@@ -123,9 +145,10 @@ func sameMCPServer(a, b MCPServer) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// MCPServerOf returns the server declaration among selected capabilities,
-// or nil when the Kit is not an MCP server.
-func MCPServerOf(capabilities []Capability) (*MCPServer, error) {
+// MCPServersOf returns the selected server declarations in declaration
+// order.
+func MCPServersOf(capabilities []Capability) ([]MCPServerCapability, error) {
+	var out []MCPServerCapability
 	for _, c := range capabilities {
 		if c.Group != nil {
 			return nil, fmt.Errorf("mcp-server: select groups first")
@@ -137,97 +160,100 @@ func MCPServerOf(capabilities []Capability) (*MCPServer, error) {
 		if err := DecodeCapabilityConfig(c, &m); err != nil {
 			return nil, err
 		}
-		return &m, nil
+		out = append(out, MCPServerCapability{Server: m, Optional: c.Optional, Name: c.Name, Description: c.Description})
 	}
-	return nil, nil
+	return out, nil
 }
 
-// mcpServerCompanions are the well-known types a server Kit may declare
-// beside its mcp-server@1 entry: the ones that bound the server's own
-// container. Every other well-known type describes a sandbox — an agent,
-// its sessions, its filesystem — and a host never builds one from this
-// Kit, so declaring it would promise something no runtime delivers.
-var mcpServerCompanions = []string{
-	CapabilityMCPServer,
-	CapabilityNetworkPolicy,
-	CapabilityNetworkPolicyV2,
-	CapabilityCredential,
-	CapabilityResources,
-}
-
-// validateMCPServerRole holds a Kit declaring mcp-server@1 to the server
-// role across the whole capability list, group members included: the
-// declaration changes what the image is, so it cannot be an alternative a
-// host selects, an ask a host may skip, or an overlay on someone else's
-// root filesystem.
+// validateMCPServerRole holds the rules that span a descriptor's server
+// entries, group members included. A sandbox has one launch, so at most
+// one entry can be it, and only a workload has a launch to offer: a
+// mixin's entrypoint and cmd never take effect (§10), and an sbx@1
+// workload's launch is its agent.
 func validateMCPServerRole(d *Descriptor) error {
-	if !HasCapability(DeclaredCapabilities(d.Capabilities), CapabilityMCPServer) {
-		return nil
-	}
 	var errs ValidationErrors
-	if d.Kind == KindMixin {
-		errs.add(fieldErrorf("kind", "%s is workload-only: a mixin's layers overlay another image, so its entrypoint is never the one a host would start", CapabilityMCPServer))
+	agent := false
+	for _, c := range d.Capabilities {
+		agent = agent || c.Type == CapabilitySbx
+		if c.Group != nil {
+			for _, member := range c.Group.Capabilities {
+				agent = agent || member.Type == CapabilitySbx
+			}
+		}
 	}
-	known := KnownCapabilities()
-	check := func(path string, n Capability, member bool) {
-		if n.Type == CapabilityMCPServer {
-			if member {
-				errs.add(fieldErrorf(path, "%s must not be a group member: whether the image is a server is not a selectable alternative", CapabilityMCPServer))
-			}
-			if n.Optional {
-				errs.add(fieldErrorf(path+".optional", "%s must not be optional: a host that skipped it would start the server as a sandbox", CapabilityMCPServer))
-			}
+	launch := ""
+	names := map[string]string{}
+	check := func(path string, n Capability) {
+		if n.Type != CapabilityMCPServer {
 			return
 		}
-		if slices.Contains(known, n.Type) && !slices.Contains(mcpServerCompanions, n.Type) {
-			errs.add(fieldErrorf(path+".type", "%s does not apply to a Kit declaring %s: the host attaches the server to a sandbox's MCP gateway and never builds a sandbox from it", n.Type, CapabilityMCPServer))
+		if _, stated := n.Config["command"]; !stated {
+			if d.Kind == KindMixin {
+				errs.add(fieldErrorf(path+".config", "%s without a command runs the workload's launch, and a mixin has none: give the entry a command", CapabilityMCPServer))
+			}
+			if agent {
+				errs.add(fieldErrorf(path+".config", "%s without a command runs the workload's launch, and beside %s that launch is the agent: give the entry a command", CapabilityMCPServer, CapabilitySbx))
+			}
+			if launch != "" {
+				errs.add(fieldErrorf(path+".config", "%s without a command runs the workload's launch, which %s already runs: a sandbox has one launch, so give one of them a command", CapabilityMCPServer, launch))
+			} else {
+				launch = path
+			}
+		}
+		if name, ok := n.Config["name"].(string); ok && !ContainsArgRef(name) && !ContainsEnvRef(name) {
+			if prev, dup := names[name]; dup {
+				errs.add(fieldErrorf(path+".config.name", "%s %q already declared at %s", CapabilityMCPServer, name, prev))
+			} else {
+				names[name] = path
+			}
 		}
 	}
 	for i, c := range d.Capabilities {
 		path := fmt.Sprintf("capabilities[%d]", i)
 		if c.Group == nil {
-			check(path, c, false)
+			check(path, c)
 			continue
 		}
 		for j, member := range c.Group.Capabilities {
-			check(fmt.Sprintf("%s.group.capabilities[%d]", path, j), member, true)
+			check(fmt.Sprintf("%s.group.capabilities[%d]", path, j), member)
 		}
 	}
 	return errs.err()
 }
 
+// mcpServerEndpointFields are what a host lists and routes on — in a
+// catalog, at an attach prompt — from the published artifact, before
+// any sandbox resolves its args. They stay literal; how the server
+// starts is the installer's to configure.
+var mcpServerEndpointFields = []string{"name", "transport", "port", "path"}
+
 // validateMCPServerAuthored holds the rules that do not wait for decoding:
-// which fields are present, and which may be parameterized. The endpoint
-// fields describe what the image's entrypoint serves, which no arg can
-// change, and a gateway reads them from the published artifact before
-// anything is attached. Arguments are the installer's configuration of
-// that entrypoint, so they take args — but not the container
-// environment, which the entrypoint already reads for itself.
+// which fields are present, and which may be parameterized.
 func validateMCPServerAuthored(path string, i int, n Capability) error {
 	var errs ValidationErrors
 	endpoint := Capability{Type: n.Type, Config: map[string]any{}}
-	for key, value := range n.Config {
-		if key != "arguments" {
+	for _, key := range mcpServerEndpointFields {
+		if value, stated := n.Config[key]; stated {
 			endpoint.Config[key] = value
 		}
 	}
 	if capabilityIsParameterized(endpoint) {
-		errs.add(fieldErrorf(path+".config", "capabilities[%d]: %s name, transport, port, and path must be literal: they describe what the image's entrypoint serves, which no arg can change", i, CapabilityMCPServer))
+		errs.add(fieldErrorf(path+".config", "capabilities[%d]: %s name, transport, port, and path must be literal: a host lists and routes on them before any sandbox resolves its args", i, CapabilityMCPServer))
 	}
-	if list, ok := n.Config["arguments"].([]any); ok {
-		for j, arg := range list {
-			if s, ok := arg.(string); ok && ContainsEnvRef(s) {
-				errs.add(fieldErrorf(fmt.Sprintf("%s.config.arguments[%d]", path, j), "capabilities[%d]: arguments may reference kit.args but not kit.env: the entrypoint reads its own environment directly", i))
-			}
-		}
-	}
-	for _, key := range []string{"name", "transport", "port", "path", "arguments"} {
+	for _, key := range []string{"name", "transport", "port", "path", "command", "arguments"} {
 		value, stated := n.Config[key]
 		if !stated && (key == "name" || key == "transport") {
 			errs.add(fieldErrorf(path+".config."+key, "capabilities[%d]: %s is required", i, key))
 		} else if stated && hasNull(value) {
 			errs.add(fieldErrorf(path+".config."+key, "capabilities[%d]: %s must not be null", i, key))
 		}
+	}
+	if command, stated := n.Config["command"]; stated && !hasNull(command) && emptyCommand(command) {
+		errs.add(fieldErrorf(path+".config.command", "capabilities[%d]: command must name a command; omit it to run the workload's launch", i))
+	}
+	_, hasCommand := n.Config["command"]
+	if _, hasArguments := n.Config["arguments"]; hasCommand && hasArguments {
+		errs.add(fieldErrorf(path+".config.arguments", "capabilities[%d]: arguments replace the launch's cmd, and an entry with a command has none: state the whole argv in command", i))
 	}
 	if transport, _ := n.Config["transport"].(string); transport == MCPTransportStdio {
 		for _, key := range []string{"port", "path"} {
@@ -254,17 +280,22 @@ func validateMCPServer(path string, i int, n Capability) error {
 		errs.add(fieldErrorf(path+".config.transport", "capabilities[%d]: transport must be %q or %q, got %q", i, MCPTransportStdio, MCPTransportStreamableHTTP, m.Transport))
 	}
 	if _, stated := n.Config["arguments"]; stated && len(m.Arguments) == 0 && !hasNull(n.Config["arguments"]) {
-		errs.add(fieldErrorf(path+".config.arguments", "capabilities[%d]: arguments must not be empty; omit it to run the image's cmd", i))
+		errs.add(fieldErrorf(path+".config.arguments", "capabilities[%d]: arguments must not be empty; omit it to run the launch's cmd", i))
 	}
 	for j, arg := range m.Arguments {
 		if strings.ContainsRune(arg, 0) {
 			errs.add(fieldErrorf(fmt.Sprintf("%s.config.arguments[%d]", path, j), "capabilities[%d]: an argument must not contain NUL, which no argv can carry", i))
 		}
 	}
+	for _, arg := range m.Command {
+		if strings.ContainsRune(arg, 0) {
+			errs.add(fieldErrorf(path+".config.command", "capabilities[%d]: command contains NUL, which no argv can carry", i))
+		}
+	}
 	if m.Transport == MCPTransportStreamableHTTP {
 		if m.Port == nil {
 			if _, stated := n.Config["port"]; !stated {
-				errs.add(fieldErrorf(path+".config.port", "capabilities[%d]: port is required for %s: nothing in the image config says which exposed port speaks MCP", i, MCPTransportStreamableHTTP))
+				errs.add(fieldErrorf(path+".config.port", "capabilities[%d]: port is required for %s: nothing else says which port in the sandbox speaks MCP", i, MCPTransportStreamableHTTP))
 			}
 		} else if *m.Port < 1 || *m.Port > 65535 {
 			errs.add(fieldErrorf(path+".config.port", "capabilities[%d]: port must be 1-65535, got %d", i, *m.Port))
