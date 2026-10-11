@@ -1,0 +1,15 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: MCP server
+description: >-
+  A workload whose image is an MCP server. A host attaches it to a
+  sandbox's gateway; creating a sandbox from it must be refused whether
+  or not the runtime claims mcp-server@1.
+provides: ["kit-tck-mcp-server@1.0.0"]
+
+capabilities:
+  - type: com.docker.sandbox/mcp-server@1
+    config:
+      name: kit-tck
+      transport: stdio

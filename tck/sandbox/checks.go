@@ -46,6 +46,7 @@ const (
 	fixturePort                     = "port"
 	fixtureUSBDevice                = "usb-device"
 	fixtureACP                      = "acp"
+	fixtureMCPServer                = "mcp-server"
 	fixtureAgentSessions            = "agent-sessions"
 	fixtureAgentInteractiveSessions = "agent-interactive-sessions"
 	fixtureKitRegistry              = "kit-registry"
@@ -169,6 +170,28 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 			default:
 				return []report.Finding{report.Failf(
 					"a kit requiring an unimplemented capability was accepted as sandbox %s", id)}
+			}
+		},
+	},
+	{
+		// Unlike the unclaimed-refusal probes, this one runs whatever the
+		// runtime claims: a runtime that does not know mcp-server@1 refuses
+		// it as an unknown required type, and one that does know it must
+		// still never boot the server image as a sandbox. The fixture is a
+		// workload, so it is composed alone.
+		requirement: "mcp-server@1/not-a-sandbox",
+		run: func(ctx context.Context, e *Env) []report.Finding {
+			id, cleanup, err := e.sandbox(ctx, []string{fixtureMCPServer}, nil)
+			var refused *adapter.RefusedError
+			switch {
+			case errors.As(err, &refused):
+				return nil
+			case err != nil:
+				return []report.Finding{report.Failf("create failed for a reason other than refusal: %v", err)}
+			default:
+				cleanup()
+				return []report.Finding{report.Failf(
+					"an MCP server kit was booted as sandbox %s instead of being refused", id)}
 			}
 		},
 	},

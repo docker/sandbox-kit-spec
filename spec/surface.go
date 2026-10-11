@@ -176,6 +176,10 @@ func SurfaceOf(d *Descriptor) Surface {
 			// anything; they are not permission surface.
 		case CapabilityLongRunning:
 			// Session-independent lifetime grants no access across the boundary.
+		case CapabilityMCPServer:
+			// Says how the gateway reaches the image's own entrypoint. What
+			// the server can reach is its network-policy and credential
+			// entries, which project as they do for any workload.
 		case CapabilityAgentSkill:
 			// Bundled instructions expose only content already carried by the image.
 		case CapabilityACP, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityLifecycle, CapabilityAgentContext, CapabilitySbx:
