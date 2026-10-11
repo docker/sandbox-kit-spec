@@ -717,7 +717,7 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		}
 		return nil
 	}
-	return fmt.Errorf("merge: %s and %s both declare %s; it describes the whole sandbox, so it has one author",
+	return fmt.Errorf("merge: %s and %s both declare %s; it describes the whole composition, so it has one author",
 		(*slot).reference, reference, label)
 }
 
