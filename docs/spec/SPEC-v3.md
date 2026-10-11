@@ -558,8 +558,7 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `kit-registry@1`, `agent-sessions@1`, `agent-interactive-sessions@1`,
-`lifecycle@1`, `sbx@1`, `long-running@1`, `git-identity@1`,
-`mcp-server@1`.
+`lifecycle@1`, `sbx@1`, `long-running@1`, `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -698,7 +697,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
 | `com.docker.sandbox/acp@1` | [acp@1](capabilities/com.docker.sandbox/acp@1.md) | per agent |
-| `com.docker.sandbox/mcp-server@1` | [mcp-server@1](capabilities/com.docker.sandbox/mcp-server@1.md) | singleton, workload-only, never optional |
+| `com.docker.sandbox/mcp-server@1` | [mcp-server@1](capabilities/com.docker.sandbox/mcp-server@1.md) | per name; at most one entry without `command`, in a workload |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
@@ -749,9 +748,9 @@ candidate's against it:
   to launch the workload a particular way and to read an identity the
   image already states (see their pages). `long-running@1` likewise grants
   no access; it keeps the workload running independently of attached
-  sessions. `mcp-server@1` grants none either: it says how a gateway
-  reaches the image's own entrypoint, and the server's reach is its own
-  network and credential entries.
+  sessions. `mcp-server@1` grants none either: it says how an MCP
+  client reaches a server running inside the sandbox, which the
+  sandbox's own network and credential entries already bound.
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
@@ -771,7 +770,10 @@ capability's `interactive` field. The effective argv per mode:
 | Default (headless / task) | image `Entrypoint` + image `Cmd` |
 | Interactive (TTY) | image `Entrypoint` + lifecycle `interactive` |
 
-With no `interactive` declared, both modes run the image config as-is. See
+With no `interactive` declared, both modes run the image config as-is. A
+workload whose launch is an MCP server says so with
+[mcp-server@1](capabilities/com.docker.sandbox/mcp-server@1.md), which
+can replace `Cmd` with installer-configured arguments. See
 [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) for
 the headless prompt/resume verbs, which append after the launch argv the
 same way user-supplied args do, and
@@ -925,9 +927,10 @@ error. In that order they reconcile into one descriptor:
 | Display fields | The set's own: the artifact is a new thing with its own name, publisher, and documentation. |
 | Instance-shaped capabilities | Union, deduplicated on the type's own key ([§7.1](#71-arity)). Two different configs under one key is an error. |
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
+| `mcp-server@1` | Union, keyed on `name`. Different configs for one name conflict; identical restatements collapse, comparing decoded commands and the default HTTP path. Only the workload can contribute the entry that runs its launch, so a merged descriptor has at most one. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
-| `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1`, `mcp-server@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox or server, not a grant to it. |
+| `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
 | `optional` | An entry any of them requires is required in the merged kit: `optional` says its asker degrades without it, and one that does not degrade decides for the set. |

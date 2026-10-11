@@ -305,16 +305,6 @@ create)
     fi
   done
 
-  # An MCP server kit is attached to a gateway, never booted as a sandbox,
-  # whether or not this runtime claims mcp-server@1. boots-mcp-server is
-  # the runtime that treats it as an ordinary workload.
-  for kit in "${kits[@]}"; do
-    if [ "${kit##*/}" = mcp-server ] && [ "$broken" != boots-mcp-server ]; then
-      echo "refusing: an MCP server kit is attached to a gateway, not booted as a sandbox" >&2
-      exit 2
-    fi
-  done
-
   # A fixture whose required capability is unclaimed is refused, exactly
   # as the contract expects of a real partial runtime.
   # accepts-required-unclaimed is the runtime that skips this duty and
@@ -326,6 +316,7 @@ create)
       # contain a capability name (for example, git-identity).
       case "${kit##*/}" in
       acp) need="com.docker.sandbox/acp@1" ;;
+      mcp-server) need="com.docker.sandbox/mcp-server@1" ;;
       bundled-optional | bundled-existing) ;;
       bundled-reader) need="com.docker.sandbox/agent-skills@1" ;;
       bundled-skill | bundled-host-conflict) need="com.docker.sandbox/agent-skill@1" ;;

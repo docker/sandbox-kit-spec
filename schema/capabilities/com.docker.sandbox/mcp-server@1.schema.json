@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/mcp-server@1",
-  "description": "Declares that a workload's image is an MCP server: the host attaches it to a sandbox's MCP gateway, starting the image's own entrypoint, rather than launching it as a sandbox. Singleton, workload-only, never optional or a group member. name, transport, port, and path are literal; arguments may reference kit args. The entry grants no permission; the server's reach is its own network-policy and credential entries.",
+  "description": "Declares an MCP server a sandbox runs and how an MCP client reaches it. Instance-shaped, keyed on name. An entry without command runs the workload's launch (its entrypoint and cmd) and is workload-only, one per descriptor; any other entry, including every mixin entry, gives its own command. name, transport, port, and path are literal; command and arguments may reference kit args and kit env. The entry grants no permission; the server's reach is the sandbox's own network-policy and credential entries.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,20 +12,20 @@
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
-      "description": "Name the gateway serves this server under: one lowercase DNS label."
+      "description": "Name an MCP client reaches this server under: one lowercase DNS label, unique within the sandbox."
     },
     "transport": {
       "enum": [
         "stdio",
         "streamable-http"
       ],
-      "description": "How the entrypoint speaks MCP: on its standard streams, or as a streamable-HTTP endpoint at port and path."
+      "description": "How the server speaks MCP: on its standard streams, or as a streamable-HTTP endpoint at port and path inside the sandbox."
     },
     "port": {
       "type": "integer",
       "minimum": 1,
       "maximum": 65535,
-      "description": "Container port the streamable-HTTP endpoint listens on. Required for streamable-http, forbidden for stdio."
+      "description": "Port inside the sandbox the streamable-HTTP endpoint listens on. Required for streamable-http, forbidden for stdio."
     },
     "path": {
       "type": "string",
@@ -33,13 +33,44 @@
       "default": "/mcp",
       "description": "Absolute URL path of the streamable-HTTP endpoint, without query or fragment, and with % only as a two-hex-digit escape. Forbidden for stdio."
     },
+    "command": {
+      "description": "Complete command that starts the server inside the sandbox. A string runs via sh -c; a list supplies exec argv. Omit it to run the workload's launch.",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "\\S",
+          "not": {
+            "pattern": "\u0000"
+          }
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": [
+            {
+              "type": "string",
+              "pattern": "\\S",
+              "not": {
+                "pattern": "\u0000"
+              }
+            }
+          ],
+          "additionalItems": {
+            "type": "string",
+            "not": {
+              "pattern": "\u0000"
+            }
+          }
+        }
+      ]
+    },
     "arguments": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "string"
       },
-      "description": "Argv the entrypoint runs with in place of the image's cmd, as `docker run <image> <args>` would pass it. Elements are strings and may reference ${{ kit.args.<name> }} but not kit.env; quote numbers and booleans, which YAML would otherwise decode and re-spell. Omit it to run the image's cmd."
+      "description": "Argv that replaces the launch's cmd, as `docker run <image> <args>` would pass it. Only for an entry without command. Elements are strings and may reference ${{ kit.args.<name> }} and ${{ kit.env.<NAME> }}; quote numbers and booleans, which YAML would otherwise decode and re-spell. Omit it to run the launch's cmd."
     }
   },
   "allOf": [
@@ -86,6 +117,20 @@
         "required": [
           "port"
         ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "arguments"
+          ]
+        }
       }
     }
   ]

@@ -472,7 +472,6 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
-	CapabilityMCPServer:                true,
 }
 
 // deref unwraps pointer and interface layers, the way JSON marshaling

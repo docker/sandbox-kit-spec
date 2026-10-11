@@ -410,8 +410,8 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // asking at once means: network policies union, lifecycle hooks
 // concatenate, and the types that describe the whole sandbox rather
 // than a grant to it — resources, agent-sessions,
-// agent-interactive-sessions, mcp-server — admit one author, because two
-// different answers cannot both be the sandbox's.
+// agent-interactive-sessions — admit one author, because two different
+// answers cannot both be the sandbox's.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
 		byKey:    map[string]keyed{},
@@ -525,7 +525,6 @@ type capabilityMerge struct {
 
 	resources *keyed
 	sessions  *keyed
-	mcpServer *keyed
 
 	interactiveSessions *keyed
 	newSession          []string
@@ -593,9 +592,6 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 
 	case CapabilityResources:
 		return mergeSole(&m.resources, reference, n, "resources")
-
-	case CapabilityMCPServer:
-		return mergeSole(&m.mcpServer, reference, n, "mcp-server")
 
 	case CapabilityAgentSessions:
 		// Remembered for the list agreement in finish. This type was never
@@ -730,6 +726,12 @@ func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, e
 			return "", err
 		}
 		return n.Type + "\x00" + NormalizeCapabilityName(a.Agent), nil
+	case CapabilityMCPServer:
+		var s MCPServer
+		if err := decodeForMerge(reference, n, &s); err != nil {
+			return "", err
+		}
+		return n.Type + "\x00" + s.Name, nil
 	case CapabilityCredential:
 		var c Credential
 		if err := decodeForMerge(reference, n, &c); err != nil {
@@ -882,9 +884,6 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 
 	if m.resources != nil {
 		out = append(out, m.resources.capability)
-	}
-	if m.mcpServer != nil {
-		out = append(out, m.mcpServer.capability)
 	}
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)
