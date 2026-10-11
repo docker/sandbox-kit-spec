@@ -37,6 +37,12 @@ Most new kits should be mixins, and a tool worth shipping as a workload is
 usually worth shipping as both — that is what the `claude`/`claude-mixin` pair
 in the examples is.
 
+An **MCP server** is the third case: a workload whose image *is* the
+server, declaring `mcp-server@1`. The host attaches it to a sandbox's MCP
+gateway and never boots it as a sandbox, so none of the agent guidance
+below applies — no platform floor, no `sbx@1`, no hooks. See
+`examples/hello-mcp`.
+
 A mixin cannot set `ENTRYPOINT`, `CMD`, `USER` or `WORKDIR` and have it take
 effect: the workload anchors the composition and owns those contract fields.
 The **additive** fields do merge — env, labels, ports and volumes — so a
@@ -144,6 +150,13 @@ often got wrong:
 | `agent-interactive-sessions@1` | the TUI verbs a human-facing host launches (seeded prompt, continue, resume, session picker, list) | The sibling of `agent-sessions@1` for an agent whose CLI has an interactive mode; an agent that also has a headless mode declares both, and one with only a TUI declares just this. **Presence is meaning**: a present key is supported, an absent key is not, and for `continue`, `newSession` and `sessionPicker` `[]` is the launch argv alone (`prompt` and `resume` carry their placeholders, so they are never empty). `newSession` is the exception: omit it when a bare launch opens the TUI, because it then defaults to `lifecycle@1`'s `interactive` launch; if you state both `newSession` and `interactive` they must be the same argv, an explicit `[]` included. `list` is the same command as in `agent-sessions@1`. Declare only verbs you verified. |
 | `host-port@1` | one host loopback TCP or UDP service | `host` is required (1–65535); `container` defaults to `host` (also when zero); `transport` is `tcp` (default when empty) or `udp`. `family` selects host loopback: `ipv4` (default), `ipv6`, or `dual` when either reaches the same service; it is part of the grant. The sandbox endpoint stays IPv4 loopback. A mapping conflicts with `port@1` on the same sandbox port and transport. This grants raw access to a host service, not general egress or a published guest port. |
 | `port@1`, `resources@1`, `privileged@1` | inbound ports, limits, elevation | Do not declare on speculation; `privileged@1` is the largest widening available. |
+| `mcp-server@1` | "this image is an MCP server" | Workload-only, required, never in a group. The image's `ENTRYPOINT`/`CMD` start the server; the config adds only `name` (one lowercase DNS label), `transport` (`stdio` or `streamable-http`) and, for HTTP, `port` and `path` (default `/mcp`), all literal, plus an optional `arguments` list that replaces the image's `CMD` (as `docker run <image> <args>` does) and may reference `${{ kit.args.* }}` but not `kit.env`. That is where a registry `server.json`'s `packageArguments` go; its non-secret `environmentVariables` become args with `env:`. Beside it only `network-policy`, `credential@1` and `resources@1` are allowed, and only their runtime phase applies. No network policy means no egress. |
+
+For an MCP server, verify the entrypoint before publishing: pipe an
+`initialize` request, `tools/list` and a `tools/call` into
+`docker run -i <image>` and check that stdout carries only JSON-RPC lines,
+logs go to stderr, and stdin EOF exits. An HTTP server must listen on
+every interface of its container, not loopback.
 
 Host sharing is a separate grant from `volume@1`, including when the
 in-container path stays the same. Do not supply a host path or assume a
