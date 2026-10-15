@@ -196,7 +196,7 @@ codex_session_args() { # thread-id
                       or startswith("<skill") or startswith("<collaboration_mode") or startswith("<realtime_") | not))
        | first // null) as $prompt
     | (if $prompt == null then null
-       else ($prompt | split("\n") | map(trim) | map(select(length > 0)) | .[0] // null | if . == null then null else .[0:200] end) end) as $title
+       else ($prompt | split("\n") | map(trim) | map(select(length > 0)) | .[0] // null | .[0:200]) end) as $title
     | {
         agent: "codex",
         session_id: ($meta.id // null),
@@ -213,7 +213,7 @@ codex_session_args() { # thread-id
         output_tokens: ($tok.total_token_usage.output_tokens // null),
         cost_usd: null, duration_ms: null, lines_added: null, lines_removed: null,
         git_branch: ($meta.git.branch // null),
-        git_commit: (($meta.git.commit_hash // null) | if . == null then null else .[0:7] end),
+        git_commit: (($meta.git.commit_hash // null) | .[0:7]),
         git_dirty: null
       }' "$file"
 }

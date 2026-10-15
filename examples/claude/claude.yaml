@@ -228,13 +228,12 @@ capabilities:
             effort='${{ kit.args.reasoningEffort }}'
             MODEL=''
             EFFORT=''
-            ENV_BLOCK=''
             [ -z "$model" ] || MODEL="  \"model\": \"$model\",
             "
             case "$effort" in
               '') ;;
               max|auto)
-                ENV_BLOCK="  \"env\": { \"CLAUDE_CODE_EFFORT_LEVEL\": \"$effort\" },
+                EFFORT="  \"env\": { \"CLAUDE_CODE_EFFORT_LEVEL\": \"$effort\" },
             "
                 ;;
               *)
@@ -268,7 +267,7 @@ capabilities:
             printf '%s' "{
               \"themeId\": 1,
               \"alwaysThinkingEnabled\": true,
-            ${HELPER}${MODEL}${EFFORT}${ENV_BLOCK}${HOOKS}${STATUSLINE}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
+            ${HELPER}${MODEL}${EFFORT}${HOOKS}${STATUSLINE}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
               \"bypassPermissionsModeAccepted\": true,
               \"skipDangerousModePermissionPrompt\": true
             }

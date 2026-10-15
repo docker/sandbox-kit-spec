@@ -3,6 +3,7 @@ package examples_test
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,6 +100,51 @@ esac
 				}
 			})
 		}
+	}
+}
+
+func TestCodexRolloutNullableFields(t *testing.T) {
+	requireExampleTool(t, "jq")
+	for _, kit := range []string{"claude", "claude-mixin", "codex", "codex-mixin"} {
+		t.Run(kit, func(t *testing.T) {
+			script, err := os.ReadFile(filepath.Join(kit, "scripts", "sbx-agent-hook.sh"))
+			require.NoError(t, err)
+			// Load the payload builders without running the gateway dispatcher.
+			builders, _, found := strings.Cut(string(script), "\n{\n  [ -n \"$url\" ]")
+			require.True(t, found)
+			for _, tc := range []struct {
+				name, records, title, commit string
+				fails                        bool
+			}{
+				{"absent", "", "null", "null", false},
+				{"null", `{"type":"session_meta","payload":{"git":{"commit_hash":null}}}`, "null", "null", false},
+				{"false", `{"type":"session_meta","payload":{"git":{"commit_hash":false}}}`, "null", "null", false},
+				{"blank prompt", `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":" \n\t "}]}}`, "null", "null", false},
+				{"short commit", `{"type":"session_meta","payload":{"git":{"commit_hash":"abc"}}}`, "null", `"abc"`, false},
+				{"long commit", `{"type":"session_meta","payload":{"git":{"commit_hash":"1234567890"}}}`, "null", `"1234567"`, false},
+				{"invalid commit", `{"type":"session_meta","payload":{"git":{"commit_hash":42}}}`, "", "", true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					root := t.TempDir()
+					writeExampleFixture(t, filepath.Join(root, "sessions", "2026", "10", "15", "rollout-2026-test.jsonl"), tc.records, 0o644)
+					stdout, stderr, err := runExampleCommand(t, []string{"CODEX_HOME=" + root}, "",
+						"sh", "-c", builders+"\ncodex_session_args test\n", "payload-test", "codex", "{}")
+					if tc.fails {
+						var exitErr *exec.ExitError
+						require.ErrorAs(t, err, &exitErr)
+						require.Contains(t, stderr, "Cannot index number")
+						require.Empty(t, stdout)
+						return
+					}
+					require.NoError(t, err, stderr)
+					require.Empty(t, stderr)
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal([]byte(stdout), &fields))
+					require.JSONEq(t, tc.title, string(fields["title"]))
+					require.JSONEq(t, tc.commit, string(fields["git_commit"]))
+				})
+			}
+		})
 	}
 }
 
