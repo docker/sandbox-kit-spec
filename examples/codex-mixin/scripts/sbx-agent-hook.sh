@@ -76,7 +76,7 @@ mcp_call() { # tool-name arguments-json
         [$body | gsub("\r\n|\r"; "\n") | split("\n\n")[]
          | split("\n") | map(select(startswith("data:"))
                               | .[5:] | ltrimstr(" ")) | join("\n")
-         | select(length > 0) | fromjson?];
+         | fromjson?];
     messages
     | map(select(type == "object" and .jsonrpc == "2.0" and .id == $id))
     | length == 1 and (.[0]
@@ -102,7 +102,7 @@ notify_args() { # agent
       message: (((.last_assistant_message // ."last-assistant-message" // .message // "") | tostring) | .[0:600]),
       title: (.title | str),
       notification_type: (.notification_type | str),
-      stop_hook_active: ((.stop_hook_active // false) == true)
+      stop_hook_active: (.stop_hook_active == true)
     }'
 }
 
@@ -179,9 +179,9 @@ codex_session_args() { # thread-id
   jq -n -c '
     def trim: gsub("^\\s+|\\s+$"; "");
     [inputs] as $all
-    | ($all | map(select(.type == "session_meta")) | last | .payload) as $meta
-    | ($all | map(select(.type == "turn_context")) | last | .payload) as $turn
-    | ($all | map(select(.type == "event_msg" and .payload.type == "token_count")) | last | .payload.info) as $tok
+    | ($all | (last(.[] | select(.type == "session_meta")) // null) | .payload) as $meta
+    | ($all | (last(.[] | select(.type == "turn_context")) // null) | .payload) as $turn
+    | ($all | (last(.[] | select(.type == "event_msg" and .payload.type == "token_count")) // null) | .payload.info) as $tok
     | ($tok.model_context_window // null) as $win
     | ($tok.last_token_usage.total_tokens // null) as $used
     # The first user message that is not a block Codex injects itself
@@ -196,7 +196,7 @@ codex_session_args() { # thread-id
                       or startswith("<skill") or startswith("<collaboration_mode") or startswith("<realtime_") | not))
        | first // null) as $prompt
     | (if $prompt == null then null
-       else ($prompt | split("\n") | map(trim) | map(select(length > 0)) | .[0] // null | if . == null then null else .[0:200] end) end) as $title
+       else ($prompt | split("\n")[0] | trim | .[0:200]) end) as $title
     | {
         agent: "codex",
         session_id: ($meta.id // null),
@@ -208,7 +208,7 @@ codex_session_args() { # thread-id
         version: ($meta.cli_version // null),
         context_used_tokens: $used,
         context_window: $win,
-        context_percent: (if ($win != null and $win > 0 and $used != null) then (($used * 100 / $win) | floor) else null end),
+        context_percent: (if ($win > 0 and $used != null) then (($used * 100 / $win) | floor) else null end),
         input_tokens: ($tok.total_token_usage.input_tokens // null),
         output_tokens: ($tok.total_token_usage.output_tokens // null),
         cost_usd: null, duration_ms: null, lines_added: null, lines_removed: null,

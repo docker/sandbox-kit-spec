@@ -272,6 +272,8 @@ exit 0
 				`{"jsonrpc":"2.0","id":2,"result":{}}`,
 				`{"jsonrpc":"2.0","id":2`,
 				"",
+				"data:\n\n",
+				"event: message\n\ndata:   \n\n",
 				"event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[],\"isError\":true}}\n\n",
 			}
 			attempts := 3
@@ -312,8 +314,9 @@ exit 0
 			require.NotEqual(t, previous, current)
 			run("0", changed, attempts)
 			for model, body := range map[string]string{
-				"sse-lf": "data: " + success + "\n\n",
-				"sse-cr": "data: " + success + "\r\r",
+				"sse-lf":          "data: " + success + "\n\n",
+				"sse-cr":          "data: " + success + "\r\r",
+				"sse-empty-event": "event: ping\n\ndata:\n\ndata: " + success + "\n\n",
 			} {
 				response = body
 				changed = `{"session_id":"test","model":{"id":"` + model + `"}}`
