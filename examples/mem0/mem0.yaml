@@ -1,0 +1,107 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: workload
+displayName: Mem0
+description: Official self-hosted Mem0 server and dashboard with MCP access
+sourceUrl: https://github.com/mem0ai/mem0
+licenses: [Apache-2.0]
+version: "${{ kit.args.version }}"
+
+args:
+  version:
+    default: "2.2.1"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: mem0ai Python package release to install
+    buildArg: MEM0_VERSION
+  model:
+    default: gpt-5-mini
+    pattern: '^[A-Za-z0-9._-]+$'
+    description: OpenAI model for memory extraction
+    env: MEM0_DEFAULT_LLM_MODEL
+  defaultUserId:
+    default: mem0-mcp
+    pattern: '^[A-Za-z0-9._-]+$'
+    description: Shared MCP user scope when tools omit explicit entity filters
+    env: MEM0_DEFAULT_USER_ID
+
+provides: ["mem0@${{ kit.args.version }}"]
+
+capabilities:
+  # Launch shells as sessions under the runtime's init, not as PID 1.
+  - type: com.docker.sandbox/sbx@1
+
+  - type: com.docker.sandbox/long-running@1
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        # PostgreSQL, the API and the dashboard share one workload. flock
+        # makes repeated startup hooks harmless.
+        - command: >-
+            exec flock --nonblock --conflict-exit-code 0 --no-fork
+            /tmp/mem0-server.lock /opt/mem0/start.sh
+          user: agent
+          background: true
+          env:
+            - OPENAI_API_KEY
+            - PGDATA
+            - POSTGRES_HOST
+            - POSTGRES_PORT
+            - POSTGRES_DB
+            - POSTGRES_USER
+            - POSTGRES_PASSWORD
+            - POSTGRES_COLLECTION_NAME
+            - APP_DB_NAME
+            - HISTORY_DB_PATH
+            - DASHBOARD_URL
+            - NEXT_PUBLIC_API_URL
+            - NEXT_PUBLIC_INSTANCE_NAME
+            - API_INTERNAL_URL
+            - MEM0_DEFAULT_LLM_MODEL
+            - MEM0_DEFAULT_USER_ID
+            - MEM0_TELEMETRY
+            - PYTHONDONTWRITEBYTECODE
+            - PYTHONUNBUFFERED
+            - HTTP_PROXY
+            - HTTPS_PROXY
+            - ALL_PROXY
+            - NO_PROXY
+            - http_proxy
+            - https_proxy
+            - all_proxy
+            - no_proxy
+            - SSL_CERT_FILE
+            - SSL_CERT_DIR
+          description: Start PostgreSQL, the Mem0 API and the dashboard
+
+  - type: com.docker.sandbox/port@1
+    description: Mem0 REST API, MCP endpoint and OpenAPI documentation
+    config: {name: api, container: 8000}
+
+  - type: com.docker.sandbox/port@1
+    description: Official Mem0 web dashboard
+    config: {name: dashboard, container: 3000}
+
+  # Required: silently falling back to container storage would lose memories.
+  # The runtime chooses the host directory; the Kit only names its destination.
+  - type: com.docker.sandbox/host-mount@1
+    description: PostgreSQL data and memory history survive sandbox removal
+    config: {path: /var/lib/mem0, mode: "0700"}
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow: [api.openai.com:443]
+
+  - type: com.docker.sandbox/credential@1
+    description: OpenAI API key for extraction and embeddings
+    config:
+      # Keep the API key separate from OpenAI agent OAuth credentials.
+      service: mem0-openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
