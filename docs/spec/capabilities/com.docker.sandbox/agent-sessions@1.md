@@ -64,5 +64,7 @@ argv, so values are inserted without shell re-quoting.
 
 ## Composition
 
-The workload Kit's declaration governs. Composition keeps the workload's
-entry and discards contributions from mixins.
+Composition retains a sole declaration and collapses identical
+restatements. Differing declarations conflict, whether contributed by
+workloads or mixins. The resulting commands describe the workload's
+agent ([§9.5](../../SPEC-v3.md#95-merging-a-set)).
