@@ -4,9 +4,11 @@ A declaration-only mixin that teaches agents when and how to use the
 Mem0 MCP tools. It adds no binaries and does not register the MCP server;
 attach the `memory` server separately.
 
-The `scope` argument becomes the `user_id` used by every memory call.
-Give agents working on one project the same scope, and use different
-scopes to keep unrelated project memories apart.
+The `scope` argument supplies the default `user_id` for cross-project
+context. In a Git repository, the guidance tells agents to derive a
+stable project-specific `user_id` from the canonical origin URL. This
+keeps repository decisions shared across clones and worktrees without
+mixing them into personal preferences.
 
 ## Use with `sbx`
 

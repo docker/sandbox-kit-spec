@@ -4,7 +4,7 @@ schemaVersion: "3"
 kind: mixin
 displayName: Mem0 agent context
 description: Instructions for using shared memory deliberately and safely
-version: "1.0.0"
+version: "1.0.1"
 licenses: [Apache-2.0]
 
 args:
@@ -19,8 +19,8 @@ capabilities:
       content: |
         # Shared memory
 
-        Use the Mem0 MCP tools for durable project context. Use
-        `${{ kit.args.scope }}` as `user_id` in every memory call.
+        Use the Mem0 MCP tools for durable context. Use
+        `${{ kit.args.scope }}` as the default `user_id`.
 
         - At the start of a task, call `search_memories` for relevant prior
           decisions, preferences, and constraints.
@@ -34,3 +34,16 @@ capabilities:
           guesses, or information already evident from the repository.
         - Confirm with the user before updating or deleting memories.
         - If memory is unavailable, continue normally and mention it once.
+
+        ## Git project memory
+
+        In a Git repository, store project-specific memories under a
+        project-specific `user_id`, not the default shared scope. Derive a
+        stable ID from the canonical `origin` URL so every clone and worktree
+        uses the same scope. For example, `github.com/docker/runtime-kits`
+        becomes `github.com-docker-runtime-kits`.
+
+        Search both the project scope and `${{ kit.args.scope }}` when prior
+        project decisions and cross-project user preferences may both apply.
+        Keep personal preferences and other cross-project context in the
+        default scope.
