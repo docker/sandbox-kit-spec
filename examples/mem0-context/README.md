@@ -6,9 +6,11 @@ attach the `memory` server separately.
 
 The `scope` argument supplies the default `user_id` for cross-project
 context. In a Git repository, the guidance tells agents to derive a
-stable project-specific `user_id` from the canonical origin URL. This
-keeps repository decisions shared across clones and worktrees without
-mixing them into personal preferences.
+stable project-specific `user_id` from the canonical origin URL. SSH and
+HTTPS spellings normalize to the same ID, with no harness, sandbox,
+worktree, branch, directory, or session component. This keeps repository
+decisions shared across agents, clones, and worktrees without mixing them
+into personal preferences.
 
 ## Use with `sbx`
 

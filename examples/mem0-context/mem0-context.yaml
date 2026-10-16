@@ -39,9 +39,20 @@ capabilities:
 
         In a Git repository, store project-specific memories under a
         project-specific `user_id`, not the default shared scope. Derive a
-        stable ID from the canonical `origin` URL so every clone and worktree
-        uses the same scope. For example, `github.com/docker/runtime-kits`
-        becomes `github.com-docker-runtime-kits`.
+        stable ID from `git remote get-url origin`:
+
+        1. Normalize SCP-style SSH, `ssh://`, and HTTPS URLs to
+           `host/owner/repository`.
+        2. Lowercase the host, remove user information, a trailing slash, and
+           the `.git` suffix.
+        3. Replace every character outside `A-Za-z0-9._-` with `-`.
+
+        For example, `git@github.com:docker/runtime-kits.git` and
+        `https://github.com/docker/runtime-kits` both become
+        `github.com-docker-runtime-kits`. Do not add a harness, sandbox,
+        worktree, branch, directory, or session name. If the repository has no
+        origin, use an explicit stable project ID shared by every harness; do
+        not derive one from the checkout path.
 
         Search both the project scope and `${{ kit.args.scope }}` when prior
         project decisions and cross-project user preferences may both apply.
