@@ -219,7 +219,7 @@ capabilities:
         # re-adding exits 1 — so `|| true` keeps a carried-forward entry
         # from failing the create. The sentinel name is not a credential;
         # the proxy substitutes the real token at request time.
-        - command: |
+        - command: &register-mcp-gateway |
             set -e
             [ -n "$MCP_GATEWAY_URL" ] || exit 0
             claude mcp add mcp-gateway "$MCP_GATEWAY_URL" \
@@ -241,13 +241,7 @@ capabilities:
         # install-time seed could not run. Non-destructive on purpose:
         # startup hooks run concurrently with the live session, so no
         # remove-then-add.
-        - command: |
-            set -e
-            [ -n "$MCP_GATEWAY_URL" ] || exit 0
-            claude mcp add mcp-gateway "$MCP_GATEWAY_URL" \
-              --transport http \
-              --scope user \
-              --header "Authorization: Bearer $MCP_SENTINEL_TOKEN_NAME" || true
+        - command: *register-mcp-gateway
           user: agent
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
           description: Register the sandbox MCP gateway (startup fallback)

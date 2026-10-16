@@ -134,7 +134,7 @@ claude_prompt_args() {
   printf '%s' "$input" | jq -c '
     def str: if . == null then null else tostring end;
     def trim: gsub("^\\s+|\\s+$"; "");
-    (.prompt // "" | tostring | split("\n") | map(trim) | map(select(length > 0)) | .[0] // "") as $line
+    (.prompt // "" | tostring | split("\n") | map(trim | select(length > 0)) | .[0] // "") as $line
     | select($line != "")
     | { agent: "claude", session_id: (.session_id | str), cwd: (.cwd | str), title: ($line | .[0:200]) }'
 }
@@ -196,7 +196,7 @@ codex_session_args() { # thread-id
                       or startswith("<skill") or startswith("<collaboration_mode") or startswith("<realtime_") | not))
        | first // null) as $prompt
     | (if $prompt == null then null
-       else ($prompt | split("\n") | map(trim) | map(select(length > 0)) | .[0] // null | if . == null then null else .[0:200] end) end) as $title
+       else ($prompt | split("\n") | map(trim | select(length > 0)) | .[0] // null | if . == null then null else .[0:200] end) end) as $title
     | {
         agent: "codex",
         session_id: ($meta.id // null),

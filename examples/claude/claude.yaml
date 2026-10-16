@@ -284,7 +284,7 @@ capabilities:
         # forward in the container filesystem, so `|| true` keeps the collision
         # from failing the create. The sentinel name is not a credential; the
         # proxy substitutes the real token at request time.
-        - command: |
+        - command: &register-mcp-gateway |
             set -e
             [ -n "$MCP_GATEWAY_URL" ] || exit 0
             export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH"
@@ -316,14 +316,7 @@ capabilities:
         # remove would briefly delete the entry out from under it. `add ||
         # true` is non-destructive — the common already-registered case exits 1
         # and is left alone.
-        - command: |
-            set -e
-            [ -n "$MCP_GATEWAY_URL" ] || exit 0
-            export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH"
-            claude mcp add mcp-gateway "$MCP_GATEWAY_URL" \
-              --transport http \
-              --scope user \
-              --header "Authorization: Bearer $MCP_SENTINEL_TOKEN_NAME" || true
+        - command: *register-mcp-gateway
           user: agent
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
           description: Register the sandbox MCP gateway (startup fallback)

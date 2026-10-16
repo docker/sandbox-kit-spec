@@ -37,12 +37,16 @@ esac
 [ "$method" != DELETE ] || touch "$MOCK_CLOSED"
 `, 0o755)
 	for _, kit := range []string{"codex", "codex-mixin"} {
-		for _, withRollout := range []bool{true, false} {
-			name := "with rollout"
-			if !withRollout {
-				name = "missing rollout"
-			}
-			t.Run(kit+"/"+name, func(t *testing.T) {
+		for _, tc := range []struct {
+			name, prompt, title string
+			withRollout         bool
+		}{
+			{"with rollout", "  \nUpdate the kit versions\n\nclaude and codex are stale.", "Update the kit versions", true},
+			{"unicode title", "\t \r\n  Réparer 世界\t\r\nOther line", "Réparer 世界", true},
+			{"long title", strings.Repeat("界", 201), strings.Repeat("界", 200), true},
+			{"missing rollout", "", "", false},
+		} {
+			t.Run(kit+"/"+tc.name, func(t *testing.T) {
 				descriptor, err := os.ReadFile(filepath.Join(kit, kit+".yaml"))
 				require.NoError(t, err)
 				require.Contains(t, string(descriptor), `notify = ["/usr/local/bin/sbx-codex-hook", "codex"]`)
@@ -50,13 +54,15 @@ esac
 				callsPath := filepath.Join(tmp, "calls")
 				closed := filepath.Join(tmp, "closed")
 				codexStore := filepath.Join(tmp, "custom-codex-home")
-				if withRollout {
+				if tc.withRollout {
+					prompt, err := json.Marshal(tc.prompt)
+					require.NoError(t, err)
 					writeExampleFixture(t, filepath.Join(codexStore, "sessions", "2026", "10", "05",
 						"rollout-2026-10-05T12-00-00-thread-test.jsonl"), `{"type":"session_meta","payload":{"id":"thread-test","cwd":"/rollout/workspace","cli_version":"0.160.0","git":{"branch":"rollout-branch","commit_hash":"1234567890abcdef"}}}
 {"type":"turn_context","payload":{"model":"older-model","effort":"low"}}
 {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /rollout/workspace\n\n<INSTRUCTIONS>\nbe nice\n</INSTRUCTIONS>"}]}}
 {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/rollout/workspace</cwd>\n</environment_context>"}]}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"  \nUpdate the kit versions\n\nclaude and codex are stale."}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":`+string(prompt)+`}]}}
 {"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"On it."}]}}
 {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Also bump the mixins"}]}}
 {"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":1000,"last_token_usage":{"total_tokens":10},"total_token_usage":{"input_tokens":20,"output_tokens":3}}}}
@@ -82,8 +88,10 @@ esac
 				require.NoError(t, err)
 				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
 				want := []string{`{"name":"sbx_desktop_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
-				if withRollout {
-					want = append(want, `{"name":"sbx_desktop_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":"Update the kit versions","model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
+				if tc.withRollout {
+					title, err := json.Marshal(tc.title)
+					require.NoError(t, err)
+					want = append(want, `{"name":"sbx_desktop_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":`+string(title)+`,"model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
 				}
 				require.Len(t, lines, len(want))
 				for i, expected := range want {
@@ -131,7 +139,7 @@ esac
 			descriptor, err := os.ReadFile(filepath.Join(kit, kit+".yaml"))
 			require.NoError(t, err)
 			require.Contains(t, string(descriptor), `\"UserPromptSubmit\": [ { \"hooks\": [ $HOOK ] } ]`, "the prompt hook must be registered")
-			run := func(input string) []string {
+			run := func(t *testing.T, input string) []string {
 				t.Helper()
 				tmp := t.TempDir()
 				callsPath := filepath.Join(tmp, "calls")
@@ -155,14 +163,30 @@ esac
 				require.FileExists(t, closed, "a delivery must close its MCP session")
 				return strings.Split(strings.TrimSpace(string(calls)), "\n")
 			}
-			lines := run(`{"hook_event_name":"UserPromptSubmit","session_id":"s-1","cwd":"/work/repo","prompt":"  \nFix the flaky test\n\nIt fails on CI only."}`)
-			require.Len(t, lines, 1)
-			var call struct {
-				Params json.RawMessage `json:"params"`
+			for _, tc := range []struct{ name, prompt, title string }{
+				{"first nonempty line", "  \nFix the flaky test\n\nIt fails on CI only.", "Fix the flaky test"},
+				{"unicode title", "\t \r\n  Réparer 世界\t\r\nOther line", "Réparer 世界"},
+				{"long title", strings.Repeat("界", 201), strings.Repeat("界", 200)},
+				{"blank", " \t\r\n\n  ", ""},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					prompt, err := json.Marshal(tc.prompt)
+					require.NoError(t, err)
+					lines := run(t, `{"hook_event_name":"UserPromptSubmit","session_id":"s-1","cwd":"/work/repo","prompt":`+string(prompt)+`}`)
+					if tc.title == "" {
+						require.Nil(t, lines, "a blank prompt is nothing to report")
+						return
+					}
+					require.Len(t, lines, 1)
+					var call struct {
+						Params json.RawMessage `json:"params"`
+					}
+					require.NoError(t, json.Unmarshal([]byte(lines[0]), &call))
+					title, err := json.Marshal(tc.title)
+					require.NoError(t, err)
+					require.JSONEq(t, `{"name":"sbx_desktop_session","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":`+string(title)+`}}`, string(call.Params))
+				})
 			}
-			require.NoError(t, json.Unmarshal([]byte(lines[0]), &call))
-			require.JSONEq(t, `{"name":"sbx_desktop_session","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":"Fix the flaky test"}}`, string(call.Params))
-			require.Nil(t, run(`{"hook_event_name":"UserPromptSubmit","session_id":"s-1","cwd":"/work/repo","prompt":"   "}`), "a blank prompt is nothing to report")
 		})
 	}
 }
