@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/acp@1",
-  "description": "How to start an agent ACP stdio adapter inside the sandbox. Instance-shaped, keyed on the normalized agent provides name; workloads and mixins may declare it. Grants no permission.",
+  "description": "How to run an ACP agent inside the sandbox. Instance-shaped, keyed on the normalized agent provides name; workloads and mixins may declare it. Grants no permission.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,7 @@
   ],
   "properties": {
     "agent": {
-      "description": "Unversioned provides name of the agent this adapter fronts. Bare names normalize into com.docker.kit.",
+      "description": "Unversioned provides name of the agent this command runs. Bare names normalize into com.docker.kit.",
       "anyOf": [
         {
           "type": "string",
@@ -66,10 +66,10 @@
           "pattern": "\u0000"
         }
       },
-      "description": "Extra environment for this adapter process, overlaid on the agent session environment."
+      "description": "Extra environment for this process, overlaid on the agent session environment."
     },
     "protocolVersion": {
-      "description": "Positive ACP major version, not a minimum; initialize still negotiates.",
+      "description": "Positive ACP major version the command is configured to speak, not a minimum or a package release number.",
       "default": 1,
       "anyOf": [
         {

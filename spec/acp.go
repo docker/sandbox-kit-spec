@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ACP is CapabilityACP's config. Command is a complete stdio adapter
+// ACP is CapabilityACP's config. Command is a complete ACP agent
 // invocation, unlike the tails in the workload's session capabilities.
 type ACP struct {
 	Agent           string            `json:"agent" yaml:"agent"`
@@ -25,7 +25,7 @@ func ACPProtocolVersion(a ACP) int {
 	return *a.ProtocolVersion
 }
 
-// ACPCapability retains the selection and display metadata of an adapter.
+// ACPCapability retains the selection and display metadata of an ACP agent launch.
 type ACPCapability struct {
 	ACP
 	Optional    bool
@@ -33,9 +33,9 @@ type ACPCapability struct {
 	Description string
 }
 
-// ACPsOf returns selected adapter declarations in declaration order.
+// ACPsOf returns selected ACP launch declarations in declaration order.
 // Callers match Agent against the composed provides, not just the declaring
-// Kit's provides: an adapter mixin can front another Kit's agent.
+// Kit's provides: a mixin can supply the command for another Kit's agent.
 func ACPsOf(capabilities []Capability) ([]ACPCapability, error) {
 	var out []ACPCapability
 	for _, c := range capabilities {

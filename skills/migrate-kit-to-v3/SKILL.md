@@ -89,11 +89,11 @@ of whether a working non-interactive invocation was ever established
 `agent-interactive-sessions@1` beside it only for verbs you have verified
 against the tool's real CLI, never from a pattern.
 
-When the Kit installs an ACP adapter, also declare `acp@1` with
+When the Kit can run an ACP agent, also declare `acp@1` with
 `optional: true`, the unversioned agent provide name, and the complete
-adapter command. An adapter mixin may require the agent from another
-Kit. Keep the CLI session declarations as fallbacks; do not infer ACP
-features or flags from another agent's adapter.
+launch command. A mixin may supply the command for an agent from another
+Kit. Verify the command against the installed tool; do not infer flags
+from another agent. This declares the launch command and its environment.
 
 ### 2. Write the v3 files
 
