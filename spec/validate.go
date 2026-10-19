@@ -605,7 +605,12 @@ func validateCapabilityBlock(d *Descriptor) error {
 	seenSkills := map[string]int{}
 	seenBundledSkills := map[string]int{}
 	seenPort := map[string]int{}
-	var contexts contextArity
+	// Published descriptors can offer optional versions of one profile;
+	// selection decides which version survives before mixed-version checks.
+	contexts := map[string]*contextArity{
+		CapabilityAgentContext:   {},
+		CapabilityAgentContextV2: {},
+	}
 
 	deferCrossChecks := false
 	invalidCredentials := map[int]bool{}
@@ -716,7 +721,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if n.Type == CapabilityAgentContextV2 {
 				errs.add(validateContextV2(path, i, n))
 			}
-			errs.add(contexts.add(path, i, n))
+			errs.add(contexts[n.Type].add(path, i, n))
 		}
 
 		// Literal destinations determine declaration arity even when size,

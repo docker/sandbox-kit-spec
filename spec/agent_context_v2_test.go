@@ -196,6 +196,54 @@ func TestAgentContextV2MixedVersions(t *testing.T) {
 	}
 }
 
+func TestAgentContextPublishedVersionAlternatives(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit=%t", explicit), func(t *testing.T) {
+			capabilities := []Capability{
+				{Type: CapabilityAgentContext, Optional: true, Config: map[string]any{"content": "legacy"}},
+				{Type: CapabilityAgentContextV2, Optional: true, Config: map[string]any{"content": "modern"}},
+			}
+			if explicit {
+				for i := range capabilities {
+					capabilities[i].Config["directory"] = "/profile"
+					capabilities[i].Config["filename"] = "AGENTS.md"
+				}
+			}
+			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: capabilities}
+			raw, err := json.Marshal(d)
+			require.NoError(t, err)
+			_, err = ValidatePublished(raw, d)
+			require.NoError(t, err, "published alternatives are judged after selection")
+			for _, version := range []string{CapabilityAgentContext, CapabilityAgentContextV2} {
+				selection, err := SelectCapabilities(t.Context(), "alternatives", d, Supported(version))
+				require.NoError(t, err)
+				selected := *d
+				selected.Capabilities = selection.Capabilities
+				effective, err := Compose([]Contribution{{Reference: "alternatives", Descriptor: &selected}})
+				require.NoError(t, err)
+				require.Len(t, effective.Capabilities, 1)
+				require.Equal(t, version, effective.Capabilities[0].Type)
+			}
+			_, err = Compose([]Contribution{{Reference: "alternatives", Descriptor: d}})
+			require.ErrorContains(t, err, "@1 and @2")
+			for _, c := range capabilities {
+				sameVersion := *d
+				duplicate := c
+				duplicate.Config = map[string]any{"content": "another body"}
+				if explicit {
+					duplicate.Config["directory"] = "/profile"
+					duplicate.Config["filename"] = "AGENTS.md"
+				}
+				sameVersion.Capabilities = []Capability{c, duplicate}
+				raw, err := json.Marshal(&sameVersion)
+				require.NoError(t, err)
+				_, err = ValidatePublished(raw, &sameVersion)
+				require.ErrorContains(t, err, "already declared", "same-version arity remains strict")
+			}
+		})
+	}
+}
+
 func TestAgentContextV2CompositionSize(t *testing.T) {
 	for _, size := range []int{SizeWarnBytes/2 + 100, SizeErrorBytes/2 + 100} {
 		var contributions []Contribution
