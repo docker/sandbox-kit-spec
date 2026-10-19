@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """A fixture model for inline-context checks, independent of descriptor merging."""
 import json
+import os
 from pathlib import Path
 import sys
+import time
 import uuid
 
 state, claims, broken, verb, *args = sys.argv[1:]
@@ -62,6 +64,8 @@ if verb == "create":
     if optional:
         profiles.append("/home/agent/.kit-tck/v2-optional/OPTIONAL.md")
     files = dict.fromkeys(profiles, body)
+    files["/var/tmp/context-v2-ready"] = "ready\n"
+    files["ready_after"] = time.monotonic() + float(os.environ.get("KIT_TCK_FAKE_CONTEXT_READY_DELAY", "0"))
     for index in range(3):
         launch = body
         if broken == "context-v2-after-launch" or (broken == "context-v2-second-after-launch" and index == 2):
@@ -79,6 +83,9 @@ else:
         if args and args[0] == "--":
             args.pop(0)
         files = json.loads(record.read_text())
+        if len(args) == 2 and args[0] == "cat" and (args[1] == "/var/tmp/context-v2-ready" or args[1].startswith("/var/tmp/context-v2-at-launch-")):
+            if time.monotonic() < files["ready_after"]:
+                sys.exit(1)
         if len(args) == 2 and args[0] == "cat" and args[1] in files:
             print(files[args[1]], end="")
         else:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/docker/sandbox-kit-spec/v3/spec"
 	"github.com/docker/sandbox-kit-spec/v3/tck/adapter"
@@ -29,6 +30,10 @@ func inlineContextMaterialized(ctx context.Context, e *Env) []report.Finding {
 			cleanup()
 			return []report.Finding{report.Failf("inline context create: %v", err)}
 		}
+		if f := waitInlineContextSnapshots(ctx, e, id); f != nil {
+			cleanup()
+			return []report.Finding{*f}
+		}
 		for _, file := range append(profiles, snapshots...) {
 			body, f := execOutput(ctx, e, id, "cat", file)
 			if f != nil {
@@ -45,6 +50,24 @@ func inlineContextMaterialized(ctx context.Context, e *Env) []report.Finding {
 	return nil
 }
 
+// Create can return while the entrypoint is still recording its evidence.
+// The marker follows atomic snapshot renames, so comparison sees full files.
+func waitInlineContextSnapshots(ctx context.Context, e *Env, id string) *report.Finding {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		ready, f := execOutput(ctx, e, id, "cat", "/var/tmp/context-v2-ready")
+		if f == nil && strings.TrimSpace(ready) == "ready" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return failing("wait for launch snapshots: %v", ctx.Err())
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
 func inlineContextSelection(ctx context.Context, e *Env) []report.Finding {
 	for _, reject := range []bool{false, true} {
 		opts := adapter.CreateOptions{}
@@ -55,6 +78,10 @@ func inlineContextSelection(ctx context.Context, e *Env) []report.Finding {
 		if err != nil {
 			cleanup()
 			return []report.Finding{report.Failf("inline selection create: %v", err)}
+		}
+		if f := waitInlineContextSnapshots(ctx, e, id); f != nil {
+			cleanup()
+			return []report.Finding{*f}
 		}
 		for _, file := range []string{"/home/agent/.kit-tck/v2/AGENTS.md", "/home/agent/.kit-tck/v2-other/OTHER.md"} {
 			body, f := execOutput(ctx, e, id, "cat", file)
