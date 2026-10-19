@@ -47,9 +47,9 @@ capabilities:
         inject:
           - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
-      contentFile: ./gh-context.md
+      content: Use gh for GitHub operations.
 ```
 
 Note what is *absent*: no top-level identity name, no image reference, no

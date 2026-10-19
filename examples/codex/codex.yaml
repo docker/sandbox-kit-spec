@@ -291,8 +291,14 @@ capabilities:
     config:
       path: /home/agent/.agents/skills
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
       directory: /home/agent/.codex
-      contentFile: ./codex-context.md
+      content: |
+        # Codex
+
+        This sandbox runs OpenAI's Codex CLI as its workload. Launch is `codex`
+        in dangerous-bypass mode; credentials arrive proxy-managed (API key or
+        ChatGPT OAuth), so tokens in local config files are sentinels, never
+        secrets.

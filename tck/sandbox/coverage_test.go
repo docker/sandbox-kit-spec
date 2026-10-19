@@ -28,6 +28,7 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"agent-context@2/materialized":                {"agent-context@2/complete-content", "agent-context@2/expansion", "agent-context@2/profile-precedence", "agent-context@2/existing-content-preserved"},
 	"host-mount@1/isolated-by-kit":                {"host-mount@1/identity-not-self-declared"},
 	"host-mount@1/host-volume-conflict":           {"host-mount@1/no-silent-merge"},
 	"agent-skill@1/host-conflict":                 {"agent-skill@1/existing-conflict"},
@@ -107,6 +108,7 @@ var kitCovers = map[string][]string{
 	// decodes, and refuses the authoring-only kind: set — a published
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
+		"agent-context@2/inline-only",
 		"host-mount@1/runtime-owned-location",
 		"agent-skill@1/name-valid",
 		"agent-skill@1/source-literal",
@@ -176,6 +178,9 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"agent-context@2/publication-inline": "publisher contract; TestAgentContextV2PublishedSelection and frontend end-to-end publication tests judge retention; the artifact suite cannot infer guidance a publisher omitted without the original declarations",
+	"agent-context@2/size-budget":        "descriptor-valid enforces the published hard budget; expansion, effective composition, and advisory warnings are judged by TestAgentContextV2Expansion, TestAgentContextV2CompositionSize, and fetch tests, rather than a large runtime fixture",
+	"agent-context@2/content-untrusted":  "non-observable: runtime trust has no in-sandbox symptom and runtime-management delimiters are not standardized",
 	// ACP launch configuration is judged by the spec package tests.
 	"acp@1/optional-for-compatibility": "authoring recommendation, judged for the shipped ACP examples by TestACPExamples",
 	"acp@1/config-valid":               "grammar rule, judged by TestACPValidation and TestACPSchema",

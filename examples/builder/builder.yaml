@@ -200,7 +200,7 @@ capabilities:
           env: [HTTP_PROXY, HTTPS_PROXY]
           description: Bootstrap the agent's container-driver buildx builder
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
       content: |

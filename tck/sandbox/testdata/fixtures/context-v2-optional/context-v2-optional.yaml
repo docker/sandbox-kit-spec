@@ -1,0 +1,15 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+requires: [context-v2-tool]
+capabilities:
+  - group:
+      optional: true
+      capabilities:
+        - type: com.docker.sandbox/volume@1
+          config: {path: /var/tmp/context-v2-cache}
+        - type: com.docker.sandbox/agent-context@2
+          config:
+            filename: OPTIONAL.md
+            directory: /home/agent/.kit-tck/v2-optional
+            content: optional-context-v2

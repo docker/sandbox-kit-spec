@@ -29,7 +29,7 @@ capabilities:
         allow:
           - dhi.io
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
       content: |

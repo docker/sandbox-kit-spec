@@ -489,3 +489,40 @@ func AgentContextsOf(capabilities []Capability) ([]AgentContext, error) {
 	}
 	return result, nil
 }
+
+// AgentContextsV2Of reads every selected inline-context config. It deliberately
+// does not lift @1, whose body and surfacing contract require a different reader.
+func AgentContextsV2Of(capabilities []Capability) ([]AgentContextV2, error) {
+	var result []AgentContextV2
+	for _, c := range capabilities {
+		if c.Group != nil {
+			return nil, fmt.Errorf("agent contexts: select groups first")
+		}
+		if c.Type != CapabilityAgentContextV2 {
+			continue
+		}
+		var a AgentContextV2
+		if err := DecodeCapabilityConfig(c, &a); err != nil {
+			return nil, err
+		}
+		result = append(result, a)
+	}
+	return result, nil
+}
+
+// AgentContextV2Of reads a sole inline-context request. Use AgentContextsV2Of
+// for several selected declarations or a composition with several profiles;
+// returning only the first would silently discard guidance or a destination.
+func AgentContextV2Of(capabilities []Capability) (*AgentContextV2, error) {
+	contexts, err := AgentContextsV2Of(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	if len(contexts) > 1 {
+		return nil, fmt.Errorf("agent context: several requests; read all with AgentContextsV2Of")
+	}
+	if len(contexts) == 0 {
+		return nil, nil
+	}
+	return &contexts[0], nil
+}

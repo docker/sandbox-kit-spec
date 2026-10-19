@@ -171,7 +171,8 @@ type Request struct {
 }
 
 // Resolved is a runtime composition. Keep Kits alongside Descriptor so
-// capability handlers can inspect each contributor's declarations.
+// capability handlers can inspect each contributor's declarations. @2 agent
+// guidance is complete in Descriptor and needs no contributor or layer reads.
 type Resolved struct {
 	// Selections records decisions in dependency order, alongside the published
 	// descriptors. Kits contains expanded, selected contributions.
@@ -179,6 +180,7 @@ type Resolved struct {
 
 	// Descriptor is the reconciled, selected declaration set. It does not retain
 	// per-Kit provenance; use Kits where a capability requires attribution.
+	// AgentContextsV2Of reads the complete inline guidance from this field.
 	Descriptor *spec.Descriptor
 
 	// Kits are selected, unmerged contributions in dependency order, providers before
@@ -188,7 +190,8 @@ type Resolved struct {
 	// Descriptor.Args is cleared because the values have already been applied.
 	// This is declaration order; image layers start with the workload.
 	// A Kit can contribute several selected lifecycle/context entries. Apply
-	// lifecycle from Descriptor; use spec.AgentContextsOf for per-Kit bodies.
+	// lifecycle from Descriptor. For @1 context use spec.AgentContextsOf on
+	// each Kit; @2 profiles and bodies are complete in the merged Descriptor.
 	Kits []*resolve.Unit
 
 	// ContainerEnv contains resolved env: argument exports. Apply them as
@@ -432,6 +435,9 @@ func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, parti
 	}
 	merged, err := spec.Compose(contributions)
 	if err != nil {
+		if errors.Is(err, spec.ErrDescriptorTooLarge) {
+			return nil, fmt.Errorf("compose capabilities: %w", spec.ErrDescriptorTooLarge)
+		}
 		if hadEnvironment {
 			return nil, fmt.Errorf("compose capabilities after environment expansion: incompatible declarations")
 		}
@@ -549,6 +555,9 @@ func expandResolvedKit(k *Kit, values, exports, environment map[string]string) (
 		}
 	}
 	if _, err := spec.ValidateExpandedDeclarations(expanded, d); err != nil {
+		if errors.Is(err, spec.ErrDescriptorTooLarge) && hadEnvironment {
+			return nil, fmt.Errorf("%s: %w", k.Reference, spec.ErrDescriptorTooLarge)
+		}
 		if hadEnvironment {
 			// Expanded values may be secrets. Neither validator details nor source
 			// excerpts from the expanded document are safe to include in errors.

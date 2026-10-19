@@ -156,7 +156,7 @@ func Supported(types ...string) SelectCapability {
 func KnownCapabilities() []string {
 	return []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityUSBDevice, CapabilityResources,
-		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP,
+		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry}
 }
 
@@ -485,6 +485,12 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 			return true
 		}
 		for _, item := range c.Descriptor.Capabilities {
+			// Inline guidance stays with its original selectable declaration.
+			// Combining it now would couple optional bodies to profile selection
+			// and duplicate shared guidance when this set is composed again.
+			if item.Type == CapabilityAgentContextV2 {
+				return true
+			}
 			// A set may re-export storage destinations or settings. Keep
 			// their requests separate until create expands the values:
 			// instance keys and equivalence cannot judge placeholders.

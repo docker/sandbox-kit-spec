@@ -25,19 +25,21 @@ type Contribution struct {
 }
 
 // MergeResult is the merged kit: the descriptor it publishes, plus the
-// agent-context bodies the caller has to stage, which the descriptor
-// alone cannot carry.
+// @1 agent-context bodies the caller has to stage. @2 bodies remain inline.
 type MergeResult struct {
 	// Descriptor is the merged declaration set, under the derived kind.
 	Descriptor *Descriptor
 
-	// ContextSources are agent-context bodies in contribution order. Empty
+	// ContextSources are @1 agent-context bodies in contribution order. Empty
 	// when no contribution declared any context content. Sources with an
 	// empty Target are concatenated into the merged entry's contentFile.
 	// Each source with a Target must instead be staged separately at that
 	// path, preserving its conditional selection boundary. The caller owns
 	// reading and staging the bodies; this package only computes the paths.
 	ContextSources []ContextSource
+
+	// Warnings includes the serialized descriptor advisory size budget.
+	Warnings []string
 }
 
 // ContextSource is one contribution's agent-context body: either an
@@ -64,7 +66,7 @@ type ContextSource struct {
 type MergeOptions struct {
 	// ContextPath is the in-image path the merged agent-context body
 	// will be staged at, written into the merged entry's contentFile.
-	// Required when any contribution declares context content.
+	// Required when a contribution declares @1 context content.
 	ContextPath string
 }
 
@@ -78,8 +80,21 @@ type MergeOptions struct {
 //
 // Unconditional context bodies are concatenated at opts.ContextPath;
 // grouped publication stages each ContextSource at its separate Target.
+// @2 publication preserves declarations inline, with selection boundaries.
 // Runtime consumers use Compose and retain the input contributions.
 func Merge(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
+	result, err := mergeForPublication(contributions, opts)
+	if err != nil {
+		return nil, err
+	}
+	result.Warnings, err = checkMergedSize(result.Descriptor)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func mergeForPublication(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
 	if contributionsNeedDeferredMerge(contributions) {
 		return preserveGroups(contributions, opts)
 	}
@@ -119,7 +134,8 @@ func Merge(contributions []Contribution, opts MergeOptions) (*MergeResult, error
 // It shares Merge's conflict and reconciliation rules, without staging
 // content for publication. Retain the input contributions alongside the
 // returned descriptor: capability handlers need the individual declarations
-// wherever composition would otherwise erase their provenance.
+// wherever composition would otherwise erase their provenance. Inline @2
+// agent-context is complete in the returned effective profiles.
 // The caller resolves dependencies and validates inputs before calling;
 // Compose does not perform descriptor validation or registry IO.
 func Compose(contributions []Contribution) (*Descriptor, error) {
@@ -133,7 +149,24 @@ func Compose(contributions []Contribution) (*Descriptor, error) {
 		result.Descriptor.Capabilities[i].Source = nil
 		result.Descriptor.Capabilities[i].DeclarationBlocks = nil
 	}
+	// Unlike @1 profile stubs, @2 carries every body here, so this API
+	// itself enforces the bound even without a caller validation pass.
+	if HasCapability(result.Descriptor.Capabilities, CapabilityAgentContextV2) {
+		if _, err := checkMergedSize(result.Descriptor); err != nil {
+			return nil, err
+		}
+	}
 	return result.Descriptor, nil
+}
+
+// Count the serialized representation, including duplicated effective profile
+// bodies and JSON escaping; summing source lengths would miss both.
+func checkMergedSize(d *Descriptor) ([]string, error) {
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return nil, fmt.Errorf("merge: serialize descriptor: %w", err)
+	}
+	return validateSize(raw)
 }
 
 func mergeDeclarations(contributions []Contribution) (*MergeResult, error) {
@@ -472,7 +505,7 @@ func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSou
 			if err := m.add(reference, n); err != nil {
 				return nil, nil, err
 			}
-			if n.Type == CapabilityAgentContext {
+			if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
 				m.context[len(m.context)-1].contribution = c.Reference
 			}
 		}
@@ -556,6 +589,7 @@ type contextAsk struct {
 	contribution string
 	name         string
 	context      *AgentContext
+	v2           bool
 	optional     bool
 }
 
@@ -581,6 +615,16 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 			return err
 		}
 		m.lifecycle = append(m.lifecycle, lifecycleAsk{reference: reference, name: n.Name, lifecycle: &l, optional: n.Optional})
+		return nil
+
+	case CapabilityAgentContextV2:
+		var a AgentContextV2
+		if err := decodeForMerge(reference, n, &a); err != nil {
+			return err
+		}
+		m.context = append(m.context, contextAsk{reference: reference, name: n.Name,
+			context:  &AgentContext{Directory: a.Directory, Filename: a.Filename, Content: a.Content},
+			optional: n.Optional, v2: true})
 		return nil
 
 	case CapabilityAgentContext:
@@ -1159,13 +1203,19 @@ func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
 // mergedContext folds the contributors' agent-context into the profiles a
 // sandbox materializes: one entry per distinct explicit destination, or
 // the legacy profile when no contribution states one. Every profile
-// indexes every body, so the bodies are collected once, separately, for
-// publishers to stage.
+// receives every body: @1 collects staging sources, while @2 carries
+// the combined inline text in each effective profile.
 func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error) {
 	if len(m.context) == 0 {
 		return nil, nil, nil
 	}
 
+	v2 := m.context[0].v2
+	for _, ask := range m.context {
+		if ask.v2 != v2 {
+			return nil, nil, mixedContextVersions()
+		}
+	}
 	destination := func(a *AgentContext) string { return path.Join(a.Directory, a.Filename) }
 	var profiles []AgentContext
 	profileAt := map[string]int{}
@@ -1236,15 +1286,30 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		profiles = []AgentContext{legacy}
 	}
 
+	var bodies []string
+	if v2 {
+		for _, source := range sources {
+			bodies = append(bodies, source.Content)
+		}
+	}
 	out := make([]Capability, 0, len(profiles))
 	for i := range profiles {
-		c, err := capabilityFrom(CapabilityAgentContext, &profiles[i])
+		typ := CapabilityAgentContext
+		var config any = &profiles[i]
+		if v2 {
+			typ = CapabilityAgentContextV2
+			config = &AgentContextV2{Directory: profiles[i].Directory, Filename: profiles[i].Filename, Content: strings.Join(bodies, "\n\n")}
+		}
+		c, err := capabilityFrom(typ, config)
 		if err != nil {
 			return nil, nil, err
 		}
 		c.Optional = optional[i]
 		c.Name = names[i]
 		out = append(out, *c)
+	}
+	if v2 {
+		sources = nil
 	}
 	return out, sources, nil
 }

@@ -162,3 +162,31 @@ func (r guidanceReference) ReadFile(_ context.Context, req gwclient.ReadRequest)
 	}
 	return body, nil
 }
+
+func TestBuildLeavesV2InlineGuidanceOutOfFileLoading(t *testing.T) {
+	c := newGuidanceClient(`schemaVersion: "3"
+kind: mixin
+args:
+  build: {default: built, buildArg: BUILD}
+  team: {default: platform}
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  config:
+    content: 'Build ${{ kit.args.build }} for ${{ kit.args.team }} in ${{ kit.env.HOME }}; $HOME ${HOME}'
+`, nil)
+	_, err := Build(t.Context(), c)
+	require.ErrorIs(t, err, errGuidanceContentBuild)
+	require.Equal(t, []string{"demo.yaml", "demo.dockerfile"}, c.reads)
+}
+
+func TestBuildRejectsV2ContentFileBeforeReadingIt(t *testing.T) {
+	c := newGuidanceClient(`schemaVersion: "3"
+kind: mixin
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  config: {contentFile: ./forbidden.md}
+`, nil)
+	_, err := Build(t.Context(), c)
+	require.ErrorContains(t, err, `unknown field "contentFile"`)
+	require.NotContains(t, c.reads, "forbidden.md")
+}

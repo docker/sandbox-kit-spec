@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -24,6 +24,18 @@ esac
 host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
+
+# Inline context has its own fixture model and no image content reader.
+context_helper="$(dirname "${BASH_SOURCE[0]}")/agent-context-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    case "$arg" in
+    */context-v2-*) exec python3 "$context_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
+    esac
+  done
+elif [ -f "$state/context-v2/${1:-}.json" ]; then
+  exec python3 "$context_helper" "$state" "$claims" "$broken" "$verb" "$@"
+fi
 
 # Volume lifetime probes have their own instance model. Removing an
 # instance cannot be used to emulate recreation in that model.

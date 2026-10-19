@@ -635,6 +635,28 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/agent-context@2"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "config"
+            ],
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/agent-context@2.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/long-running@1"
               }
             },

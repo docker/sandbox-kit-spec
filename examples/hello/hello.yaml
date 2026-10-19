@@ -30,7 +30,11 @@ capabilities:
           - hosts: [httpbin.org]
             methods: [GET, HEAD, OPTIONS, POST, PUT, PATCH]
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
-      contentFile: ./hello-context.md
+      content: |
+        # Hello kit
+
+        This sandbox greets. The greeting is baked at build time from the `greeting`
+        kit arg.

@@ -92,8 +92,13 @@ capabilities:
           description: Register the sandbox MCP gateway in ~/.gemini/settings.json
 
   # gemini reads its profile as GEMINI.md, not AGENTS.md.
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: GEMINI.md
       directory: /home/agent/.gemini
-      contentFile: ./gemini-context.md
+      content: |
+        # Gemini CLI
+
+        This sandbox runs Google's Gemini CLI. The API key is proxy-managed — the
+        value in the environment is a sentinel the egress proxy swaps at the
+        Google endpoints — and ~/.gemini/settings.json is seeded for sandbox use.

@@ -155,8 +155,13 @@ capabilities:
     config:
       path: /home/agent/.cursor/skills
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
       directory: /home/agent/workspace
-      contentFile: ./cursor-context.md
+      content: |
+        # Cursor
+
+        This sandbox runs the Cursor agent CLI. Credentials are proxy-managed: an
+        API key or Cursor OAuth arrives as sentinels, and the workspace is
+        pre-trusted so the TUI skips its trust prompt.

@@ -263,8 +263,13 @@ capabilities:
     config:
       path: /home/agent/.config/opencode/skills
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
       directory: /home/agent/.config/opencode
-      contentFile: ./opencode-context.md
+      content: |
+        # OpenCode
+
+        This sandbox runs OpenCode, a multi-provider coding agent. Provider keys
+        are proxy-managed sentinels; ChatGPT-subscription OAuth renders into
+        ~/.local/share/opencode/auth.json for OpenCode's codex auth plugin.

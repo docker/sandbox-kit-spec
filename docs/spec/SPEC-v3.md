@@ -113,9 +113,9 @@ capabilities:
         inject:
           - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
-      contentFile: ./gh-context.md
+      content: Use gh for GitHub operations.
 ```
 
 The content recipe lives in a companion `gh.dockerfile` beside this
@@ -578,7 +578,8 @@ cleaned storage path key,
 `ssh-agent@1` on each phase it names, `agent-context@1` on its explicit
 profile destination (`directory` plus `filename`), with at most one
 entry without a directory and at most one carrying a body per
-declaration block.
+declaration block. `agent-context@2` uses the same profile key and
+undirected-entry limit, and allows content on each explicit profile.
 `usb-device@1` is instance-shaped with no dedup key beyond the exact
 entry.
 
@@ -753,6 +754,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
+| `com.docker.sandbox/agent-context@2` | [agent-context@2](capabilities/com.docker.sandbox/agent-context@2.md) | per explicit profile destination; one undirected entry; inline bodies |
 | `com.docker.sandbox/acp@1` | [acp@1](capabilities/com.docker.sandbox/acp@1.md) | per agent |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
@@ -796,11 +798,12 @@ candidate's against it:
   stop for approval.
 - `optional` does not change the surface: it changes what happens when the
   host cannot provide, not what is granted when it can.
-- `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-sessions@1`,
-  `agent-interactive-sessions@1`, `acp@1`, and `sbx@1` contribute nothing
-  to the surface: resource limits constrain the Kit rather than grant it
-  anything; lifecycle, agent context, session verbs, and ACP run inside
-  the sandbox on the entrypoint's trust plane, and `sbx@1` asks the host
+- `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-context@2`,
+  `agent-sessions@1`, `agent-interactive-sessions@1`, `acp@1`, and `sbx@1`
+  contribute nothing to the surface: resource limits constrain the Kit
+  rather than grant it anything; lifecycle, agent context, session verbs,
+  and ACP run inside the sandbox on the entrypoint's trust plane, and
+  `sbx@1` asks the host
   to launch the workload a particular way and to read an identity the
   image already states (see their pages). `long-running@1` likewise grants
   no access; it keeps the workload running independently of attached
@@ -986,6 +989,7 @@ error. In that order they reconcile into one descriptor:
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
+| `agent-context@2` | The same destination precedence and per-profile optionality as @1. Every effective profile carries all selected bodies inline in dependency order, joined with two newlines. Publication preserves original declarations in groups so later selection excludes skipped bodies and does not duplicate shared guidance. Selected @1 and @2 requests cannot compose. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
 | `optional` | An entry any of them requires is required in the merged kit: `optional` says its asker degrades without it, and one that does not degrade decides for the set. |
 | Capability `name` | When contributions merge into one entry, the first nonempty name in contribution order **MUST** be retained. Labels do not prevent merging. | <!-- tck: SPEC-v3 §9.5/capability-name-first -->

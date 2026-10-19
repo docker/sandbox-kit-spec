@@ -2,6 +2,7 @@ package spec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -35,6 +36,10 @@ const (
 	// SizeErrorBytes is the hard budget: crossing it fails validation.
 	SizeErrorBytes = 512 * 1024
 )
+
+// ErrDescriptorTooLarge identifies a budget failure without exposing expanded
+// guidance or environment values in a consumer's diagnostic.
+var ErrDescriptorTooLarge = errors.New("descriptor exceeds size budget")
 
 var (
 	envVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -232,12 +237,9 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 	warnings, err = Validate(d)
 	errs.add(err)
 
-	if len(raw) > SizeErrorBytes {
-		errs.add(fieldErrorf("", "descriptor is %d bytes, over the %d byte budget; move bulk into layers", len(raw), SizeErrorBytes))
-	}
-	if len(raw) > SizeWarnBytes {
-		warnings = append(warnings, fmt.Sprintf("descriptor is %d bytes; the advisory budget is %d", len(raw), SizeWarnBytes))
-	}
+	sizeWarnings, sizeErr := validateSize(raw)
+	warnings = append(warnings, sizeWarnings...)
+	errs.add(sizeErr)
 
 	var references map[string][]string
 	for _, name := range ReferencedArgs(raw) {
@@ -255,6 +257,17 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 		}
 	}
 	return warnings, errs.err()
+}
+
+func validateSize(raw []byte) ([]string, error) {
+	var warnings []string
+	if len(raw) > SizeWarnBytes {
+		warnings = append(warnings, fmt.Sprintf("descriptor is %d bytes; the advisory budget is %d", len(raw), SizeWarnBytes))
+	}
+	if len(raw) > SizeErrorBytes {
+		return warnings, fieldErrorf("", "descriptor is %d bytes, over the %d byte budget; shorten inline guidance or move reference material into bundled files or skills: %w", len(raw), SizeErrorBytes, ErrDescriptorTooLarge)
+	}
+	return warnings, nil
 }
 
 func validateCapabilityNames(d *Descriptor) error {
@@ -698,8 +711,11 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 		}
 
-		if n.Type == CapabilityAgentContext {
+		if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
 			errs.add(validateContextDirectory(path, i, d.Kind, n))
+			if n.Type == CapabilityAgentContextV2 {
+				errs.add(validateContextV2(path, i, n))
+			}
 			errs.add(contexts.add(path, i, n))
 		}
 
@@ -963,6 +979,10 @@ func validateCapabilityBlock(d *Descriptor) error {
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
 	}
 
+	if !d.declarationsOnly && HasCapability(needs, CapabilityAgentContext) && HasCapability(needs, CapabilityAgentContextV2) {
+		errs.add(mixedContextVersions())
+	}
+
 	// Compared on literal values only, so an unrelated deferral does not
 	// suppress it. Whenever both are stated the argvs must agree, an empty
 	// tail included: newSession: [--tui] beside interactive: [] would
@@ -1018,7 +1038,7 @@ func (a *contextArity) add(field string, i int, n Capability) error {
 	}
 	_, hasContent := n.Config["content"]
 	_, hasContentFile := n.Config["contentFile"]
-	if hasContent || hasContentFile {
+	if n.Type == CapabilityAgentContext && (hasContent || hasContentFile) {
 		// Publication stages one body per Kit, and every profile indexes it.
 		if a.seenBody {
 			errs.add(fieldErrorf(field+".config", "capabilities[%d]: agent-context body already declared at capabilities[%d]; a Kit contributes one body, which every profile indexes", i, a.body))

@@ -216,6 +216,10 @@ kits:
 		require.NoError(t, err)
 		require.NoError(t, report.Err(), "the published set conforms:\n%s", report)
 	}
+	t.Run("inline context v2", func(t *testing.T) {
+		(&e2e{t: t, builder: e.builder}).inlineContextSet(frontend, registry)
+	})
+
 	t.Run("final environment", func(t *testing.T) {
 		child := &e2e{t: t, builder: e.builder}
 		child.environmentSet(frontend, registry)
@@ -387,7 +391,7 @@ func (e *e2e) startRegistry() string {
 // one that can see the locally built frontend image and reach a
 // registry published on the host, and the current builder may be
 // neither.
-func (e *e2e) publish(root, stem, ref, descriptor string, extra map[string]string) {
+func (e *e2e) publish(root, stem, ref, descriptor string, extra map[string]string) string {
 	e.t.Helper()
 	dir := filepath.Join(root, stem)
 	require.NoError(e.t, os.MkdirAll(dir, 0o755))
@@ -396,7 +400,7 @@ func (e *e2e) publish(root, stem, ref, descriptor string, extra map[string]strin
 		require.NoError(e.t, os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755))
 		require.NoError(e.t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644))
 	}
-	e.run("docker", "buildx", "--builder", e.builder, "build", dir,
+	return e.run("docker", "buildx", "--builder", e.builder, "build", dir,
 		"-f", filepath.Join(dir, stem+".yaml"),
 		"--push", "-t", ref, "--provenance=false")
 }
@@ -575,4 +579,122 @@ kits:
 		}
 	}
 	require.True(t, found, "inline environment references survive set publication")
+}
+
+func (e *e2e) inlineContextSet(frontend, registry string) {
+	t := e.t
+	dir := t.TempDir()
+	base := registry + "/sbx-kit-inline-base:1.0.0"
+	tool := registry + "/sbx-kit-inline-tool:1.0.0"
+	optional := registry + "/sbx-kit-inline-optional:1.0.0"
+	e.publish(dir, "inline-base", base, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: workload
+provides: [inline-base@1.0.0]
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  config: {filename: AGENTS.md, content: Base inline guidance.}
+build: |
+  FROM busybox:1.37
+  ENV HOME=/home/agent
+  ENTRYPOINT ["/bin/sh"]
+`, nil)
+	e.publish(dir, "inline-tool", tool, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: mixin
+provides: [inline-tool@1.0.0]
+requires: [inline-base]
+args:
+  build: {default: built, buildArg: BUILD}
+  team: {required: true}
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  config:
+    content: 'Tool ${{ kit.args.build }} for ${{ kit.args.team }} at ${{ kit.env.HOME }}; $HOME ${HOME}'
+`, nil)
+	e.publish(dir, "inline-optional", optional, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: mixin
+requires: [inline-tool]
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  optional: true
+  config:
+    directory: /profiles/optional
+    filename: OPTIONAL.md
+    content: Optional inline guidance.
+`, nil)
+	set := registry + "/sbx-kit-inline-set:1.0.0"
+	e.publish(dir, "inline-set", set, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: set
+args:
+  team: {required: true}
+kits:
+- ref: `+optional+`
+- ref: `+tool+`
+  args: {team: "${{ kit.args.team }}"}
+- ref: `+base+`
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  config:
+    directory: /profiles/main
+    filename: AGENTS.md
+    content: Set inline guidance.
+`, nil)
+	client, err := fetch.New()
+	require.NoError(t, err)
+	for _, skip := range []bool{false, true} {
+		result, err := client.Resolve(t.Context(), []fetch.Request{{Reference: set, Args: map[string]string{"team": "platform"}}},
+			fetch.WithEnvironment(map[string]string{"HOME": "/home/runtime"}, nil),
+			fetch.WithCapabilitySelector(func(_ context.Context, _ spec.SelectionTarget, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+				return spec.CapabilityDecision{Accepted: !skip || c.Config["directory"] != "/profiles/optional"}
+			}))
+		require.NoError(t, err)
+		profiles, err := spec.AgentContextsV2Of(result.Descriptor.Capabilities)
+		require.NoError(t, err)
+		count := 2
+		if skip {
+			count = 1
+		}
+		require.Len(t, profiles, count)
+		want := "Base inline guidance.\n\nTool built for platform at /home/runtime; $HOME ${HOME}"
+		if !skip {
+			want += "\n\nOptional inline guidance."
+		}
+		want += "\n\nSet inline guidance."
+		for _, profile := range profiles {
+			require.Equal(t, want, profile.Content)
+		}
+		raw, err := json.Marshal(result.Descriptor)
+		require.NoError(t, err)
+		_, err = spec.ValidateEffective(raw, result.Descriptor)
+		require.NoError(t, err)
+	}
+	artifact, err := tckkit.FromRegistry(t.Context(), set)
+	require.NoError(t, err)
+	rep, err := tckkit.Run(t.Context(), artifact)
+	require.NoError(t, err)
+	require.NoError(t, rep.Err(), "%s", rep)
+
+	budgetDescriptor := func(value string) string {
+		return `# syntax=` + frontend + `
+schemaVersion: "3"
+kind: mixin
+args:
+  x: {buildArg: X, default: "` + value + `"}
+capabilities:
+- type: com.docker.sandbox/agent-context@2
+  config:
+    content: "` + strings.Repeat("${{kit.args.x}}", 1000) + `"
+`
+	}
+	output := e.publish(dir, "inline-budget", registry+"/sbx-kit-inline-budget:1.0.0", budgetDescriptor(strings.Repeat("x", 80)), nil)
+	require.Contains(t, output, "the advisory budget is 65536")
+	budgetDir := filepath.Join(dir, "inline-budget")
+	require.NoError(t, os.WriteFile(filepath.Join(budgetDir, "inline-budget.yaml"), []byte(budgetDescriptor(strings.Repeat("x", 600))), 0o644))
+	command := exec.CommandContext(t.Context(), "docker", "buildx", "--builder", e.builder, "build", budgetDir, "-f", filepath.Join(budgetDir, "inline-budget.yaml"), "--output=type=cacheonly")
+	failed, err := command.CombinedOutput()
+	require.Error(t, err, "expanded guidance above 512 KiB must fail publication")
+	require.Contains(t, string(failed), "over the 524288 byte budget")
 }

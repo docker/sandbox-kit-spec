@@ -181,8 +181,13 @@ capabilities:
           user: "0"
           description: Make docker-agent self-updateable
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
       filename: AGENTS.md
       directory: /home/agent
-      contentFile: ./docker-agent-context.md
+      content: |
+        # Docker Agent
+
+        This sandbox runs Docker Agent, a multi-provider coding agent. Every
+        provider key is proxy-managed: the values in the environment are
+        sentinels the egress proxy swaps at each provider's endpoints.

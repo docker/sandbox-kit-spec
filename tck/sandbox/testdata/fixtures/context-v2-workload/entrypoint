@@ -1,0 +1,8 @@
+#!/bin/sh
+# Record each discovery destination separately, before exec can repair it.
+index=0
+for file in /home/agent/AGENTS.md /home/agent/.kit-tck/v2/AGENTS.md /home/agent/.kit-tck/v2-other/OTHER.md; do
+  if [ -f "$file" ]; then cat "$file" > "/var/tmp/context-v2-at-launch-$index"; fi
+  index=$((index + 1))
+done
+exec sleep infinity
