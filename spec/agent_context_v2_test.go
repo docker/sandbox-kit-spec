@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -348,6 +349,33 @@ func TestAgentContextV2CompositionCountsSerializedEscapes(t *testing.T) {
 	}
 	_, err := Compose(contributions)
 	require.ErrorIs(t, err, ErrDescriptorTooLarge)
+}
+
+func TestAgentContextV2RejectsRepeatedBodiesBeforeAllocatingProfiles(t *testing.T) {
+	for _, character := range []string{"x", "<"} {
+		t.Run(character, func(t *testing.T) {
+			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
+				contextV2(map[string]any{"content": strings.Repeat(character, 32*1024)}),
+			}}
+			for i := range 128 {
+				d.Capabilities = append(d.Capabilities, contextV2(map[string]any{
+					"directory": fmt.Sprintf("/profiles/%d", i), "filename": "AGENTS.md",
+				}))
+			}
+			raw, err := json.Marshal(d)
+			require.NoError(t, err)
+			_, err = ValidatePublished(raw, d)
+			require.NoError(t, err, "the input fits the descriptor budget")
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			_, err = Compose([]Contribution{{Reference: "profiles", Descriptor: d}})
+			runtime.ReadMemStats(&after)
+			require.ErrorIs(t, err, ErrDescriptorTooLarge)
+			// Rejecting a small input must not allocate its multi-megabyte
+			// repeated output. Leave ample room for decoding and merge state.
+			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(8*SizeErrorBytes))
+		})
+	}
 }
 
 func TestAgentContextV2AccessorDoesNotDiscardRequests(t *testing.T) {

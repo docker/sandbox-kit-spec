@@ -1286,10 +1286,12 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		profiles = []AgentContext{legacy}
 	}
 
-	var bodies []string
+	var content string
 	if v2 {
-		for _, source := range sources {
-			bodies = append(bodies, source.Content)
+		var err error
+		content, err = joinContextV2(sources, len(profiles))
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	out := make([]Capability, 0, len(profiles))
@@ -1298,7 +1300,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		var config any = &profiles[i]
 		if v2 {
 			typ = CapabilityAgentContextV2
-			config = &AgentContextV2{Directory: profiles[i].Directory, Filename: profiles[i].Filename, Content: strings.Join(bodies, "\n\n")}
+			config = &AgentContextV2{Directory: profiles[i].Directory, Filename: profiles[i].Filename, Content: content}
 		}
 		c, err := capabilityFrom(typ, config)
 		if err != nil {

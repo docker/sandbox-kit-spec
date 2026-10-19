@@ -1,6 +1,10 @@
 package spec
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 // Check the raw shape even when text is parameterized: expansion cannot make
 // an unknown field or a null into a valid inline-context declaration.
@@ -26,4 +30,30 @@ func validateContextV2(field string, i int, n Capability) error {
 
 func mixedContextVersions() error {
 	return fmt.Errorf("agent-context: selected @1 and @2 requests cannot compose; migrate all selected guidance to one version")
+}
+
+// Bound repeated serialized content before constructing effective profiles.
+// The final descriptor check still counts destinations and other metadata.
+func joinContextV2(sources []ContextSource, profiles int) (string, error) {
+	remaining := SizeErrorBytes / profiles
+	tooLarge := fmt.Errorf("merge: repeated agent-context content exceeds the %d byte budget: %w", SizeErrorBytes, ErrDescriptorTooLarge)
+	bodies := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if len(bodies) > 0 {
+			remaining -= 4 // Two newlines serialize as two JSON escape pairs.
+		}
+		if len(source.Content) > remaining {
+			return "", tooLarge
+		}
+		encoded, err := json.Marshal(source.Content)
+		if err != nil {
+			return "", fmt.Errorf("merge: serialize agent-context content: %w", err)
+		}
+		remaining -= len(encoded) - 2 // String delimiters belong to the profile.
+		if remaining < 0 {
+			return "", tooLarge
+		}
+		bodies = append(bodies, source.Content)
+	}
+	return strings.Join(bodies, "\n\n"), nil
 }
