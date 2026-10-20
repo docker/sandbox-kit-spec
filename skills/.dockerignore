@@ -1,9 +1,8 @@
 # The kit's own files: the frontend stages the descriptor and recipe itself,
-# and the context body is delivered through agent-context@1 rather than as
+# and the context body is inline in skills.yaml rather than shipped as
 # reference material on disk.
 skills.yaml
 skills.dockerfile
-skills-context.md
 
 # Host-side wiring. README.md documents the `ln -s` that links this directory
 # into an agent's skills path on a developer machine; an agent that read it
