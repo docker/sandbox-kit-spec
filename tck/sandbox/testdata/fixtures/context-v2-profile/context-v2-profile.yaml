@@ -1,0 +1,15 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+provides: ["context-v2-profile@1.0.0"]
+requires: [context-v2-tool]
+capabilities:
+  - type: com.docker.sandbox/agent-context@2
+    config:
+      filename: AGENTS.md
+      directory: /home/agent/.kit-tck/v2
+      content: profile-context-v2
+  - type: com.docker.sandbox/agent-context@2
+    config:
+      filename: OTHER.md
+      directory: /home/agent/.kit-tck/v2-other

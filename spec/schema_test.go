@@ -66,7 +66,7 @@ func allCapabilityTypes() []string {
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKitRegistry,
-		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext,
+		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity,
 	}
 }
@@ -538,4 +538,34 @@ func TestGroupSchemaMatchesGrammar(t *testing.T) {
 	require.Equal(t, []any{"declarationBlocks"}, at(t, constraint, "if")["required"])
 	require.Equal(t, float64(1), at(t, constraint, "then", "properties", "group", "properties", "capabilities")["maxItems"])
 	require.ElementsMatch(t, allCapabilityTypes(), KnownCapabilities())
+}
+
+func TestAgentContextV2Schema(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentContextV2))
+	require.Equal(t, false, schema["additionalProperties"])
+	properties := at(t, schema, "properties")
+	require.NotContains(t, properties, "contentFile")
+	require.Len(t, properties, 3)
+	require.Equal(t, "string", at(t, properties, "content")["type"])
+	require.Equal(t, at(t, loadJSON(t, perTypeSchemaPath(CapabilityAgentContext)), "properties", "directory"), at(t, properties, "directory"))
+	require.Equal(t, []any{"filename"}, at(t, schema, "dependencies")["directory"])
+	require.Len(t, schema["anyOf"], 2, "a nonempty body or profile is required")
+	rules := at(t, loadSchema(t), "definitions", "capability")["allOf"].([]any)
+	for _, rule := range rules {
+		branch := rule.(map[string]any)
+		condition, ok := branch["if"].(map[string]any)
+		if !ok {
+			continue
+		}
+		properties, ok := condition["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, ok := properties["type"].(map[string]any)
+		if ok && typ["const"] == CapabilityAgentContextV2 {
+			require.Equal(t, []any{"config"}, at(t, branch, "then")["required"])
+			return
+		}
+	}
+	t.Fatal("agent-context@2 schema branch is absent")
 }

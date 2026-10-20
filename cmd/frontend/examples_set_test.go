@@ -177,3 +177,22 @@ func exampleFor(t *testing.T, ref string) string {
 	require.NoError(t, err, "%s names no example under examples/%s", ref, name)
 	return descriptor
 }
+
+func TestShellComposesWithBundledSkills(t *testing.T) {
+	shell := publishedForm(t, filepath.Join("..", "..", "examples", "shell", "shell.yaml"))
+	skills := publishedForm(t, filepath.Join("..", "..", "skills", "skills.yaml"))
+	composed, err := spec.Compose([]spec.Contribution{
+		{Reference: "shell", Descriptor: shell},
+		{Reference: "skills", Descriptor: skills},
+	})
+	require.NoError(t, err)
+	profiles, err := spec.AgentContextsV2Of(composed.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	require.Equal(t, "AGENTS.md", profiles[0].Filename)
+	require.Contains(t, profiles[0].Content, "Kit authoring skills")
+	require.Contains(t, profiles[0].Content, "/usr/share/kit-skills/create-kit-v3/SKILL.md")
+	shellProfiles, err := spec.AgentContextsV2Of(shell.Capabilities)
+	require.NoError(t, err)
+	require.Contains(t, profiles[0].Content, shellProfiles[0].Content)
+}

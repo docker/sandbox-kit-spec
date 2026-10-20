@@ -1,9 +1,9 @@
 # Agent context discovery destinations
 
 The example agent workloads and mixins declare explicit
-`agent-context@1` profiles so runtime guidance and the Kit index reach the
-files their harnesses discover. Staged Kit bodies remain under
-`/usr/share/sandbox/kit/`; the discovery profile points at those bodies.
+`agent-context@2` profiles so runtime guidance and the combined inline
+Kit guidance reach the files their harnesses discover. The effective
+configuration carries the full body for each profile.
 
 | Harness | Example profile | Discovery constraints |
 |---|---|---|
@@ -26,23 +26,23 @@ An agent mixin declares both directory and filename; a tool mixin
 contributes only a body. An explicit agent profile takes precedence over
 a generic workload's legacy filename, regardless of input order. This
 also fixes the shell-based Codex and Claude ACP sets, which declare their
-agent profiles explicitly even when composed from older published mixins.
+agent profiles explicitly. Rebuild their member Kits with `@2` before
+building these sets; selected `@1` and `@2` requests cannot compose.
 
 Several agents can share one sandbox. Each explicit profile is its own
 destination, so the Claude and Codex mixins together produce both
 `/home/agent/.claude/CLAUDE.md` and `/home/agent/.codex/AGENTS.md`, each
-with the runtime guidance and an index of every Kit, the other agent
-included. Profiles naming the same directory and filename are one
-destination. An earlier revision refused differing explicit profiles,
-which broke stacking two agent mixins on a shell from the release that
-introduced the directory field until this was relaxed.
+with the runtime guidance and the combined body of every selected Kit,
+the other agent included. Profiles naming the same directory and filename
+are one destination. An earlier revision refused differing explicit
+profiles, which broke stacking two agent mixins on a shell from the
+release that introduced the directory field until this was relaxed.
 
-The optional directory extends `agent-context@1` in place. Descriptors
-that omit it retain their default placement. Older strict readers reject
-new declarations, and a runtime needs to implement the destination,
-precedence, and preservation duties before using the updated examples.
-This repository defines and tests that contract; it does not contain the
-`sbx` runtime handler.
+The examples require a runtime advertising `agent-context@2`, including
+its destination, inline materialization, and preservation duties.
+`agent-context@1` remains supported with its original progressive
+surfacing contract. This repository defines and tests these contracts;
+it does not contain the `sbx` runtime handler.
 
 ## Sources
 

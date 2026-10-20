@@ -31,7 +31,7 @@ credentials[]                 →  capability credential@1, one per service
 volumes[]                     →  capability volume@1, one per path
 ports[]                       →  capability port@1, one per port
 setup.install/startup/files   →  capability lifecycle@1
-agentInstructions             →  capability agent-context@1
+agentInstructions             →  capability agent-context@2
 ```
 
 Every key in v3 is `lowerCamelCase` with acronyms title-cased: `sourceUrl`,
@@ -374,7 +374,23 @@ that needs nothing from create time. Keep it a hook when:
   network and credentials open. Startup hooks run on every boot and must be
   idempotent.
 
-### agent-context@1
+### agent-context@2
+
+Put instruction text in `config.content`. There is no `contentFile` or
+build-only include form. Publication retains inline text and composition
+joins all selected bodies in dependency order in every effective profile.
+The runtime writes combined guidance directly into its managed section.
+Kit arguments and final `kit.env` references expand normally; audit
+placeholders that were literal in an old staged body. Shell `$VAR` and
+`${VAR}` remain literal. Keep the serialized descriptor within 512 KiB
+after expansion and composition; it warns above 64 KiB.
+
+Destinations follow the @1 rules below. Migrate all contributors together
+and rebuild: selected @1 and @2 requests cannot compose. The runtime
+must advertise @2 support. @1 remains supported, without automatic
+conversion or deprecation.
+
+### agent-context@1 (legacy progressive surfacing)
 
 Move the v2 `agentInstructions.content` body verbatim into `<kit>-context.md`
 and reference it with `contentFile: ./<kit>-context.md`; the frontend stages the
@@ -553,7 +569,7 @@ environment can carry:
 
 - no `sbx@1`, `agent-sessions@1` or `agent-interactive-sessions@1`; an agent
   mixin keeps its explicit
-  `agent-context@1` directory and filename, while tool mixins carry bodies only
+  `agent-context@2` directory and filename, while tool mixins carry bodies only
 - no `ENTRYPOINT` — the base workload's launch command stays, and the user runs
   the tool from the shell. Say so in the descriptor's header comment.
 - `displayName: <Name> (mixin)`, and a description that says to layer it onto a
@@ -661,17 +677,17 @@ Before calling a migration done:
 - [ ] volume sizes preserve the source declaration; an omitted size stays
       unspecified rather than acquiring an invented capacity limit
 - [ ] v2 comments carried across, deltas marked `# MIGRATION NOTE:`
-- [ ] every `contentFile:` names a file that exists, and every staged
-      `*-context.md` is referenced by a descriptor
+- [ ] every migrated body is inline `agent-context@2` content; any retained
+      @1 `contentFile` names an existing file, with no orphan context files
 - [ ] a v2 `agentInstructions.content` body still reaches the agent, as a
       staged file or inline `content:` — a dropped body breaks nothing and is
       invisible
 - [ ] the recipe's `ENTRYPOINT` (plus any `CMD`) reproduces the v2
       `sandbox.entrypoint` and `sandbox.command.default` exactly
 
-The orphan case is worth scripting, because nothing else sees it: a
-`contentFile` naming a missing file fails at the build, but a context body
-nobody references fails at nothing at all and silently never reaches the agent.
+For retained @1 declarations, script the orphan-file audit: a missing
+`contentFile` fails at the build, but a body nobody references fails at
+nothing at all and silently never reaches the agent.
 
 The frontend trims a leading `./` and accepts a quoted value, so `./name`,
 `name` and `"./name"` are the same reference. Match all three or the audit

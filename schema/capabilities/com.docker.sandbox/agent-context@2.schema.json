@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/agent-context@2",
+  "description": "Inline guidance retained in every effective profile. Tool mixins may contribute content without a profile. Authored and published forms share the same representation.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "filename": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string",
+      "description": "Inline instruction body; composition joins selected bodies in dependency order."
+    },
+    "directory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional absolute, canonical in-sandbox profile directory; requires filename in the same entry. Omitted places the profile beside the workspace.",
+      "anyOf": [
+        {
+          "pattern": "^(/|(/([^./][^/]*|\\.[^./][^/]*|\\.\\.[^/]+))+)$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "not": {
+        "pattern": "[\\\\\u0000]"
+      }
+    }
+  },
+  "dependencies": {
+    "directory": [
+      "filename"
+    ]
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "directory"
+        ]
+      },
+      "then": {
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^/\\\\\u0000]+$",
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                }
+              },
+              {
+                "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "anyOf": [
+    {
+      "required": [
+        "filename"
+      ],
+      "properties": {
+        "filename": {
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "required": [
+        "content"
+      ],
+      "properties": {
+        "content": {
+          "minLength": 1
+        }
+      }
+    }
+  ]
+}

@@ -59,7 +59,6 @@ The default authoring form is a companion pair, found by filename stem:
 <kit>/
   <kit>.yaml           # the descriptor; first line `# syntax=docker/sandbox-kit:3`
   <kit>.dockerfile     # the content recipe (omit for a declaration-only mixin)
-  <kit>-context.md     # agent-context body, referenced as contentFile:
   README.md
 ```
 
@@ -100,9 +99,9 @@ capabilities:
       runtime:
         allow: [github.com, api.github.com]
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
-      contentFile: ./gh-context.md
+      content: Use gh for GitHub operations.
 ```
 
 Every key is `lowerCamelCase` with acronyms title-cased (`sourceUrl`,
@@ -133,7 +132,8 @@ often got wrong:
 | `lifecycle@1` | install/startup hooks, staged files | Hook environments are **deny-by-default**. Declare every variable in `env:`, including ones only a child process reads — `curl`, `pip` and `npm` need `HTTP_PROXY`/`HTTPS_PROXY`, and `docker` needs `DOCKER_HOST`. |
 | `volume@1` | persistent paths | Declare needed capacity with `size`; omission leaves it unspecified and conflicts with another Kit's explicit request. Retained volume settings cannot change on recreation. |
 | `host-mount@1` | host-shared caches, datasets, or artifacts | Declare only the absolute, canonical in-container `path` and optional octal `mode`. The runtime owns the host location. Data is shared across sandboxes of the declaring Kit, survives sandbox removal, and is visible to the host user. Use an optional group to couple cache setup with the mount; see `examples/shared-cache`. |
-| `agent-context@1` | instructions the agent reads | A workload can supply the legacy workspace-sibling `filename`. An agent workload or mixin supplies `filename` plus an absolute `directory` at its discovery location; this overrides the legacy fallback. Different explicit destinations each get a profile, so agent mixins stack. Tool mixins contribute bodies alone. Use `contentFile:` for a static body, but inline `content:` when the body interpolates an arg — a staged body is never arg-expanded. |
+| `agent-context@2` | inline instructions the agent reads | Use `content:` for every body; `contentFile` is rejected. Profile destinations and precedence match @1, but every effective profile contains all selected guidance and the runtime materializes it directly. Kit args and final `kit.env` references expand normally; shell variables remain literal. Do not mix selected @1 and @2 requests. Rebuild every member of a migrated set. The serialized descriptor warns above 64 KiB and fails above 512 KiB after expansion and composition. |
+| `agent-context@1` | legacy progressive instructions the agent reads | A workload can supply the legacy workspace-sibling `filename`. An agent workload or mixin supplies `filename` plus an absolute `directory` at its discovery location; this overrides the legacy fallback. Different explicit destinations each get a profile, so agent mixins stack. Tool mixins contribute bodies alone. Use `contentFile:` for a static body, but inline `content:` when the body interpolates an arg — a staged body is never arg-expanded. |
 | `long-running@1` | workloads or service mixins that outlive client sessions | Config-less; a request from any Kit applies to the whole sandbox. A background hook or published port does not prevent session auto-stop. Required by default; use `optional: true` only if auto-stop is tolerable. This does not request restart after failure. |
 | `git-identity@1` | commits attributed to the runtime-provided user | Config-less; requests only user.name and user.email, not a configuration-source mount. Requires permission; optional when missing identity is tolerable. Signing/authentication are separate grants. |
 | `sbx@1` | "launch this as an agent" | Workload-only, config-less — and enforced: a mixin declaring it fails validation. |

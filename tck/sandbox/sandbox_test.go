@@ -199,6 +199,19 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"context-v2-truncates-optional":                            {"agent-context@2/selection-boundaries"},
+	"context-v2-upgrades-v1":                                   {"agent-context@2/mixed-versions"},
+	"context-v2-leaks-skipped":                                 {"agent-context@2/selection-boundaries"},
+	"context-v2-drops-body":                                    {"agent-context@2/materialized"},
+	"context-v2-reverses-order":                                {"agent-context@2/materialized"},
+	"context-v2-no-expansion":                                  {"agent-context@2/materialized"},
+	"context-v2-expands-shell":                                 {"agent-context@2/materialized"},
+	"context-v2-index-only":                                    {"agent-context@2/materialized"},
+	"context-v2-overwrites-user":                               {"agent-context@2/materialized"},
+	"context-v2-legacy-wins":                                   {"agent-context@2/materialized"},
+	"context-v2-drops-profile":                                 {"agent-context@2/materialized"},
+	"context-v2-second-after-launch":                           {"agent-context@2/materialized"},
+	"context-v2-after-launch":                                  {"agent-context@2/materialized"},
 	"volume-omits-recomposed-mount":                            {"volume@1/composition-independent"},
 	"volume-root-not-writable+volume-omits-recomposed-mount":   {"volume@1/composition-independent"},
 	"volume-root-not-readable+volume-omits-recomposed-mount":   {"volume@1/composition-independent"},

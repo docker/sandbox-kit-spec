@@ -294,9 +294,15 @@ func TestExampleAgentMixinsComposeOnOneShell(t *testing.T) {
 	}
 	composed, err := Compose([]Contribution{load("shell"), load("claude-mixin"), load("codex-mixin")})
 	require.NoError(t, err)
-	profiles, err := AgentContextsOf(composed.Capabilities)
+	profiles, err := AgentContextsV2Of(composed.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, []AgentContext{
+	require.Len(t, profiles, 2)
+	require.NotEmpty(t, profiles[0].Content)
+	require.Equal(t, profiles[0].Content, profiles[1].Content)
+	for i := range profiles {
+		profiles[i].Content = ""
+	}
+	require.Equal(t, []AgentContextV2{
 		{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"},
 		{Filename: "AGENTS.md", Directory: "/home/agent/.codex"},
 	}, profiles)

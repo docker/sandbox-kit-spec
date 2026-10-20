@@ -1,0 +1,17 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+# The check compares one total guidance order, so these fixtures form a
+# dependency chain rather than leaving two siblings unordered.
+requires: [context-v2-profile]
+capabilities:
+  - group:
+      optional: true
+      capabilities:
+        - type: com.docker.sandbox/volume@1
+          config: {path: /var/tmp/context-v2-cache}
+        - type: com.docker.sandbox/agent-context@2
+          config:
+            filename: OPTIONAL.md
+            directory: /home/agent/.kit-tck/v2-optional
+            content: optional-context-v2

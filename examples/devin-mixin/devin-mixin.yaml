@@ -115,6 +115,11 @@ capabilities:
     config:
       path: /home/agent/.agents/skills
 
-  - type: com.docker.sandbox/agent-context@1
+  - type: com.docker.sandbox/agent-context@2
     config:
-      contentFile: ./devin-context.md
+      content: |
+        # Devin
+
+        This sandbox runs Cognition's Devin CLI. The Devin account credential is
+        captured during in-sandbox login and flows passthrough; the config seed
+        disables background updates.

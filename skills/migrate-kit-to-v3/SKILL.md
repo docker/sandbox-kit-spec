@@ -69,7 +69,7 @@ Track progress with this checklist:
 
 ```text
 - [ ] 1. Read the v2 kit end to end, including its README and testdata
-- [ ] 2. Write the v3 descriptor, recipe, and context file
+- [ ] 2. Write the v3 descriptor, recipe, and inline context
 - [ ] 3. Add the -mixin variant (workload kits only)
 - [ ] 4. Validate the descriptor (fails in seconds on a bad field)
 - [ ] 5. Build the kit
@@ -103,7 +103,7 @@ For a kit named `<kit>`, migrating in place:
 |---|---|
 | `<kit>/spec.yaml` | `<kit>/<kit>.yaml`, first line `# syntax=docker/sandbox-kit:3` |
 | `<kit>/Dockerfile` | `<kit>/<kit>.dockerfile` — found by filename stem, so no `dockerfile:` field |
-| `agentInstructions.content` | `<kit>/<kit>-context.md`, referenced as `contentFile: ./<kit>-context.md` |
+| `agentInstructions.content` | `agent-context@2` with inline `config.content`; audit Kit placeholders before rebuilding |
 | `<kit>/testdata/tck.yaml` | delete — v2-only harness |
 | `<kit>/.dockerignore` | **keep and audit.** BuildKit still applies it to a v3 kit's build context, so deleting it puts back whatever it was excluding — secrets and large generated files included. Drop only the entries that named v2 files. |
 | `<kit>/<kit>_tck_test.go` | delete — it loads the v2 `spec.yaml` through `tck.NewSuiteFromDir(".")` and cannot compile once that file is gone |
@@ -139,11 +139,9 @@ five cases where a hook is still correct, are in
 
 ### 3. Add the `-mixin` variant
 
-Every workload kit gets a sibling `<kit>-mixin/` holding `<kit>-mixin.yaml`,
-`<kit>-mixin.dockerfile` and a context file. Name that last one
-`<kit>-context.md`, which is what six of the seven example mixins do — the
-staged name only has to avoid `kit.yaml` and `kit.dockerfile`, so the `-mixin-`
-infix buys nothing and the repository is already near-unanimous. The mixin
+Every workload kit gets a sibling `<kit>-mixin/` holding
+`<kit>-mixin.yaml` and `<kit>-mixin.dockerfile`. Put guidance inline in
+`agent-context@2` in both descriptors. The mixin
 declares the
 same credentials, network policy, volumes and hooks, minus what only the kit
 that owns the environment can carry. See the
@@ -320,10 +318,11 @@ cheaper checks above it did not. They are ordered by what they cost.
 
 1. **Validation** catches malformed descriptors, and the **build** catches more
    than you would guess: `readContextFile` and `RequireAuthoredProvides` both
-   run before the content loop, so a `contentFile:` naming a missing file and
-   an authored `deb/` provide fail in step 4, not later. What neither sees is a
-   `*-context.md` no descriptor references, or a v2 instruction body that was
-   dropped — both fail at nothing at all. Script those two file-level audits;
+   run before the content loop, so an authored `deb/` provide fails in
+   step 4, not later. For retained `agent-context@1`, a missing
+   `contentFile` fails there too. Neither catches a migration that drops
+   an instruction body: compare the old text with inline @2 content and
+   audit orphan @1 context files. Script those text and file audits;
    they take seconds and they found a kit whose instructions would silently
    never have reached the agent.
 2. **Building** catches recipes. It does not prove the content works.
@@ -431,3 +430,21 @@ string substitution, not shell evaluation: `$HOME`, `${HOME}`, and `~/`
 are unchanged. Do not use environment references in mapping keys or Kit
 metadata, and do not pass Kit placeholders inside argument or environment
 values. Persist the expanded descriptor for restart.
+
+## Migrating agent-context@1 to @2
+
+Move a file-backed body's text into `config.content` and remove
+`contentFile`. Change the capability type to
+`com.docker.sandbox/agent-context@2`, audit `${{ kit.args.* }}` and
+`${{ kit.env.* }}` spellings that staged files previously left literal,
+and rebuild. `$VAR` and `${VAR}` remain literal. No build-only include
+form exists. Keep large reference material in bundled files or skills
+and use short guidance pointing to it.
+
+Migrate all selected contributors together: mixing @1 and @2 is an
+explicit composition error, including inline @1 requests. Profile
+placement and existing user instruction preservation remain; @2 writes
+combined guidance directly rather than @1's progressive per-Kit index.
+Runtime consumers must advertise @2 support. Serialized budgets apply
+after expansion and composition: warn above 64 KiB, fail above 512 KiB.
+@1 remains supported and is not deprecated by this migration.

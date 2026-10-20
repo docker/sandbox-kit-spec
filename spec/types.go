@@ -472,6 +472,9 @@ const (
 	// concept skips an optional declaration or refuses a required one.
 	CapabilityAgentContext = "com.docker.sandbox/agent-context@1"
 
+	// CapabilityAgentContextV2 carries inline guidance through composition.
+	CapabilityAgentContextV2 = "com.docker.sandbox/agent-context@2"
+
 	// CapabilityACP declares how to run an ACP agent inside the sandbox.
 	CapabilityACP = "com.docker.sandbox/acp@1"
 
@@ -1107,4 +1110,12 @@ type AgentContext struct {
 	// Content carries small instruction content inline, for content-free
 	// kits.
 	Content string `json:"content,omitempty" yaml:"content,omitempty"`
+}
+
+// AgentContextV2 carries inline guidance in both authored and effective configs.
+// Effective profiles each contain all selected guidance in dependency order.
+type AgentContextV2 struct {
+	Directory string `json:"directory,omitempty" yaml:"directory,omitempty"`
+	Filename  string `json:"filename,omitempty" yaml:"filename,omitempty"`
+	Content   string `json:"content,omitempty" yaml:"content,omitempty"`
 }

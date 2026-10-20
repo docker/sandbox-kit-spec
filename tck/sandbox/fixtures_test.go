@@ -2,12 +2,14 @@ package sandbox
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/sandbox-kit-spec/v3/resolve"
 	"github.com/docker/sandbox-kit-spec/v3/spec"
 )
 
@@ -16,7 +18,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 89, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 93, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -157,4 +159,35 @@ func TestMatchingTmpfsFixturesMerge(t *testing.T) {
 		{Path: volumePath, Size: "1g", Mode: "0700", Tmpfs: true},
 		{Path: volumeOtherPath, Size: "1g", Mode: "0700", Tmpfs: true},
 	}, volumes, "the publisher collapses both matching tmpfs destinations")
+}
+
+func TestInlineContextFixtureDependencyOrder(t *testing.T) {
+	names := []string{"context-v2-optional", "context-v2-profile", "context-v2-tool", "context-v2-workload"}
+	for _, reverseReferences := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reverse references=%t", reverseReferences), func(t *testing.T) {
+			var units []*resolve.Unit
+			fixtureNames := map[*resolve.Unit]string{}
+			for i, name := range names {
+				raw, err := os.ReadFile(filepath.Join(FixtureDir, name, name+".yaml"))
+				require.NoError(t, err)
+				descriptor, err := spec.Decode(raw)
+				require.NoError(t, err)
+				reference := name
+				if reverseReferences {
+					reference = fmt.Sprintf("%d-%s", len(names)-i, name)
+				}
+				unit := &resolve.Unit{Reference: reference, Descriptor: descriptor}
+				units = append(units, unit)
+				fixtureNames[unit] = name
+			}
+			resolution, err := resolve.Dependencies(units, false)
+			require.NoError(t, err)
+			var ordered []string
+			for _, unit := range resolution.Topological() {
+				ordered = append(ordered, fixtureNames[unit])
+			}
+			require.Equal(t, []string{"context-v2-workload", "context-v2-tool", "context-v2-profile", "context-v2-optional"}, ordered,
+				"the order asserted by inlineContextSelection must follow dependencies regardless of reference spelling")
+		})
+	}
 }

@@ -179,6 +179,7 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 		published = plan.published
 	}
 
+	// Only @1 file bodies are staged; @2 stays inline through publication.
 	// The agent-context body and the staged path are platform-independent;
 	// the staging itself runs per platform against each platform's
 	// filesystem.
@@ -315,6 +316,19 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 	publishedJSON, err := json.Marshal(pd)
 	if err != nil {
 		return nil, fmt.Errorf("encode published descriptor: %w", err)
+	}
+
+	// Judge the actual serialized annotation too: JSON escaping can cross
+	// the budget even when the human-facing YAML fits. Report advisories
+	// after expansion, set composition, and package derivation have finished.
+	warnings, err := spec.ValidatePublished(publishedJSON, pd)
+	if err != nil {
+		return nil, withYAMLSource(err, filename, src.descriptor)
+	}
+	for _, warning := range warnings {
+		if err := c.Warn(ctx, "", warning, gwclient.WarnOpts{}); err != nil {
+			return nil, err
+		}
 	}
 
 	// The one builder fact the manifest carries: which frontend build

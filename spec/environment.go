@@ -59,7 +59,7 @@ func ExpandEnvironment(d *Descriptor, environment map[string]string) (*Descripto
 			var out strings.Builder
 			appendText := func(text string) error {
 				if len(text) > remaining {
-					return fieldErrorf(at, "environment expansion exceeds descriptor size budget")
+					return fieldErrorf(at, "environment expansion exceeds descriptor size budget: %w", ErrDescriptorTooLarge)
 				}
 				remaining -= len(text)
 				out.WriteString(text)
@@ -97,8 +97,11 @@ func ExpandEnvironment(d *Descriptor, environment map[string]string) (*Descripto
 	}
 	// JSON normalizes caller-created config containers as well as decoded ones.
 	raw, err := json.Marshal(d)
-	if err != nil || len(raw) > SizeErrorBytes {
-		return nil, fmt.Errorf("expand environment: invalid or oversized descriptor")
+	if err != nil {
+		return nil, fmt.Errorf("expand environment: invalid descriptor")
+	}
+	if len(raw) > SizeErrorBytes {
+		return nil, fmt.Errorf("expand environment: %w", ErrDescriptorTooLarge)
 	}
 	out, err := Decode(raw)
 	if err != nil {

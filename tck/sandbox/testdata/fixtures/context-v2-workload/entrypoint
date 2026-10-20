@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+# Record each discovery destination separately, before exec can repair it.
+rm -f /var/tmp/context-v2-ready
+index=0
+for file in /home/agent/AGENTS.md /home/agent/.kit-tck/v2/AGENTS.md /home/agent/.kit-tck/v2-other/OTHER.md; do
+  if [ -f "$file" ]; then
+    snapshot="/var/tmp/context-v2-at-launch-$index"
+    cat "$file" > "$snapshot.tmp"
+    mv "$snapshot.tmp" "$snapshot"
+  fi
+  index=$((index + 1))
+done
+printf '%s\n' ready > /var/tmp/context-v2-ready.tmp
+mv /var/tmp/context-v2-ready.tmp /var/tmp/context-v2-ready
+exec sleep infinity
