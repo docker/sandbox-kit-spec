@@ -1,7 +1,9 @@
 # syntax=docker/sandbox-kit:3
 schemaVersion: "3"
 kind: mixin
-requires: [context-v2-tool]
+# The check compares one total guidance order, so these fixtures form a
+# dependency chain rather than leaving two siblings unordered.
+requires: [context-v2-profile]
 capabilities:
   - group:
       optional: true
