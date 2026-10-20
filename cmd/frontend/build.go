@@ -679,6 +679,10 @@ func solveDockerfile(ctx context.Context, c gwclient.Client, d *spec.Descriptor,
 		Frontend:       "dockerfile.v0",
 		FrontendOpt:    fo,
 		FrontendInputs: map[string]*pb.Definition{},
+		// ToState preserves only the LLB definition, not the cache imports
+		// attached to its lazy result. Evaluate before overlay diffing or
+		// source staging re-solves that definition without those imports.
+		Evaluate: true,
 	}
 	// Named contexts a caller sent as frontend inputs (bake wiring one
 	// target's output into another) only reach the sub-solve if handed

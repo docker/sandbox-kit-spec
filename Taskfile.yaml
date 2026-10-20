@@ -89,10 +89,10 @@ tasks:
 
   test:e2e:
     desc: >-
-      Run end-to-end guidance and set builds against a throwaway registry.
+      Run end-to-end guidance, set, and cache builds against a throwaway registry.
       Needs Docker with buildx; `task test` skips them.
     cmds:
-      - KIT_E2E=1 go test ./cmd/frontend/ -run 'Test(Guidance|Set)BuildsEndToEnd' -v -count=1 -timeout 15m
+      - KIT_E2E=1 go test ./cmd/frontend/ -run 'Test(Guidance|Set|Cache)BuildsEndToEnd' -v -count=1 -timeout 15m
 
   lint:
     desc: golangci-lint and markdownlint, as CI runs them
