@@ -49,3 +49,19 @@ func TestInlineContextSnapshotWaitHonorsDeadline(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
 	require.Contains(t, failure.Detail, "wait for launch snapshots")
 }
+
+func TestFakeInlineContextMatchesFixtureNotParentPath(t *testing.T) {
+	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+	state := t.TempDir()
+	a.Env = []string{
+		"KIT_TCK_FAKE_STATE=" + state, "KIT_TCK_FAKE_CLAIMS=" + capAgentContext, "KIT_TCK_FAKE_BROKEN=",
+	}
+	for _, fixture := range []string{"workload", "context-v2-unrelated"} {
+		kit := filepath.Join(t.TempDir(), "context-v2-checkout", "fixtures", fixture)
+		id, err := a.Create(t.Context(), []string{kit}, adapter.CreateOptions{})
+		require.NoError(t, err, "only the four inline-context fixture basenames require @2")
+		require.NotEmpty(t, id)
+		require.NoFileExists(t, filepath.Join(state, "context-v2", id+".json"))
+		require.NoError(t, a.Remove(t.Context(), id))
+	}
+}

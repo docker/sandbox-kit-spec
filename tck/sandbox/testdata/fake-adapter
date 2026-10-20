@@ -29,8 +29,8 @@ shift || true
 context_helper="$(dirname "${BASH_SOURCE[0]}")/agent-context-fake.py"
 if [ "$verb" = create ]; then
   for arg in "$@"; do
-    case "$arg" in
-    */context-v2-*) exec python3 "$context_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
+    case "${arg##*/}" in
+    context-v2-workload | context-v2-tool | context-v2-profile | context-v2-optional) exec python3 "$context_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
     esac
   done
 elif [ -f "$state/context-v2/${1:-}.json" ]; then
