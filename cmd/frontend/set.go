@@ -920,8 +920,15 @@ func kitDeclarations(published *spec.Descriptor, k spec.Kit, setArgs map[string]
 		if _, err := spec.ValidateExpandedDeclarations(expanded, d); err != nil {
 			return nil, nil, fmt.Errorf("declarations are invalid once its args resolve: %w", err)
 		}
-	} else if _, err := spec.Validate(d); err != nil {
-		return nil, nil, fmt.Errorf("declarations are invalid once the set's args are applied: %w", err)
+	} else {
+		// Remaining arg references now belong to the set. Validate them
+		// against its declarations, while leaving version alternatives
+		// and other selection-dependent checks for create time.
+		pending := *d
+		pending.Args = setArgs
+		if _, err := spec.ValidateDeclarations(expanded, &pending); err != nil {
+			return nil, nil, fmt.Errorf("declarations are invalid once the set's args are applied: %w", err)
+		}
 	}
 	// Its own arg declarations are answered now: a literal value is
 	// baked in, and a re-exported one is the set's arg to declare.

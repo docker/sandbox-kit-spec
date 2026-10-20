@@ -914,3 +914,45 @@ func TestSetReExportRetainsEveryConcreteStorageBlock(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+func TestKitDeclarationsPreservesParameterizedContextAlternatives(t *testing.T) {
+	for _, placeholder := range []string{"${{ kit.env.TEAM }}", "${{ kit.args.team }}"} {
+		t.Run(placeholder, func(t *testing.T) {
+			published := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin,
+				Capabilities: []spec.Capability{
+					{Type: spec.CapabilityAgentContext, Optional: true, Config: map[string]any{"content": "legacy " + placeholder}},
+					{Type: spec.CapabilityAgentContextV2, Optional: true, Config: map[string]any{"content": "modern " + placeholder}},
+				}}
+			kit := spec.Kit{}
+			setArgs := map[string]spec.Arg{}
+			if spec.ContainsArgRef(placeholder) {
+				published.Args = map[string]spec.Arg{"team": {Required: true}}
+				kit.Args = map[string]string{"team": "${{ kit.args.shared }}"}
+				setArgs["shared"] = spec.Arg{Required: true}
+			}
+			d, _, err := kitDeclarations(published, kit, setArgs)
+			require.NoError(t, err, "publication must preserve alternatives until selection")
+			d.Args = setArgs
+			raw, err := json.Marshal(d)
+			require.NoError(t, err)
+			expanded, err := spec.ExpandCreateArgs(raw, setArgs, map[string]string{"shared": "platform"})
+			require.NoError(t, err)
+			d, err = spec.Decode(expanded)
+			require.NoError(t, err)
+			d, err = spec.ExpandEnvironment(d, map[string]string{"TEAM": "platform"})
+			require.NoError(t, err)
+			for _, version := range []string{spec.CapabilityAgentContext, spec.CapabilityAgentContextV2} {
+				selected, err := spec.SelectCapabilities(t.Context(), "set", d, spec.Supported(version))
+				require.NoError(t, err)
+				input := *d
+				input.Capabilities = selected.Capabilities
+				composed, err := spec.Compose([]spec.Contribution{{Reference: "set", Descriptor: &input}})
+				require.NoError(t, err)
+				require.Len(t, composed.Capabilities, 1)
+				require.Equal(t, version, composed.Capabilities[0].Type)
+			}
+			_, err = spec.Compose([]spec.Contribution{{Reference: "set", Descriptor: d}})
+			require.ErrorContains(t, err, "@1 and @2", "selection of both versions still refuses")
+		})
+	}
+}
