@@ -199,6 +199,7 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"context-v2-truncates-optional":                            {"agent-context@2/selection-boundaries"},
 	"context-v2-upgrades-v1":                                   {"agent-context@2/mixed-versions"},
 	"context-v2-leaks-skipped":                                 {"agent-context@2/selection-boundaries"},
 	"context-v2-drops-body":                                    {"agent-context@2/materialized"},

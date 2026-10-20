@@ -83,20 +83,24 @@ func inlineContextSelection(ctx context.Context, e *Env) []report.Finding {
 			cleanup()
 			return []report.Finding{*f}
 		}
+		want := "base-context-v2\n\ntool-context-v2 built default-team image $TEAM ${TEAM}\n\nprofile-context-v2"
+		if !reject {
+			want += "\n\noptional-context-v2"
+		}
 		for _, file := range []string{"/home/agent/.kit-tck/v2/AGENTS.md", "/home/agent/.kit-tck/v2-other/OTHER.md"} {
 			body, f := execOutput(ctx, e, id, "cat", file)
 			if f != nil {
 				cleanup()
 				return []report.Finding{*f}
 			}
-			if !strings.Contains(body, "base-context-v2") || !strings.Contains(body, "tool-context-v2") || strings.Contains(body, "optional-context-v2") == reject {
+			if !strings.Contains(body, want) || (reject && strings.Contains(body, "optional-context-v2")) {
 				cleanup()
 				return []report.Finding{report.Failf("%s contains the wrong selected guidance: %q", file, body)}
 			}
 		}
 		optional, err := e.Adapter.Exec(ctx, id, "cat", "/home/agent/.kit-tck/v2-optional/OPTIONAL.md")
 		cleanup()
-		if err != nil || (optional.ExitCode == 0) == reject || (!reject && !strings.Contains(optional.Stdout, "base-context-v2")) {
+		if err != nil || (optional.ExitCode == 0) == reject || (!reject && !strings.Contains(optional.Stdout, want)) {
 			return []report.Finding{report.Failf("optional profile does not follow selection or lacks shared guidance: %+v (%v)", optional, err)}
 		}
 	}

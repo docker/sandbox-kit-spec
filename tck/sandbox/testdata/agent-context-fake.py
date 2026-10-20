@@ -64,6 +64,8 @@ if verb == "create":
     if optional:
         profiles.append("/home/agent/.kit-tck/v2-optional/OPTIONAL.md")
     files = dict.fromkeys(profiles, body)
+    if optional and broken == "context-v2-truncates-optional":
+        files["/home/agent/.kit-tck/v2-optional/OPTIONAL.md"] = "base-context-v2"
     files["/var/tmp/context-v2-ready"] = "ready\n"
     files["ready_after"] = time.monotonic() + float(os.environ.get("KIT_TCK_FAKE_CONTEXT_READY_DELAY", "0"))
     for index in range(3):
