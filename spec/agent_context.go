@@ -13,7 +13,14 @@ func validateContextV2(field string, i int, n Capability) error {
 	if err := DecodeCapabilityConfig(n, &a); err != nil {
 		return fieldErrorf(field+".config", "capabilities[%d]: %v", i, err)
 	}
+	// JSON struct decoding accepts case variants; the versioned schema does
+	// not, and destination validation reads only the exact lowercase keys.
 	for key, value := range n.Config {
+		switch key {
+		case "directory", "filename", "content":
+		default:
+			return fieldErrorf(field+".config."+key, "capabilities[%d]: unknown field %q", i, key)
+		}
 		text, ok := value.(string)
 		if !ok {
 			return fieldErrorf(field+".config."+key, "capabilities[%d]: %s must be a string", i, key)
