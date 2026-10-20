@@ -69,16 +69,21 @@ func TestAssembleAgentContextV2WithoutReadingLayers(t *testing.T) {
 }
 
 func TestResolveAgentContextV2ExpandedBudgetDiagnostics(t *testing.T) {
-	for _, phase := range []string{"args", "environment", "composition"} {
+	for _, phase := range []string{"args", "environment", "composition", "args-and-environment"} {
 		t.Run(phase, func(t *testing.T) {
 			reg := newRegistry(t)
 			d := inlineContextDescriptor(spec.KindWorkload, "Guidance: ${{ kit.args.body }}")
 			d.Args = map[string]spec.Arg{"body": {Required: true}}
 			requests := []Request{}
 			option := WithEnvironment(nil, nil)
-			if phase != "args" {
+			hasArgs := phase == "args" || phase == "args-and-environment"
+			if !hasArgs {
 				d.Args = nil
 				d.Capabilities[0].Config["content"] = "Guidance: ${{ kit.env.BODY }}"
+			}
+			if phase == "args-and-environment" {
+				d.Capabilities[0].Config["content"] = "Guidance: ${{ kit.args.body }} ${{ kit.env.BODY }}"
+				option = WithEnvironment(map[string]string{"BODY": "suffix"}, nil)
 			}
 			count := 1
 			size := spec.SizeErrorBytes + 100
@@ -86,7 +91,7 @@ func TestResolveAgentContextV2ExpandedBudgetDiagnostics(t *testing.T) {
 				count = 2
 				size = spec.SizeErrorBytes/2 + 100
 			}
-			if phase != "args" {
+			if !hasArgs {
 				option = WithEnvironment(map[string]string{"BODY": strings.Repeat("private-guidance", size/16+100)}, nil)
 			}
 			for i := range count {
@@ -96,8 +101,11 @@ func TestResolveAgentContextV2ExpandedBudgetDiagnostics(t *testing.T) {
 				name := fmt.Sprintf("kits/context%d", i)
 				reg.tag(name, "1.0.0", reg.image(t, kitJSON(t, d)))
 				request := Request{Reference: reg.ref(name, "1.0.0")}
-				if phase == "args" {
+				if hasArgs {
 					request.Args = map[string]string{"body": strings.Repeat("x", size)}
+					if phase == "args-and-environment" {
+						request.Args["body"] = "private-guidance" + request.Args["body"]
+					}
 				}
 				requests = append(requests, request)
 			}
