@@ -32,17 +32,21 @@ func TestCacheBuildsEndToEnd(t *testing.T) {
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", frontend).Run() })
 	e.run("docker", "push", frontend)
 
-	// A separate builder has none of the exporter's local cache. Sharing
-	// one builder, or merely checking for CACHED on a base image, would
-	// let a missing registry import pass. Host networking lets this
-	// builder reach the registry published on the Docker host.
+	// Separate builders cannot share local cache. Both use the container
+	// driver because the docker driver cannot export registry cache with
+	// the classic image store. Host networking lets them reach the
+	// registry published on the Docker host.
 	config := filepath.Join(t.TempDir(), "buildkitd.toml")
 	require.NoError(t, os.WriteFile(config, fmt.Appendf(nil, "[registry.%q]\n  http = true\n", registry), 0o644))
-	importBuilder := fmt.Sprintf("kit-cache-e2e-%d", time.Now().UnixNano())
-	e.run("docker", "buildx", "create", "--name", importBuilder, "--driver", "docker-container",
-		"--driver-opt", "network=host", "--buildkitd-config", config)
-	t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", "--force", importBuilder).Run() })
-	e.run("docker", "buildx", "inspect", "--bootstrap", importBuilder)
+	newBuilder := func() string {
+		name := fmt.Sprintf("kit-cache-e2e-%d", time.Now().UnixNano())
+		e.run("docker", "buildx", "create", "--name", name, "--driver", "docker-container",
+			"--driver-opt", "network=host", "--buildkitd-config", config)
+		t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", "--force", name).Run() })
+		e.run("docker", "buildx", "inspect", "--bootstrap", name)
+		return name
+	}
+	exportBuilder, importBuilder := newBuilder(), newBuilder()
 
 	for _, tt := range []struct {
 		name   string
@@ -56,7 +60,7 @@ func TestCacheBuildsEndToEnd(t *testing.T) {
 		{name: "workload", kind: "workload", before: "FROM busybox:1.37\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &e2e{t: t, builder: e.builder}
+			e := &e2e{t: t, builder: exportBuilder}
 			dir := t.TempDir()
 			// Distinct RUN vertices also prevent earlier subtests or
 			// previous runs from supplying the cache hit being judged.
