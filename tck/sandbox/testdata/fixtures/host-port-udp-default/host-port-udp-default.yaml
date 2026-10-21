@@ -1,0 +1,13 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+args:
+  host_port:
+    default: "18431"
+  default_host_port:
+    default: "18431"
+capabilities:
+  - type: com.docker.sandbox/host-port@1
+    config:
+      host: "${{ kit.args.default_host_port }}"
+      transport: udp

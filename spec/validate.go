@@ -722,8 +722,16 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
-		case CapabilityPort:
+		case CapabilityPort, CapabilityHostPort:
 			for _, key := range c.keys {
+				other := CapabilityHostPort
+				if n.Type == CapabilityHostPort {
+					other = CapabilityPort
+				}
+				otherKey := entryKey{identity: (InstanceKey{Space: other, Parts: key.parts}).identity(), parts: key.parts}
+				if prev, dup := declared.at(other, otherKey); dup && reported.first(ruleConflict, c, checks[prev], key.identity) {
+					errs.add(fieldErrorf(path+".config.container", "sandbox endpoint %s conflicts with %s at capabilities[%d]", key.parts[0], other, prev))
+				}
 				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					// The key's container is the decoded one, whatever
 					// number type the config holds it as.
@@ -893,7 +901,7 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 	}
 
 	switch n.Type {
-	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort,
+	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
 		CapabilityAgentContext, CapabilityAgentContextV2:
 		c.keys = entryKeys(n)
 	case CapabilityACP:
@@ -1026,6 +1034,29 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		case "", SkillsReadOnly, SkillsReadWrite:
 		default:
 			c.errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: mode must be %q or %q, got %q", i, SkillsReadOnly, SkillsReadWrite, s.Mode))
+		}
+	case CapabilityHostPort:
+		for _, key := range []string{"host", "container", "transport", "family"} {
+			if value, stated := n.Config[key]; stated && hasNull(value) {
+				c.errs.add(fieldErrorf(path+".config."+key, "%s must not be null", key))
+			}
+		}
+		var p HostPort
+		if err := DecodeCapabilityConfig(n, &p); err != nil {
+			c.errs.add(configErrorf(path, i, err))
+			return false
+		}
+		if p.Family != "" && p.Family != PortFamilyIPv4 && p.Family != PortFamilyIPv6 && p.Family != PortFamilyDual {
+			c.errs.add(fieldErrorf(path+".config.family", "family must be ipv4, ipv6 or dual, got %q", p.Family))
+		}
+		if p.Host < 1 || p.Host > 65535 {
+			c.errs.add(fieldErrorf(path+".config.host", "host port %d out of range", p.Host))
+		}
+		if p.ContainerPort() < 1 || p.ContainerPort() > 65535 {
+			c.errs.add(fieldErrorf(path+".config.container", "container port %d out of range", p.Container))
+		}
+		if p.Transport != "" && p.Transport != "tcp" && p.Transport != "udp" {
+			c.errs.add(fieldErrorf(path+".config.transport", "transport must be tcp or udp, got %q", p.Transport))
 		}
 	case CapabilityPort:
 		var p Port

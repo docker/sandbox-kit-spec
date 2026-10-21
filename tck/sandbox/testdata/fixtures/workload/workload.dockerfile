@@ -198,3 +198,9 @@ RUN git config --global user.name "Image Author" \
 COPY --chmod=0755 kit-tck-volume /usr/local/bin/kit-tck-volume
 RUN mkdir -p /var/tmp/kit-tck-volume /var/tmp/kit-tck-volume-other \
  && printf image > /var/tmp/kit-tck-volume/image-marker
+
+# UDP observations use real sockets and report bytes for suite-side verification.
+COPY --chmod=0755 kit-tck-host-port-udp.py /usr/local/bin/kit-tck-host-port-udp
+
+# A binary exchange distinguishes raw TCP forwarding from an HTTP-only proxy.
+COPY --chmod=0755 kit-tck-host-port-tcp.py /usr/local/bin/kit-tck-host-port-tcp

@@ -220,6 +220,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capAgentSkills, fixtureSkills, false},
 				{capAgentSkill, fixtureBundledSkill, false},
 				{capPort, fixturePort, false},
+				{capHostPort, "host-port", false},
 				{capUSBDevice, fixtureUSBDevice, false},
 				{capAgentSessions, fixtureAgentSessions, false},
 				{capACP, fixtureACP, false},

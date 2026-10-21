@@ -174,6 +174,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilitySSHAgent, s: "git", config: map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{ref}}, field: "sign"},
 		{typ: CapabilityVolume, s: "1G", config: map[string]any{"path": "/data", "size": ref}, field: "path"},
 		{typ: CapabilityHostMount, s: "0755", config: map[string]any{"path": "/data", "mode": ref}, field: "path"},
+		{typ: CapabilityHostPort, s: "5432", config: map[string]any{"host": ref, "transport": "tcp"}, field: "transport"},
 		{typ: CapabilityPort, s: "8080", config: map[string]any{"container": ref, "transport": "tcp"}, field: "transport"},
 		{typ: CapabilityAgentSkills, s: "claude", config: map[string]any{"path": "/home/agent/." + ref + "/skills", "mode": SkillsReadOnly}, field: "mode"},
 		{typ: CapabilityAgentSkill, s: "review", config: map[string]any{"path": "/skills/review", "name": ref}, field: "name"},

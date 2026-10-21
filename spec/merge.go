@@ -600,6 +600,20 @@ type contextAsk struct {
 }
 
 func (m *capabilityMerge) add(reference string, n Capability) error {
+	if n.Type == CapabilityPort || n.Type == CapabilityHostPort {
+		key, _, err := keyAsWritten(n)
+		if err != nil {
+			return explainMergeDecode(reference, n, err)
+		}
+		if n.Type == CapabilityPort {
+			key.Space = CapabilityHostPort
+		} else {
+			key.Space = CapabilityPort
+		}
+		if prev, exists := m.byKey[key.identity()]; exists {
+			return fmt.Errorf("merge: %s and %s: sandbox endpoint %s conflicts between port and host-port", prev.reference, reference, key.Parts[0])
+		}
+	}
 	switch n.Type {
 	case CapabilityNetworkPolicy, CapabilityNetworkPolicyV2:
 		p, err := NetworkPolicyV2Of([]Capability{n})
@@ -862,6 +876,11 @@ func sameRequest(a, b Capability) bool {
 		var aa, ab ACP
 		if DecodeCapabilityConfig(a, &aa) == nil && DecodeCapabilityConfig(b, &ab) == nil {
 			return sameACP(aa, ab)
+		}
+	case CapabilityHostPort:
+		var pa, pb HostPort
+		if DecodeCapabilityConfig(a, &pa) == nil && DecodeCapabilityConfig(b, &pb) == nil {
+			return pa.Host == pb.Host && pa.Key() == pb.Key() && pa.EffectiveFamily() == pb.EffectiveFamily()
 		}
 	case CapabilityPort:
 		var pa, pb Port

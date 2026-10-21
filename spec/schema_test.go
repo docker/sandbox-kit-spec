@@ -71,7 +71,7 @@ func at(t *testing.T, m map[string]any, path ...string) map[string]any {
 func allCapabilityTypes() []string {
 	return []string{
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
-		CapabilityVolume, CapabilityHostMount, CapabilityPort,
+		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity,
