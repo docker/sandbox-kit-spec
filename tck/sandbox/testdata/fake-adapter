@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -24,6 +24,18 @@ esac
 host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
+
+host_port_helper="$(dirname "${BASH_SOURCE[0]}")/host-port-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    case "${arg##*/}" in
+    host-port | host-port-default | host-port-hooks | host-port-alias | host-port-udp | host-port-udp-default | host-port-udp-hooks | host-port-udp-alias)
+      exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
+    esac
+  done
+elif [ -f "$state/host-port/${1:-}.json" ] || { [ "$verb" = exec ] && { [ "${3:-}" = curl ] || [ "${3:-}" = kit-tck-host-port-udp ] || [ "${3:-}" = kit-tck-host-port-tcp ]; }; }; then
+  exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@"
+fi
 
 # Inline context has its own fixture model and no image content reader.
 context_helper="$(dirname "${BASH_SOURCE[0]}")/agent-context-fake.py"

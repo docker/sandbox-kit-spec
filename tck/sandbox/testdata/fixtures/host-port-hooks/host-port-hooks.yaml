@@ -1,0 +1,20 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+args:
+  host_port:
+    default: "18431"
+  container_port:
+    default: "18432"
+capabilities:
+  - type: com.docker.sandbox/host-port@1
+    config:
+      host: "${{ kit.args.host_port }}"
+      container: "${{ kit.args.container_port }}"
+  - type: com.docker.sandbox/lifecycle@1
+    optional: true
+    config:
+      install:
+        - command: "curl --noproxy '*' --silent --show-error --fail --max-time 5 http://127.0.0.1:${{ kit.args.container_port }}/ > /var/tmp/kit-tck-host-port-install"
+      startup:
+        - command: "curl --noproxy '*' --silent --show-error --fail --max-time 5 http://127.0.0.1:${{ kit.args.container_port }}/ > /var/tmp/kit-tck-host-port-startup"

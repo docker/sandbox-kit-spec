@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"path"
 	"slices"
 	"sort"
@@ -66,6 +67,7 @@ type Surface struct {
 	// confused with a path: write is the larger grant, and a sandbox that
 	// can rewrite the shared store affects every later one.
 	SkillsWritePaths []string `json:"skillsWritePaths,omitempty"`
+	HostPorts        []string `json:"hostPorts,omitempty"`
 	Ports            []string `json:"ports,omitempty"`
 	USB              []string `json:"usb,omitempty"`
 	Privileged       bool     `json:"privileged,omitempty"`
@@ -152,6 +154,13 @@ func SurfaceOf(d *Descriptor) Surface {
 				continue
 			}
 			s.HostMountPaths = append(s.HostMountPaths, mount.Path)
+		case CapabilityHostPort:
+			var p HostPort
+			if err := DecodeCapabilityConfig(n, &p); err != nil {
+				s.Services = append(s.Services, capabilitySurfaceEntry(n))
+				continue
+			}
+			s.HostPorts = append(s.HostPorts, fmt.Sprintf("%d->%s", p.Host, p.Key()))
 		case CapabilityPort:
 			var p Port
 			if err := DecodeCapabilityConfig(n, &p); err != nil {
@@ -208,6 +217,7 @@ func SurfaceOf(d *Descriptor) Surface {
 	s.SkillsPaths = normalized(s.SkillsPaths)
 	s.SkillsWritePaths = normalized(s.SkillsWritePaths)
 	s.Ports = normalized(s.Ports)
+	s.HostPorts = normalized(s.HostPorts)
 	s.USB = normalized(s.USB)
 	s.Services = normalized(s.Services)
 	return s
@@ -337,6 +347,7 @@ func DiffWidenings(granted, candidate Surface) []Widening {
 	add("skills", missingFrom(granted.SkillsPaths, candidate.SkillsPaths))
 	add("skills.write", missingFrom(granted.SkillsWritePaths, candidate.SkillsWritePaths))
 	add("ports", missingFrom(granted.Ports, candidate.Ports))
+	add("hostPorts", missingFrom(granted.HostPorts, candidate.HostPorts))
 	add("usb", missingFrom(granted.USB, candidate.USB))
 	if !granted.Privileged && candidate.Privileged {
 		out = append(out, Widening{Category: "privileged", Detail: "requests privileged execution"})

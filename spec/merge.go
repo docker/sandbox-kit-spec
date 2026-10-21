@@ -819,6 +819,12 @@ func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, e
 			return "", err
 		}
 		return n.Type + "\x00" + s.Path, nil
+	case CapabilityHostPort:
+		var p HostPort
+		if err := decodeForMerge(reference, n, &p); err != nil {
+			return "", err
+		}
+		return n.Type + "\x00" + p.Key(), nil
 	case CapabilityPort:
 		var p Port
 		if err := decodeForMerge(reference, n, &p); err != nil {
@@ -881,6 +887,11 @@ func sameRequest(a, b Capability) bool {
 		var aa, ab ACP
 		if DecodeCapabilityConfig(a, &aa) == nil && DecodeCapabilityConfig(b, &ab) == nil {
 			return sameACP(aa, ab)
+		}
+	case CapabilityHostPort:
+		var pa, pb HostPort
+		if DecodeCapabilityConfig(a, &pa) == nil && DecodeCapabilityConfig(b, &pb) == nil {
+			return pa.Host == pb.Host && pa.Key() == pb.Key()
 		}
 	case CapabilityPort:
 		var pa, pb Port
