@@ -18,7 +18,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 93, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 101, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -58,6 +58,28 @@ func TestRepublishedGroupFixtureMatchesPublisher(t *testing.T) {
 	got, err := json.Marshal(fixture)
 	require.NoError(t, err)
 	require.JSONEq(t, string(want), string(got))
+}
+
+func TestHostPortFixturesValidateAfterArgumentExpansion(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join(FixtureDir, "host-port*", "*.yaml"))
+	require.NoError(t, err)
+	require.Len(t, paths, 8)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			require.NoError(t, err)
+			d, err := spec.Decode(raw)
+			require.NoError(t, err)
+			values, err := spec.KitArgValues(d.Args, nil)
+			require.NoError(t, err)
+			expanded, err := spec.ExpandCreateArgs(raw, d.Args, values)
+			require.NoError(t, err)
+			effective, err := spec.Decode(expanded)
+			require.NoError(t, err)
+			_, err = spec.ValidateEffective(expanded, effective)
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestVolumeFixturesValidateAfterArgumentExpansion(t *testing.T) {

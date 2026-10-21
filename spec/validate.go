@@ -605,6 +605,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 	seenSkills := map[string]int{}
 	seenBundledSkills := map[string]int{}
 	seenPort := map[string]int{}
+	seenHostPort := map[string]int{}
 	// Published descriptors can offer optional versions of one profile;
 	// selection decides which version survives before mixed-version checks.
 	contexts := map[string]*contextArity{
@@ -862,6 +863,30 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, s.Path, prev))
 			}
 			seenSkills[s.Path] = i
+		case CapabilityHostPort:
+			for _, key := range []string{"host", "container", "transport"} {
+				if value, stated := n.Config[key]; stated && hasNull(value) {
+					errs.add(fieldErrorf(path+".config."+key, "%s must not be null", key))
+				}
+			}
+			var p HostPort
+			if err := DecodeCapabilityConfig(n, &p); err != nil {
+				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				continue
+			}
+			if p.Host < 1 || p.Host > 65535 {
+				errs.add(fieldErrorf(path+".config.host", "host port %d out of range", p.Host))
+			}
+			if p.ContainerPort() < 1 || p.ContainerPort() > 65535 {
+				errs.add(fieldErrorf(path+".config.container", "container port %d out of range", p.Container))
+			}
+			if p.Transport != "" && p.Transport != "tcp" && p.Transport != "udp" {
+				errs.add(fieldErrorf(path+".config.transport", "transport must be tcp or udp, got %q", p.Transport))
+			}
+			if prev, dup := seenHostPort[p.Key()]; dup {
+				errs.add(fieldErrorf(path+".config.container", "host-port endpoint already declared at capabilities[%d]", prev))
+			}
+			seenHostPort[p.Key()] = i
 		case CapabilityPort:
 			var p Port
 			if err := DecodeCapabilityConfig(n, &p); err != nil {

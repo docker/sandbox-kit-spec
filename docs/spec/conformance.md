@@ -168,6 +168,15 @@ auto-stop, and reads it again after explicit stop.
 
 ### Host-shared directory observation
 
+For `com.docker.sandbox/host-port@1`, the suite starts temporary TCP and UDP
+services on its own IPv4 loopback and passes their ports through fixture
+arguments. An adapter claiming this capability **MUST** run the sandbox
+on the same host as the suite, or arrange equivalent forwarding to those
+suite-owned services without changing the requested endpoint semantics.
+The suite verifies response bytes, not merely connection success. It
+creates no bindings to user services. Remote adapters that cannot provide
+this test topology cannot claim a passing host-port result.
+
 The `host-mount-*` verbs are required only for adapters claiming
 `com.docker.sandbox/host-mount@1`. They use the runtime's ordinary user
 interfaces for discovering, reading, and removing host directories.

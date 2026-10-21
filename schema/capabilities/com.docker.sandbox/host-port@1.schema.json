@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/host-port@1",
+  "description": "One host IPv4 loopback TCP or UDP service exposed at sandbox IPv4 loopback. Keyed by effective container port and transport. RELEASES.md defines capability versioning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["host"],
+  "properties": {
+    "host": {
+      "anyOf": [
+        {"type": "integer", "minimum": 1, "maximum": 65535},
+        {"$ref": "../../definitions/kit-arg.schema.json#/definitions/whole"}
+      ]
+    },
+    "container": {
+      "anyOf": [
+        {"type": "integer", "minimum": 0, "maximum": 65535},
+        {"$ref": "../../definitions/kit-arg.schema.json#/definitions/whole"}
+      ]
+    },
+    "transport": {
+      "anyOf": [
+        {"enum": ["", "tcp", "udp"]},
+        {"$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"}
+      ]
+    }
+  }
+}
