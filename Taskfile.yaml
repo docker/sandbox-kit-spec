@@ -15,7 +15,7 @@ vars:
   # so they only build once those kits have been pushed to the namespace
   # their `registry` arg names. Build one on its own:
   # `task kit:build KIT=team BUILD_ARGS='--build-arg registry=docker.io/me'`.
-  KITS: hello gh gh-comment tool shell alpine builder motd wordpress claude claude-mixin claude-acp codex codex-mixin codex-acp cursor cursor-mixin devin devin-mixin docker-agent docker-agent-mixin gemini gemini-mixin opencode opencode-mixin skills dev-tools optional-cache shared-cache git-signing github-ssh review-skill skills-hub
+  KITS: hello gh gh-comment tool shell alpine builder motd wordpress mem0 mem0-context claude claude-mixin claude-acp codex codex-mixin codex-acp cursor cursor-mixin devin devin-mixin docker-agent docker-agent-mixin gemini gemini-mixin opencode opencode-mixin skills dev-tools optional-cache shared-cache git-signing github-ssh review-skill skills-hub
   # Empty means "the kit's own version answers": build and push refresh an
   # upstream-tracked descriptor from the vendor's latest release and tag
   # with it, so an image tag can never name a version the kit did not
@@ -86,6 +86,40 @@ tasks:
     desc: The sandbox conformance suite, judged against the fake adapter
     cmds:
       - go test ./tck/sandbox/...
+
+  test:mem0:
+    desc: Build the Mem0 example and start its database, API and dashboard
+    vars:
+      MEM0_VERSION:
+        sh: scripts/kit-version.sh current mem0
+    cmds:
+      - task: kit:build
+        vars: {KIT: mem0, TAG: "{{.MEM0_VERSION}}"}
+      - |
+        docker run --rm --entrypoint bash \
+          -e OPENAI_API_KEY=offline-test-key \
+          mem0-kit:{{.MEM0_VERSION}} -c '
+            set -eu
+            /opt/mem0/start.sh &
+            stack=$!
+            trap "kill $stack 2>/dev/null || true; wait $stack 2>/dev/null || true" EXIT
+            for _ in $(seq 1 90); do
+              curl -fs http://127.0.0.1:8000/openapi.json >/dev/null &&
+                curl -fs http://127.0.0.1:3000/api/health >/dev/null &&
+                curl -fs http://127.0.0.1:3000/setup >/dev/null &&
+                response=$(curl -fs http://127.0.0.1:8000/mcp \
+                  -H "Accept: application/json, text/event-stream" \
+                  -H "Content-Type: application/json" \
+                  -H "MCP-Protocol-Version: 2025-03-26" \
+                  -H "Host: localhost:8000" \
+                  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_memories\",\"arguments\":{}}}") &&
+                printf "%s" "$response" | grep -q "\"isError\":false" &&
+                exit 0
+              kill -0 $stack 2>/dev/null || exit 1
+              sleep 1
+            done
+            exit 1
+          '
 
   test:e2e:
     desc: >-

@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # Every kit whose version arg tracks an upstream release.
-TRACKED=(claude claude-mixin codex codex-mixin gemini-mixin opencode opencode-mixin claude-acp codex-acp)
+TRACKED=(claude claude-mixin codex codex-mixin gemini-mixin opencode opencode-mixin claude-acp codex-acp mem0)
 
 # Tracked, but never rewritten unattended: the pin does not travel alone.
 # codex-acp's version and its codex requirement range must move together:
@@ -83,6 +83,10 @@ upstream() {
 	opencode | opencode-mixin) npm_latest opencode-ai ;;
 	claude-acp) npm_latest '@agentclientprotocol%2Fclaude-agent-acp' ;;
 	codex-acp) npm_latest '@agentclientprotocol%2Fcodex-acp' ;;
+	mem0)
+		curl -fsSL https://pypi.org/pypi/mem0ai/json |
+			sed -n 's/.*"version": *"\([^"]*\)".*/\1/p'
+		;;
 	*) return 1 ;;
 	esac
 }

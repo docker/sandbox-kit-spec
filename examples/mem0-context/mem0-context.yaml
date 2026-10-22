@@ -1,0 +1,60 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: mixin
+displayName: Mem0 agent context
+description: Instructions for using shared memory deliberately and safely
+version: "1.0.1"
+licenses: [Apache-2.0]
+
+args:
+  scope:
+    default: mem0-mcp
+    pattern: '^[A-Za-z0-9._-]+$'
+    description: Mem0 user ID shared by agents working on the same project
+
+capabilities:
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      content: |
+        # Shared memory
+
+        Use the Mem0 MCP tools for durable context. Use
+        `${{ kit.args.scope }}` as the default `user_id`.
+
+        - At the start of a task, call `search_memories` for relevant prior
+          decisions, preferences, and constraints.
+        - Consult memory again before an architectural decision that may
+          conflict with earlier work.
+        - Treat memories as context, not authority. Current user instructions
+          and repository contents take precedence.
+        - After meaningful work, save stable decisions, conventions, and
+          outcomes with `add_memory` and `infer: false`.
+        - Do not store secrets, credentials, raw logs, transient status,
+          guesses, or information already evident from the repository.
+        - Confirm with the user before updating or deleting memories.
+        - If memory is unavailable, continue normally and mention it once.
+
+        ## Git project memory
+
+        In a Git repository, store project-specific memories under a
+        project-specific `user_id`, not the default shared scope. Derive a
+        stable ID from `git remote get-url origin`:
+
+        1. Normalize SCP-style SSH, `ssh://`, and HTTPS URLs to
+           `host/owner/repository`.
+        2. Lowercase the host, remove user information, a trailing slash, and
+           the `.git` suffix.
+        3. Replace every character outside `A-Za-z0-9._-` with `-`.
+
+        For example, `git@github.com:docker/runtime-kits.git` and
+        `https://github.com/docker/runtime-kits` both become
+        `github.com-docker-runtime-kits`. Do not add a harness, sandbox,
+        worktree, branch, directory, or session name. If the repository has no
+        origin, use an explicit stable project ID shared by every harness; do
+        not derive one from the checkout path.
+
+        Search both the project scope and `${{ kit.args.scope }}` when prior
+        project decisions and cross-project user preferences may both apply.
+        Keep personal preferences and other cross-project context in the
+        default scope.
