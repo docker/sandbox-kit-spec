@@ -10,17 +10,11 @@ description: >-
 sourceUrl: https://github.com/docker/sandbox-kit-spec
 
 kind: workload
-version: "1.0.0"
+version: "1.0.1"
 
-# No provides. This kit installs nothing of its own — its content is the
-# template image — so everything it carries is read out of that image at
-# publish and stated as deb/<package>@<version> (§9.6).
-#
-# Thirteen tool names used to be listed here, and none of them had a
-# version to give. An unversioned provide takes the descriptor's own
-# version: as its fallback, so this kit published bash@1.0.0 and
-# node@1.0.0 — its release number wearing their names. dpkg knows what
-# they are actually at.
+# No explicit provides: APT-managed tools, including the trust-fix
+# upgrades in the recipe, are inferred from dpkg as deb/<package>@<version>
+# at publish (§9.6). Do not assign the kit's version to tool names.
 
 capabilities:
   # This workload is an agent sandbox: the host launches the agent rather
