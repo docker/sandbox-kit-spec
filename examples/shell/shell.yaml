@@ -22,15 +22,14 @@ capabilities:
   # the image config declares instead of assuming one.
   - type: com.docker.sandbox/sbx@1
 
-  # Apt sources in the resulting image: Debian trixie, DHI, and the
-  # GitHub CLI repository added by the recipe.
+  # Apt sources on shell-docker (Debian trixie / DHI):
+  #   deb.debian.org/debian, deb.debian.org/debian-security, dhi.io/deb/...
   - type: com.docker.sandbox/network-policy@1
     config:
       runtime:
         allow:
           - deb.debian.org
           - dhi.io
-          - cli.github.com
 
   # This legacy profile is the fallback. An agent mixin can select its
   # discovery destination; every composed Kit contributes guidance there.
