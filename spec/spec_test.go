@@ -1811,6 +1811,39 @@ func TestValidateRejectsDuplicateDefaultTransportPorts(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A family describes the service rather than naming a second
+// publication, so it neither escapes the duplicate check nor accepts a
+// host-side spelling such as tcp4.
+func TestValidatePortFamily(t *testing.T) {
+	port := func(config map[string]any) *Descriptor {
+		return &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
+			{Type: CapabilityPort, Config: config},
+		}}
+	}
+	for _, family := range []string{PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual} {
+		_, err := Validate(port(map[string]any{"container": 8080, "family": family}))
+		require.NoError(t, err, "family %q", family)
+	}
+	for _, family := range []string{"IPv4", "tcp4", "tcp", "inet", "both"} {
+		_, err := Validate(port(map[string]any{"container": 8080, "family": family}))
+		require.ErrorContains(t, err, "family must be ipv4, ipv6, or dual", "family %q", family)
+	}
+
+	d := port(map[string]any{"container": 8080, "family": PortFamilyIPv4})
+	d.Capabilities = append(d.Capabilities, Capability{Type: CapabilityPort, Config: map[string]any{"container": 8080, "family": PortFamilyIPv6}})
+	_, err := Validate(d)
+	require.ErrorContains(t, err, "port 8080 already declared")
+}
+
+// Every runtime has to bind something for a port that never states a
+// family, so the spec names it rather than leaving each to choose.
+func TestPortFamilyDefaultsToIPv4(t *testing.T) {
+	require.Equal(t, PortFamilyIPv4, PortFamily(Port{Container: 8080}))
+	for _, family := range []string{PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual} {
+		require.Equal(t, family, PortFamily(Port{Container: 8080, Family: family}))
+	}
+}
+
 // A key names something the author chose, so references reach map keys
 // too — the credential capability's `structure` is an author-shaped
 // document, not a grammar-defined one. Textual expansion reached keys for

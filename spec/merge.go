@@ -534,8 +534,9 @@ func decodeForMerge(reference string, n Capability, out any) error {
 	return fmt.Errorf("merge: %s: %s: %w", reference, n.Type, err)
 }
 
-// keyed remembers which contribution first asked for an instance-shaped
-// capability, so a conflicting ask names both parties.
+// keyed remembers which contribution asked for an instance-shaped
+// capability — the first, unless a later one supplied what the merged
+// request now claims — so a conflicting ask names both parties.
 type keyed struct {
 	reference  string
 	capability Capability
@@ -721,6 +722,34 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		}
 		return nil
 	}
+	// A family is a fact about the one service both Kits publish, so a
+	// stated family holds over an omitted one, and two different ones
+	// cannot both be true.
+	if n.Type == CapabilityPort {
+		var held, asked Port
+		if err := decodeForMerge(prev.reference, prev.capability, &held); err != nil {
+			return err
+		}
+		if err := decodeForMerge(reference, n, &asked); err != nil {
+			return err
+		}
+		if held.Family != asked.Family && held.Family != "" && asked.Family != "" {
+			return fmt.Errorf("merge: %s and %s both declare %s but say it listens on different families (%q, %q); one of them has to change",
+				prev.reference, reference, describeCapability(n), held.Family, asked.Family)
+		}
+		if held.Family == "" && asked.Family != "" {
+			held.Family = asked.Family
+			merged, err := CapabilityWithConfig(prev.capability, held)
+			if err != nil {
+				return fmt.Errorf("merge: %s and %s: %w", prev.reference, reference, err)
+			}
+			// The adopted family is now this contribution's claim, so a
+			// later conflict has to name it rather than the Kit that
+			// stated nothing.
+			prev = keyed{reference: reference, capability: *merged}
+			m.byKey[key] = prev
+		}
+	}
 	if !sameRequest(prev.capability, n) {
 		if n.Type == CapabilityVolume {
 			return fmt.Errorf("merge: %s and %s declare different %s configurations at %s",
@@ -866,7 +895,8 @@ func capabilityIdentity(n Capability) string {
 // as the request they normalize to, not as the text they were written
 // as: port@1 defines a publication by container port and transport, so
 // an omitted transport and an explicit tcp are one ask, and two kits
-// naming the same port differently are not two publications.
+// naming the same port differently are not two publications. Its family
+// is reconciled before this is asked, not compared here.
 func sameRequest(a, b Capability) bool {
 	if a.Type != b.Type {
 		return false

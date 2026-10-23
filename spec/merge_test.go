@@ -1242,6 +1242,94 @@ capabilities:
 	require.Len(t, ports, 2)
 }
 
+// Two Kits publishing one port describe one service, so a stated family
+// survives whichever side omitted it, and contradictory families refuse.
+func TestMergeReconcilesPortFamily(t *testing.T) {
+	port := `schemaVersion: "3"
+kind: %s
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/port@1
+    config: {container: 8080%s}
+`
+	for _, tc := range []struct {
+		name, a, b, want string
+	}{
+		{"stated after omitted", "", ", family: ipv4", PortFamilyIPv4},
+		{"stated before omitted", ", family: ipv6", "", PortFamilyIPv6},
+		{"both stated alike", ", family: ipv4", ", family: ipv4, transport: tcp", PortFamilyIPv4},
+		{"dual after omitted", "", ", family: dual", PortFamilyDual},
+		{"both omitted", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := mergeOK(t,
+				contribute(t, "a", fmt.Sprintf(port, KindWorkload, tc.a)),
+				contribute(t, "b", fmt.Sprintf(port, KindMixin, tc.b)),
+			).Descriptor
+			ports, err := PortsOf(out.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, ports, 1)
+			require.Equal(t, tc.want, ports[0].Family)
+		})
+	}
+
+	// Dual is a claim about the service like the others, so it
+	// contradicts a single family rather than widening or narrowing it.
+	for _, pair := range [][2]string{{"ipv4", "ipv6"}, {"dual", "ipv4"}, {"ipv6", "dual"}} {
+		_, err := Merge([]Contribution{
+			contribute(t, "a", fmt.Sprintf(port, KindWorkload, ", family: "+pair[0])),
+			contribute(t, "b", fmt.Sprintf(port, KindMixin, ", family: "+pair[1])),
+		}, MergeOptions{ContextPath: "/usr/share/sandbox/kit/set/context.md"})
+		require.ErrorContains(t, err, "different families", "families %v", pair)
+	}
+
+	// The conflict names the Kit whose family was adopted, not the one
+	// that stated nothing.
+	_, err := Merge([]Contribution{
+		contribute(t, "silent", fmt.Sprintf(port, KindWorkload, "")),
+		contribute(t, "v4", fmt.Sprintf(port, KindMixin, ", family: ipv4")),
+		contribute(t, "v6", fmt.Sprintf(port, KindMixin, ", family: ipv6")),
+	}, MergeOptions{ContextPath: "/usr/share/sandbox/kit/set/context.md"})
+	require.ErrorContains(t, err, "merge: v4 capabilities[0] and v6 capabilities[0] both declare")
+}
+
+// A re-exported family is a placeholder at publication, so it cannot be
+// compared with a stated one yet. Publication keeps both, and create
+// reconciles them once the arg has a value.
+func TestMergeDefersAParameterizedPortFamily(t *testing.T) {
+	port := `schemaVersion: "3"
+kind: %s
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/port@1
+    config: {container: 8080, family: %s}
+`
+	published := mergeOK(t,
+		contribute(t, "a", fmt.Sprintf(port, KindWorkload, `"${{ kit.args.family }}"`)),
+		contribute(t, "b", fmt.Sprintf(port, KindMixin, PortFamilyIPv4)),
+	).Descriptor
+	encoded, err := json.Marshal(published.Capabilities)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), "${{ kit.args.family }}", "the placeholder survives publication")
+	require.Contains(t, string(encoded), `"family":"ipv4"`, "the stated family survives publication")
+
+	composed, err := Compose([]Contribution{
+		contribute(t, "a", fmt.Sprintf(port, KindWorkload, PortFamilyIPv4)),
+		contribute(t, "b", fmt.Sprintf(port, KindMixin, PortFamilyIPv4)),
+	})
+	require.NoError(t, err)
+	ports, err := PortsOf(composed.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, ports, 1)
+	require.Equal(t, PortFamilyIPv4, ports[0].Family)
+
+	_, err = Compose([]Contribution{
+		contribute(t, "a", fmt.Sprintf(port, KindWorkload, PortFamilyIPv6)),
+		contribute(t, "b", fmt.Sprintf(port, KindMixin, PortFamilyIPv4)),
+	})
+	require.ErrorContains(t, err, "different families")
+}
+
 // A lifecycle path that resolves at create cannot be held to the
 // one-writer rule: two contributions could write one file with the
 // contributions gone and nothing left to notice.

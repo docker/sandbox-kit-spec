@@ -35,6 +35,21 @@
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
         }
       ]
+    },
+    "family": {
+      "description": "The address families the service answers on inside the container: one of them, or dual for both. Omitted is ipv4 once the set is composed; an omitted family yields to another Kit's stated one for the same port.",
+      "anyOf": [
+        {
+          "enum": [
+            "ipv4",
+            "ipv6",
+            "dual"
+          ]
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
     }
   }
 }

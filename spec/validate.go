@@ -876,6 +876,11 @@ func validateCapabilityBlock(d *Descriptor) error {
 			default:
 				errs.add(fieldErrorf(path+".config.transport", "capabilities[%d]: transport must be tcp or udp, got %q", i, p.Transport))
 			}
+			switch p.Family {
+			case "", PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual:
+			default:
+				errs.add(fieldErrorf(path+".config.family", "capabilities[%d]: family must be %s, %s, or %s, got %q", i, PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual, p.Family))
+			}
 			key := PortKey(p)
 			if prev, dup := seenPort[key]; dup {
 				errs.add(fieldErrorf(path+".config.container", "capabilities[%d]: port %d already declared at capabilities[%d]", i, p.Container, prev))

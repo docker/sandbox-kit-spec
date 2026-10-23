@@ -481,6 +481,12 @@ when it is missing.
 One entry per v2 port. `name:` and `container:` carry over; v2 `protocol: tcp`
 becomes `transport: tcp`. A kit cannot pin a host port.
 
+An omitted `family` is `ipv4`, which suits a server bound to `0.0.0.0`.
+Add `family: ipv6` when the service listens on IPv6 only, and
+`family: dual` when it answers on both — as a server bound to `::`
+usually does — so the runtime knows binding both host families is safe.
+`transport` says nothing about either: an omitted transport is `tcp`.
+
 ### agent-sessions@1
 
 Author this capability on the workload kit, whose entrypoint the verbs

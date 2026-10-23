@@ -497,6 +497,14 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 			if (item.Type == CapabilityVolume || item.Type == CapabilityHostMount) && capabilityIsParameterized(item) {
 				return true
 			}
+			// A port's family is reconciled, not keyed, so a placeholder
+			// shares a slot with a stated family it cannot yet be compared
+			// with, and collapsing them would drop one of the constraints.
+			if item.Type == CapabilityPort {
+				if family, ok := item.Config["family"].(string); ok && ContainsArgRef(family) {
+					return true
+				}
+			}
 		}
 	}
 	return false
