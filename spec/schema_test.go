@@ -278,6 +278,9 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	port := loadJSON(t, perTypeSchemaPath(CapabilityPort))
 	assertAcceptsKitArg(t, at(t, port, "properties", "container"), "whole")
 	assertAcceptsKitArg(t, at(t, port, "properties", "transport"), "bearing")
+	require.ElementsMatch(t, []any{PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual},
+		literalEnum(t, at(t, port, "properties", "family")))
+	assertAcceptsKitArg(t, at(t, port, "properties", "family"), "bearing")
 
 	lifecycle := loadJSON(t, perTypeSchemaPath(CapabilityLifecycle))
 	fileMode := at(t, lifecycle, "properties", "files", "items", "properties", "mode")
