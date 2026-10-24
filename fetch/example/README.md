@@ -149,6 +149,14 @@ APIs to judge permissions before applying the result.
 
 ## Loading and progress
 
+Loader implementations and APIs that only need the loader contract can
+import `github.com/docker/sandbox-kit-spec/v3/load`. It defines
+`load.Loader`, `load.Kit`, and `load.LayerLoader` and depends only on the
+standard library and OCI digest and image types. The `fetch.KitLoader`,
+`fetch.LoadedKit`, and `fetch.LayerLoader` names remain supported as type
+aliases; loaders and results pass between the two packages without
+conversion. `fetch.Client.LoadKit` can be used directly as a `load.Loader`.
+
 `Options.Loader` accepts a `fetch.KitLoader`. Its `LoadedKit` contains
 verified digest identity, manifest, config, and a lazy `LayerLoader`
 function. `Descriptor` optionally carries the original annotation from
