@@ -5,42 +5,23 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/docker/sandbox-kit-spec/v3/load"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// KitLoader supplies verified metadata for the requested reference. It owns
-// authentication, platform selection, and its backing store. The returned
-// digest pins the requested manifest or index, not a subsequently moved tag.
+// KitLoader is load.Loader, retained for compatibility.
 // Assemble always validates declarations. DefaultLayerValidator verifies both blob
 // digests and diff IDs when selected as Options.LayerValidator.
-type KitLoader func(context.Context, string) (*LoadedKit, error)
+type KitLoader = load.Loader
 
-// LayerLoader opens a fresh stream of a manifest layer in its original
-// compression. Reads must honor ctx; the caller closes the returned stream.
-type LayerLoader func(ctx context.Context, layer ocispec.Descriptor) (io.ReadCloser, error)
+// LayerLoader is load.LayerLoader, retained for compatibility.
+type LayerLoader = load.LayerLoader
 
-// LoadedKit keeps descriptor identity and image metadata together. Its data
-// must remain stable for the duration of Assemble; Assemble does not mutate it.
-type LoadedKit struct {
-	Digest   digest.Digest
-	Manifest ocispec.Manifest
-	Config   ocispec.Image
-
-	// Image is the runtime-resolvable reference for this Kit's content, such
-	// as the store-local tag a source Kit was built under. The loader must
-	// keep it consistent with the returned digest and metadata. When empty,
-	// Assemble derives a digest-pinned image from the request reference.
-	Image string
-
-	// Descriptor is the published annotation, including an index annotation when
-	// present. If empty, Assemble reads the selected manifest's annotation.
-	Descriptor []byte
-	// LayerLoader opens a fresh stream of the blob as described by the manifest,
-	// with its original compression. DefaultLayerValidator closes each returned stream.
-	// Nil is allowed for metadata-only assembly; DefaultLayerValidator requires it.
-	LayerLoader LayerLoader
-}
+// LoadedKit is load.Kit, retained for compatibility.
+// Assemble does not mutate it. DefaultLayerValidator requires a non-nil
+// LayerLoader and closes each returned stream.
+type LoadedKit = load.Kit
 
 // LoadKit implements KitLoader with this client's credentials and platform.
 // Image metadata is loaded by the resolved digest to prevent tag movement
