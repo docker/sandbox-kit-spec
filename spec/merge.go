@@ -784,7 +784,7 @@ func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, e
 		// anything else a distinct ask.
 		return capabilityIdentity(n), nil
 	}
-	return key.Space + "\x00" + strings.Join(key.Parts, "\x00"), nil
+	return key.identity(), nil
 }
 
 // capabilityIdentity is what makes two entries the same request for

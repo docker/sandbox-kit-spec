@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"path"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -338,5 +339,249 @@ func TestLeftoverArgReferencesSpelledWithWhitespaceAreRefused(t *testing.T) {
 			_, err = SelectCapabilities(t.Context(), "kit", d, Supported(CapabilityPort))
 			require.ErrorContains(t, err, "still contains unresolved arguments")
 		})
+	}
+}
+
+// What validation keys an authored entry on where a block cannot show it,
+// because the entry is invalid on its own or gives no key at all: another
+// field that is invalid does not hide the key, and a key field that is
+// missing, null, undecodable, or not yet a literal leaves the entry
+// unkeyed rather than keyed on its text.
+func TestLiteralInstanceKeys(t *testing.T) {
+	github := InstanceKey{Space: CapabilityCredential, Parts: []string{"github", "runtime"}}
+	for _, tc := range []struct {
+		name  string
+		entry Capability
+		want  []InstanceKey
+	}{
+		{name: "credential phase listed twice", entry: instance(CapabilityCredential, map[string]any{"service": "github", "phase": []any{"runtime", "runtime"}}),
+			want: []InstanceKey{github, github}},
+		{name: "credential beside an invalid field", entry: instance(CapabilityCredential, map[string]any{"service": "github", "phase": "runtime", "apiKey": 5}),
+			want: []InstanceKey{github}},
+		{name: "credential with an empty phase", entry: instance(CapabilityCredential, map[string]any{"service": "github", "phase": []any{"", "runtime"}}),
+			want: []InstanceKey{github}},
+		{name: "credential with a null phase", entry: instance(CapabilityCredential, map[string]any{"service": "github", "phase": nil})},
+		{name: "credential phase that does not decode", entry: instance(CapabilityCredential, map[string]any{"service": "github", "phase": 7})},
+		{name: "credential without a service", entry: instance(CapabilityCredential, map[string]any{"phase": "runtime"})},
+		{name: "ssh-agent beside an invalid bound", entry: instance(CapabilitySSHAgent, map[string]any{"phase": "runtime", "sign": 5}),
+			want: []InstanceKey{{Space: CapabilitySSHAgent, Parts: []string{"runtime"}}}},
+		{name: "ssh-agent without a phase", entry: instance(CapabilitySSHAgent, map[string]any{})},
+		{name: "acp agent that is not a string", entry: instance(CapabilityACP, map[string]any{"agent": 5, "command": "acp"})},
+		{name: "volume beside an invalid size", entry: instance(CapabilityVolume, map[string]any{"path": "/data/cache", "size": "huge"}),
+			want: []InstanceKey{{Space: CapabilityVolume, Parts: []string{"/data/cache"}}}},
+		{name: "volume path reference spelled with whitespace", entry: instance(CapabilityVolume, map[string]any{"path": "/data/${{\tkit.args.dir\n}}/.."})},
+		{name: "agent-context with an empty directory names no profile", entry: instance(CapabilityAgentContextV2, map[string]any{"directory": "", "filename": "AGENTS.md"}),
+			want: []InstanceKey{{Space: CapabilityAgentContextV2}}},
+		{name: "singleton", entry: instance(CapabilityResources, map[string]any{"cpu": 2})},
+		{name: "unknown type", entry: instance("example.com/thing@1", map[string]any{"path": "/data"})},
+		{name: "group", entry: Capability{Group: &CapabilityGroup{Capabilities: []Capability{instance(CapabilityVolume, map[string]any{"path": "/data/cache"})}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, literalInstanceKeys(tc.entry))
+		})
+	}
+}
+
+// A type's key reads only the fields its definition names, so an
+// authored entry keyed on those alone has the key InstanceKeyOf gives the
+// whole entry, and nothing in its other fields moves it. Each type's entry
+// fills every field its config has, key fields with values no default
+// would give, so a key reading a field it does not name shows; then each
+// other field is garbled in turn.
+func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
+	// Each type's entry, and the fields its key does not read.
+	entries := map[string]struct {
+		config map[string]any
+		others []string
+	}{
+		CapabilityACP: {map[string]any{"agent": "claude", "command": "claude-acp", "env": map[string]any{"MODE": "fast"}, "protocolVersion": 2},
+			[]string{"command", "env", "protocolVersion"}},
+		CapabilityCredential: {map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "GH_TOKEN", "proxyManaged": true}},
+			[]string{"apiKey", "oauth"}},
+		CapabilitySSHAgent: {map[string]any{"phase": "install", "unrestricted": false, "sign": []any{"git"}, "authenticate": []any{"git@github.com"}},
+			[]string{"unrestricted", "sign", "authenticate"}},
+		CapabilityVolume: {map[string]any{"path": "/data/./cache/", "size": "1g", "tmpfs": true, "mode": "1777"},
+			[]string{"size", "tmpfs", "mode"}},
+		CapabilityHostMount:   {map[string]any{"path": "//data/shared", "mode": "0700"}, []string{"mode"}},
+		CapabilityAgentSkill:  {map[string]any{"path": "/opt/skills/review-v2", "name": "review"}, nil},
+		CapabilityAgentSkills: {map[string]any{"path": "/home/agent/.claude/skills", "mode": SkillsReadWrite}, []string{"mode"}},
+		CapabilityPort:        {map[string]any{"container": 8080, "transport": "udp", "name": "api"}, []string{"name"}},
+		CapabilityAgentContext: {map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md", "content": "Be brief."},
+			[]string{"content", "contentFile"}},
+		CapabilityAgentContextV2: {map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md", "content": "Be brief."},
+			[]string{"content"}},
+	}
+	var keyed []string
+	for _, typ := range KnownCapabilities() {
+		if ArityOf(typ) == ArityInstance {
+			keyed = append(keyed, typ)
+		}
+	}
+	require.ElementsMatch(t, keyed, slices.Collect(maps.Keys(entries)), "every instance-shaped type needs an entry")
+	garbage := []any{"${{ kit.args.other }}", "${{ kit.env.OTHER }}", 5, nil, map[string]any{"unknown": true}, []any{false}}
+
+	for typ, e := range entries {
+		t.Run(typ, func(t *testing.T) {
+			want, _, err := InstanceKeyOf(instance(typ, e.config))
+			require.NoError(t, err)
+			require.Equal(t, []InstanceKey{want}, literalInstanceKeys(instance(typ, e.config)))
+			for _, field := range append(e.others, "colour") {
+				for _, value := range garbage {
+					garbled := maps.Clone(e.config)
+					garbled[field] = value
+					require.Equal(t, []InstanceKey{want}, literalInstanceKeys(instance(typ, garbled)), "%s: %v", field, value)
+				}
+			}
+		})
+	}
+}
+
+// Validation holds a declaration block to one entry per §7.1 key, so two
+// entries in one block collide exactly when composition would key them as
+// one request once expanded: an instance-shaped entry by the keys
+// InstanceKeyOf gives it per phase, a singleton by its type alone, and
+// anything else as the whole entry. A key that moves with a reference is
+// not known yet, so an entry asking for one collides only with an
+// identical entry, while references beside a key leave the key known.
+// Every ordered pair from the pool is validated as a block, not a sample.
+func TestValidationAgreesWithInstanceKeys(t *testing.T) {
+	token := map[string]any{"name": "GH_TOKEN"}
+	pool := []Capability{
+		instance(CapabilityACP, map[string]any{"agent": "claude", "command": "claude-acp"}),
+		instance(CapabilityACP, map[string]any{"agent": "com.docker.kit/claude", "command": "other-acp"}),
+		instance(CapabilityACP, map[string]any{"agent": "example.com/claude", "command": "claude-acp"}),
+		instance(CapabilityACP, map[string]any{"agent": "claude", "command": "${{ kit.args.command }}"}),
+		instance(CapabilityACP, map[string]any{"agent": "${{ kit.env.AGENT }}", "command": "claude-acp"}),
+		instance(CapabilityCredential, map[string]any{"service": "github", "phase": "runtime", "apiKey": token}),
+		instance(CapabilityCredential, map[string]any{"service": "github", "phase": []any{"runtime"}, "apiKey": map[string]any{"name": "GITHUB_TOKEN"}}),
+		instance(CapabilityCredential, map[string]any{"service": "github", "phase": "install", "apiKey": token}),
+		instance(CapabilityCredential, map[string]any{"service": "github", "phase": []any{"install", "runtime"}, "apiKey": token}),
+		instance(CapabilityCredential, map[string]any{"service": "github", "phase": []any{"${{ kit.args.phase }}", "install"}, "apiKey": token}),
+		instance(CapabilityCredential, map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "${{ kit.args.token }}"}}),
+		instance(CapabilityCredential, map[string]any{"service": "${{ kit.args.service }}", "phase": "runtime", "apiKey": token}),
+		instance(CapabilityCredential, map[string]any{"service": "gitlab", "phase": "runtime", "apiKey": token}),
+		instance(CapabilitySSHAgent, map[string]any{"phase": "runtime"}),
+		instance(CapabilitySSHAgent, map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{"git"}}),
+		instance(CapabilitySSHAgent, map[string]any{"phase": "install"}),
+		instance(CapabilitySSHAgent, map[string]any{"phase": []any{"install", "runtime"}}),
+		instance(CapabilityVolume, map[string]any{"path": "/data/cache"}),
+		instance(CapabilityVolume, map[string]any{"path": "/data/./cache", "size": "1g"}),
+		instance(CapabilityVolume, map[string]any{"path": "/data/cache/", "size": "${{ kit.args.size }}"}),
+		instance(CapabilityVolume, map[string]any{"path": "/data/${{ kit.args.dir }}"}),
+		instance(CapabilityVolume, map[string]any{"path": "/data/state"}),
+		instance(CapabilityHostMount, map[string]any{"path": "/data/cache"}),
+		instance(CapabilityHostMount, map[string]any{"path": "/data/shared"}),
+		instance(CapabilityHostMount, map[string]any{"path": "/data/shared", "mode": "${{ kit.args.mode }}"}),
+		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.claude/skills"}),
+		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.claude/skills", "mode": SkillsReadWrite}),
+		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.codex/skills"}),
+		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review"}),
+		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review-v2", "name": "review"}),
+		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/lint"}),
+		instance(CapabilityPort, map[string]any{"container": 8080}),
+		instance(CapabilityPort, map[string]any{"container": 8080, "transport": "tcp", "name": "api"}),
+		instance(CapabilityPort, map[string]any{"container": 8080, "transport": "udp"}),
+		instance(CapabilityPort, map[string]any{"container": 9090}),
+		// One @1 version only: @1 and @2 cannot be declared together
+		// whatever their keys, and one body only, since a Kit contributes
+		// one. Entries without a directory have no profile to key on and
+		// are held to one, which their equal keys say too.
+		instance(CapabilityAgentContext, map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md"}),
+		instance(CapabilityAgentContext, map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md", "content": "Be brief."}),
+		instance(CapabilityAgentContext, map[string]any{"directory": "/home/agent/.codex", "filename": "AGENTS.md"}),
+		instance(CapabilityAgentContext, map[string]any{"directory": "/home/agent/${{ kit.args.agent }}", "filename": "AGENTS.md"}),
+		instance(CapabilityAgentContext, map[string]any{"filename": "AGENTS.md"}),
+		instance(CapabilityAgentContext, map[string]any{"filename": "CLAUDE.md"}),
+		instance(CapabilityResources, map[string]any{"cpu": 2}),
+		instance(CapabilityResources, map[string]any{"memory": "4g"}),
+		instance(CapabilityUSBDevice, map[string]any{"vendorId": "1d6b", "productId": "0002"}),
+		instance(CapabilityUSBDevice, map[string]any{"class": "03"}),
+	}
+	// The oracle expands references itself and splits phases the way
+	// composition does, so it shares nothing with validation but the key.
+	reference := regexp.MustCompile(`\$\{\{\s*kit\.(args|env)\.\w+\s*\}\}`)
+	var expand func(value any, to string) any
+	expand = func(value any, to string) any {
+		switch v := value.(type) {
+		case string:
+			return reference.ReplaceAllString(v, to)
+		case map[string]any:
+			out := make(map[string]any, len(v))
+			for field, child := range v {
+				out[field] = expand(child, to)
+			}
+			return out
+		case []any:
+			out := make([]any, len(v))
+			for i, child := range v {
+				out[i] = expand(child, to)
+			}
+			return out
+		}
+		return value
+	}
+	keysUnder := func(c Capability, to string) []InstanceKey {
+		config := expand(c.Config, to).(map[string]any)
+		configs := []map[string]any{config}
+		if phases, listed := config["phase"].([]any); listed {
+			configs = nil
+			for _, phase := range phases {
+				one := maps.Clone(config)
+				one["phase"] = phase
+				configs = append(configs, one)
+			}
+		}
+		var keys []InstanceKey
+		for _, config := range configs {
+			key, _, err := InstanceKeyOf(Capability{Type: c.Type, Config: config})
+			require.NoError(t, err, "%s %v", c.Type, config)
+			keys = append(keys, key)
+		}
+		return keys
+	}
+	shared := func(a, b []InstanceKey) bool {
+		return slices.ContainsFunc(a, func(k InstanceKey) bool {
+			return slices.ContainsFunc(b, func(o InstanceKey) bool { return reflect.DeepEqual(k, o) })
+		})
+	}
+	// An entry's known keys are the ones it has however its references
+	// expand; two expansions stand in for every one.
+	keys := make([][]InstanceKey, len(pool))
+	for i, c := range pool {
+		require.NoError(t, validateCapabilityBlock(&Descriptor{Kind: KindWorkload, Capabilities: []Capability{c}}), "%s %v", c.Type, c.Config)
+		if ArityOf(c.Type) != ArityInstance {
+			continue
+		}
+		other := keysUnder(c, "y")
+		keys[i] = slices.DeleteFunc(keysUnder(c, "x"), func(k InstanceKey) bool { return !shared([]InstanceKey{k}, other) })
+	}
+	sameRequest := func(i, j int) bool {
+		a, b := pool[i], pool[j]
+		if a.Type == b.Type && reflect.DeepEqual(a.Config, b.Config) {
+			return true
+		}
+		switch ArityOf(a.Type) {
+		case ArityInstance:
+			return shared(keys[i], keys[j])
+		case AritySingleton:
+			return a.Type == b.Type
+		}
+		return false
+	}
+	for i, a := range pool {
+		for j, b := range pool {
+			err := validateCapabilityBlock(&Descriptor{Kind: KindWorkload, Capabilities: []Capability{a, b}})
+			pair := fmt.Sprintf("%s %v and %s %v, keys %v and %v", a.Type, a.Config, b.Type, b.Config, keys[i], keys[j])
+			if !sameRequest(i, j) {
+				require.NoError(t, err, pair)
+				continue
+			}
+			// A collision between the two, not some unrelated failure.
+			require.Error(t, err, pair)
+			for _, e := range err.(ValidationErrors) {
+				require.Contains(t, e.Error(), "capabilities[1]", pair)
+				require.Contains(t, e.Error(), "capabilities[0]", pair)
+			}
+		}
 	}
 }

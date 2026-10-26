@@ -3,7 +3,9 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path"
+	"strings"
 )
 
 // Arity is what identifies the entries of a capability type, per §7.1.
@@ -29,9 +31,10 @@ const (
 
 // ArityOf returns the arity of a capability type.
 func ArityOf(typ string) Arity {
-	switch {
-	case instanceKeys[typ] != nil:
+	if _, keyed := instanceKeys[typ]; keyed {
 		return ArityInstance
+	}
+	switch {
 	case singletonCapabilities[typ]:
 		return AritySingleton
 	case typ == CapabilityUSBDevice:
@@ -88,7 +91,7 @@ type InstanceKey struct {
 // whose key is not known until expansion replaces it. On error, key and
 // arity are zero. The config is decoded strictly but not validated.
 func InstanceKeyOf(c Capability) (key InstanceKey, arity Arity, err error) {
-	if instanceKeys[c.Type] != nil && capabilityIsParameterized(c) {
+	if ArityOf(c.Type) == ArityInstance && capabilityIsParameterized(c) {
 		return InstanceKey{}, "", fmt.Errorf("capability %s: config still holds a reference; expand it before keying", c.Type)
 	}
 	return keyAsWritten(c)
@@ -101,11 +104,11 @@ func keyAsWritten(c Capability) (InstanceKey, Arity, error) {
 	if c.Group != nil {
 		return InstanceKey{}, "", errors.New("capability group has no instance key; select it first")
 	}
-	keyOf := instanceKeys[c.Type]
-	if keyOf == nil {
+	key, keyed := instanceKeys[c.Type]
+	if !keyed {
 		return InstanceKey{}, ArityOf(c.Type), nil
 	}
-	parts, err := keyOf(c)
+	parts, err := key.parts(c)
 	if err != nil {
 		return InstanceKey{}, "", err
 	}
@@ -117,18 +120,19 @@ func keyAsWritten(c Capability) (InstanceKey, Arity, error) {
 }
 
 // instanceKeys holds each instance-shaped type's key. ArityOf reads its
-// keys as the instance-shaped types, so the two cannot disagree.
-var instanceKeys = map[string]func(Capability) ([]string, error){
-	CapabilityACP: keyOn(func(a ACP) ([]string, error) {
+// keys as the instance-shaped types, and validation keys a declaration
+// block's entries through it, so they agree on what identifies an entry.
+var instanceKeys = map[string]keyDefinition{
+	CapabilityACP: keyOn([]string{"agent"}, func(a ACP) ([]string, error) {
 		return []string{NormalizeCapabilityName(a.Agent)}, nil
 	}),
-	CapabilityCredential: keyOn(func(c Credential) ([]string, error) {
+	CapabilityCredential: keyOn([]string{"service", "phase"}, func(c Credential) ([]string, error) {
 		phase, err := onlyPhase(c.Phase)
 		return []string{c.Service, phase}, err
 	}),
 	// One socket per phase, whichever kits asked: the bounds are what that
 	// socket signs, not which socket it is.
-	CapabilitySSHAgent: keyOn(func(a SSHAgent) ([]string, error) {
+	CapabilitySSHAgent: keyOn([]string{"phase"}, func(a SSHAgent) ([]string, error) {
 		phase, err := onlyPhase(a.Phase)
 		return []string{phase}, err
 	}),
@@ -136,32 +140,40 @@ var instanceKeys = map[string]func(Capability) ([]string, error){
 	// volume path be absolute, so /data/cache and /data/./cache are one
 	// mount written two ways, and keying on the text would emit both and
 	// leave a runtime to reconcile sizes nobody agreed on.
-	CapabilityVolume: keyOn(func(v Volume) ([]string, error) {
+	CapabilityVolume: keyOn([]string{"path"}, func(v Volume) ([]string, error) {
 		return []string{path.Clean(v.Path)}, nil
 	}),
-	CapabilityHostMount: keyOn(func(m HostMount) ([]string, error) {
+	CapabilityHostMount: keyOn([]string{"path"}, func(m HostMount) ([]string, error) {
 		return []string{path.Clean(m.Path)}, nil
 	}),
-	CapabilityAgentSkill: keyOn(func(s AgentSkill) ([]string, error) {
+	CapabilityAgentSkill: keyOn([]string{"path", "name"}, func(s AgentSkill) ([]string, error) {
 		return []string{AgentSkillName(s)}, nil
 	}),
-	CapabilityAgentSkills: keyOn(func(s AgentSkills) ([]string, error) {
+	CapabilityAgentSkills: keyOn([]string{"path"}, func(s AgentSkills) ([]string, error) {
 		return []string{s.Path}, nil
 	}),
-	CapabilityPort: keyOn(func(p Port) ([]string, error) {
+	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
 	}),
-	CapabilityAgentContext: keyOn(func(a AgentContext) ([]string, error) {
+	CapabilityAgentContext: keyOn([]string{"directory", "filename"}, func(a AgentContext) ([]string, error) {
 		return contextProfile(a.Directory, a.Filename), nil
 	}),
-	CapabilityAgentContextV2: keyOn(func(a AgentContextV2) ([]string, error) {
+	CapabilityAgentContextV2: keyOn([]string{"directory", "filename"}, func(a AgentContextV2) ([]string, error) {
 		return contextProfile(a.Directory, a.Filename), nil
 	}),
 }
 
-// keyOn decodes an entry's config strictly as T before keying it.
-func keyOn[T any](key func(T) ([]string, error)) func(Capability) ([]string, error) {
-	return func(c Capability) ([]string, error) {
+// keyDefinition is one instance-shaped type's key.
+type keyDefinition struct {
+	// fields names every config field parts reads, which is what lets
+	// validation key an authored entry on those fields alone.
+	fields []string
+	parts  func(Capability) ([]string, error)
+}
+
+// keyOn keys an entry on fields, decoding its config strictly as T first.
+func keyOn[T any](fields []string, key func(T) ([]string, error)) keyDefinition {
+	return keyDefinition{fields: fields, parts: func(c Capability) ([]string, error) {
 		var config T
 		if err := DecodeCapabilityConfig(c, &config); err != nil {
 			return nil, err
@@ -171,7 +183,55 @@ func keyOn[T any](key func(T) ([]string, error)) func(Capability) ([]string, err
 			return nil, fmt.Errorf("capability %s: %w", c.Type, err)
 		}
 		return parts, nil
+	}}
+}
+
+// literalInstanceKeys returns the keys an authored entry's literal fields
+// already settle, so validation can hold a declaration block to one entry
+// per key before expansion or a merge separates or folds the entries. It
+// reads only the fields its type's key reads, so another field that is
+// invalid or still holds a reference cannot hide a repeated key. A key
+// field that is missing, null, or still holding a reference gives no key,
+// even one the type defaults, as does one the key cannot read, such as an
+// undecodable value or an empty phase. An entry naming several phases
+// gives one key per literal phase, as composition splits it.
+func literalInstanceKeys(n Capability) []InstanceKey {
+	definition, keyed := instanceKeys[n.Type]
+	if !keyed || n.Group != nil {
+		return nil
 	}
+	fields := make(map[string]any, len(definition.fields))
+	for _, field := range definition.fields {
+		if n.Config[field] == nil {
+			return nil
+		}
+		fields[field] = n.Config[field]
+	}
+	configs := []map[string]any{fields}
+	if _, phased := fields["phase"]; phased {
+		phases, err := phasesOf(n)
+		if err != nil {
+			return nil
+		}
+		configs = configs[:0]
+		for _, phase := range phases {
+			one := maps.Clone(fields)
+			one["phase"] = phase
+			configs = append(configs, one)
+		}
+	}
+	var keys []InstanceKey
+	for _, config := range configs {
+		if key, _, err := InstanceKeyOf(Capability{Type: n.Type, Config: config}); err == nil {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// identity is the key as one string, for keying a map.
+func (k InstanceKey) identity() string {
+	return k.Space + "\x00" + strings.Join(k.Parts, "\x00")
 }
 
 // contextProfile keys an agent-context entry on its explicit profile. An

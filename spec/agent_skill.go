@@ -51,22 +51,22 @@ func validateParameterizedSkillSource(field string, n Capability) error {
 	return nil
 }
 
-func validateBundledSkill(field string, n Capability) (string, error) {
+func validateBundledSkill(field string, n Capability) error {
 	var s AgentSkill
 	if err := DecodeCapabilityConfig(n, &s); err != nil {
-		return "", fieldErrorf(field+".config", "%v", err)
+		return fieldErrorf(field+".config", "%v", err)
 	}
-	source, key := s.Path, AgentSkillName(s)
+	source, name := s.Path, AgentSkillName(s)
 	if _, present := n.Config["name"]; present && s.Name == "" {
-		return "", fieldErrorf(field+".config.name", "omit name to use the source basename; an explicit name must not be empty or null")
+		return fieldErrorf(field+".config.name", "omit name to use the source basename; an explicit name must not be empty or null")
 	}
-	if !agentSkillName.MatchString(key) || len(key) > 255 {
-		return "", fieldErrorf(field+".config.name", "effective skill name %q must match %s and be at most 255 bytes", key, agentSkillName)
+	if !agentSkillName.MatchString(name) || len(name) > 255 {
+		return fieldErrorf(field+".config.name", "effective skill name %q must match %s and be at most 255 bytes", name, agentSkillName)
 	}
 	if source == "/" || !canonicalAbsPath(source) {
-		return "", fieldErrorf(field+".config.path", "skill path %q must be absolute and canonical, not the root", source)
+		return fieldErrorf(field+".config.path", "skill path %q must be absolute and canonical, not the root", source)
 	}
-	return key, nil
+	return nil
 }
 
 // AgentSkillRequestsOf reads selected, flat declarations in contribution order.

@@ -396,9 +396,9 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 // including the null and empty spellings the decoded map loses.
 func (c Capability) ConfigStated() bool { return c.configSet || c.Config != nil }
 
-// Well-known capability types. Policy-shaped types appear at most once
-// per descriptor; instance-shaped types (credential, volume, host-mount, port,
-// usb-device, agent-skills) appear once per thing requested.
+// Well-known capability types. ArityOf says how §7.1 identifies each
+// one's entries: a singleton appears at most once per descriptor, and an
+// instance-shaped type once per thing requested.
 const (
 	// CapabilityNetworkPolicy is the phase-scoped egress policy; config
 	// decodes to PhasedNetwork.
