@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"os"
 	"path"
 	"strings"
 
@@ -270,6 +271,12 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 		}
 		if err != nil {
 			return nil, err
+		}
+		if plan == nil {
+			b.ref, err = removeInheritedDescriptors(ctx, c, b.ref, plat)
+			if err != nil {
+				return nil, err
+			}
 		}
 		for _, body := range guidance {
 			b.ref, err = stageGuidance(ctx, c, b.ref, plat, body.Target, []byte(body.Content))
@@ -845,6 +852,47 @@ func scratchResult(ctx context.Context, c gwclient.Client, plat *ocispecs.Platfo
 		return nil, nil, err
 	}
 	return ref, imageConfigJSON, nil
+}
+
+// A recipe inherits content, not its base's kit declarations. Leaving the
+// base's descriptors beside the one staged below makes the published kit
+// ambiguous to a set builder. Remove only descriptors: inherited guidance,
+// recipes, and payloads may still be referenced by the new kit. Set builds
+// skip this step because they must retain their listed kits' sources.
+func removeInheritedDescriptors(ctx context.Context, c gwclient.Client, ref gwclient.Reference, plat *ocispecs.Platform) (gwclient.Reference, error) {
+	if ref == nil {
+		return nil, nil
+	}
+	entries, err := ref.ReadDir(ctx, gwclient.ReadDirRequest{Path: stagedKitRoot})
+	if err != nil {
+		if isNotExist(err) {
+			return ref, nil
+		}
+		return nil, fmt.Errorf("read inherited kit sources: %w", err)
+	}
+	var action *llb.FileAction
+	for _, entry := range entries {
+		if os.FileMode(entry.Mode).IsDir() {
+			action = action.Rm(path.Join(stagedKitRoot, path.Base(entry.Path), stagedDescriptorName), llb.WithAllowNotFound(true))
+		}
+	}
+	if action == nil {
+		return ref, nil
+	}
+	st, constraints, err := stateToStageOn(ref, plat)
+	if err != nil {
+		return nil, err
+	}
+	st = st.File(action, llb.WithCustomName("[kit] remove inherited descriptors"))
+	def, err := st.Marshal(ctx, constraints...)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.Solve(ctx, gwclient.SolveRequest{Definition: def.ToPB()})
+	if err != nil {
+		return nil, fmt.Errorf("remove inherited kit descriptors: %w", err)
+	}
+	return res.SingleRef()
 }
 
 // stageKitSources writes the kit's own sources into its filesystem under

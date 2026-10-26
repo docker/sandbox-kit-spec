@@ -410,20 +410,12 @@ written in. See [§3.4](docs/spec/SPEC-v3.md#34-kit-set) for the
 grammar and [§9.5](docs/spec/SPEC-v3.md#95-merging-a-set) for what the
 merge does with each declaration.
 
-A listed image can carry several staged descriptors: a workload may
-inherit sources through `FROM`, and a merged set carries its members'
-sources. The frontend selects the descriptor matching the published
-annotation, read at the same digest and platform as the image being
-composed. It keeps the inherited sources in the result.
-
-Manifest reads use BuildKit's registry resolver, including the build
-session's credentials and the builder's mirrors and certificate settings.
-Images with one staged descriptor use their staged copy without an extra
-manifest request.
-
-Multi-descriptor composition needs BuildKit's image-blob source to
-negotiate OCI manifest types. The negotiation fix is tracked in
-[moby/buildkit#7324](https://github.com/moby/buildkit/pull/7324).
+When a recipe builds `FROM` another Kit, publication removes inherited
+`/usr/share/sandbox/kit/*/kit.yaml` files before staging the new Kit's own
+descriptor. Inherited guidance, recipes, and payload files remain. A set
+build preserves all of its listed Kits' staged sources. Previously
+published images with inherited descriptors need rebuilding with the
+updated frontend before they can be listed in a set.
 
 Multi-platform builds produce an image index with the descriptor annotation
 on every platform manifest:

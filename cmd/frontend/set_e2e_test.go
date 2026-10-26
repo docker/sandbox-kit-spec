@@ -50,23 +50,6 @@ func TestSetBuildsEndToEnd(t *testing.T) {
 	e := &e2e{t: t, builder: dockerDriverBuilder(t)}
 	frontend := e.buildFrontend()
 	registry := e.startRegistry()
-	if image := os.Getenv("KIT_E2E_BUILDKIT_IMAGE"); image != "" {
-		// An explicit daemon image lets this suite exercise BuildKit
-		// integration changes without replacing Docker's own builder.
-		published := registry + "/set-frontend:latest"
-		e.run("docker", "tag", frontend, published)
-		t.Cleanup(func() { _ = exec.Command("docker", "rmi", published).Run() })
-		e.run("docker", "push", published)
-		frontend = published
-		config := filepath.Join(t.TempDir(), "buildkitd.toml")
-		require.NoError(t, os.WriteFile(config, fmt.Appendf(nil, "[registry.%q]\n  http = true\n", registry), 0o644))
-		builder := fmt.Sprintf("kit-set-e2e-%d", time.Now().UnixNano())
-		e.run("docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
-			"--driver-opt", "network=host", "--driver-opt", "image="+image, "--buildkitd-config", config)
-		t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", "--force", builder).Run() })
-		e.run("docker", "buildx", "inspect", "--bootstrap", builder)
-		e.builder = builder
-	}
 
 	dir := t.TempDir()
 	// A workload with a policy, a profile, and a license of its own.
@@ -260,10 +243,9 @@ kits:
 	})
 }
 
-// A FROM-derived workload and a merged set both carry several staged
-// descriptors. Only the annotation identifies which declarations the
-// reference contributes; choosing the root with kits: would select the
-// derived workload's base instead of the workload itself.
+// A recipe can inherit a merged set's filesystem without contributing its
+// declarations. Publication must leave one descriptor for the new kit,
+// while retaining guidance and payloads from every inherited staged root.
 func (e *e2e) inheritedSourcesSet(frontend, registry string) {
 	t := e.t
 	dir := t.TempDir()
@@ -321,25 +303,24 @@ kits:
 		require.Len(t, lifecycle.Files, 1)
 		require.Equal(t, "flavor=selected", lifecycle.Files[0].Content)
 		out := e.run("docker", "run", "--rm", "--pull=always", set, "-c",
-			"cat /usr/share/sandbox/kit/"+name+"/guidance.md && cat /usr/share/sandbox/kit/base/kit.yaml && cat /usr/share/sandbox/kit/team/kit.yaml && cat /opt/extra")
+			"cat /usr/share/sandbox/kit/"+name+"/guidance.md && cat /usr/share/sandbox/kit/base/kit.dockerfile && cat /usr/share/sandbox/kit/team/context.md && cat /opt/extra")
 		require.Contains(t, out, "Derived guidance.")
-		require.Contains(t, out, "E2E Base")
-		require.Contains(t, out, "E2E Team")
-	}
+		require.Contains(t, out, "FROM busybox:1.37")
+		require.Contains(t, out, "Team guidance.")
+		require.Contains(t, out, "extra")
 
-	// Consuming an actual merged set selects its merged declarations,
-	// rather than any one of the member descriptors beside it.
-	e.publish(dir, "nested", registry+"/sbx-kit-nested:1.0.0", `# syntax=`+frontend+`
-schemaVersion: "3"
-kind: set
-kits:
-  - ref: `+registry+`/sbx-kit-team:3.0.0
-`, nil)
-	manifest := e.manifest(registry, "sbx-kit-nested", "1.0.0")
-	d, err := spec.Decode([]byte(manifest.Annotations[spec.AnnotationDescriptor]))
-	require.NoError(t, err)
-	require.Contains(t, d.Provides, "e2e-team@3.0.0")
-	require.Contains(t, d.Provides, "e2e-extra@2.0.0")
+		artifact, err := tckkit.FromRegistry(t.Context(), derived)
+		require.NoError(t, err)
+		stems, err := artifact.StagedStems(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, []string{name}, stems, "publication removes every inherited descriptor")
+		merged, err := tckkit.FromRegistry(t.Context(), set)
+		require.NoError(t, err)
+		stems, err = merged.StagedStems(t.Context())
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{name, name + "-set"}, stems,
+			"set publication preserves the listed kit's descriptor beside its own")
+	}
 }
 
 // Both Kits re-export their own size input to the same set-scoped input.

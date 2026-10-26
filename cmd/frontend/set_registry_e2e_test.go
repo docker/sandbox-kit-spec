@@ -83,9 +83,6 @@ func (e *e2e) privateRegistrySet(localFrontend, registry string) {
 	private := &e2e{t: t, builder: builder, dockerConfig: clientConfig}
 	args := []string{"buildx", "create", "--name", builder, "--driver", "docker-container",
 		"--driver-opt", "network=host", "--buildkitd-config", config}
-	if image := os.Getenv("KIT_E2E_BUILDKIT_IMAGE"); image != "" {
-		args = append(args, "--driver-opt", "image="+image)
-	}
 	private.run("docker", args...)
 	t.Cleanup(func() {
 		_ = exec.Command("docker", "--config", clientConfig, "buildx", "rm", "--force", builder).Run()
@@ -109,7 +106,7 @@ build: |
 			name = "private-index"
 			flags = []string{"--provenance=true"}
 		}
-		e.publish(dir, name, registry+"/sbx-kit-"+name+":1.0.0", `# syntax=`+localFrontend+`
+		private.publish(dir, name, registry+"/sbx-kit-"+name+":1.0.0", `# syntax=`+frontend+`
 schemaVersion: "3"
 kind: workload
 provides: [private-derived@1.0.0]
@@ -119,7 +116,7 @@ capabilities:
       runtime:
         allow: [private.example.com]
 build: |
-  FROM `+registry+`/sbx-kit-private-base:1.0.0
+  FROM `+privateRegistry+`/sbx-kit-private-base:1.0.0
 `, nil, flags...)
 		result := registry + "/sbx-kit-" + name + "-set:1.0.0"
 		private.publish(dir, name+"-set", result, `# syntax=`+frontend+`
@@ -134,17 +131,16 @@ kits:
 		require.Contains(t, d.Provides, "private-derived@1.0.0")
 		require.NotContains(t, d.Provides, "private-base@1.0.0")
 		require.Len(t, d.Kits, 1)
-		_, ok := authenticated.Load("HEAD /v2/sbx-kit-" + name + "/blobs/" + d.Kits[0].Digest)
-		if !ok {
-			authenticated.Range(func(key, _ any) bool { t.Logf("authenticated request: %s", key); return true })
-		}
-		require.True(t, ok, "the builder's manifest blob lookup authenticated through its TLS mirror (pin %s)", d.Kits[0].Digest)
+		_, ok := authenticated.Load("HEAD /v2/sbx-kit-" + name + "/manifests/1.0.0")
+		require.True(t, ok, "the builder resolved the private kit through its authenticated TLS mirror")
 
 		artifact, err := tckkit.FromRegistry(t.Context(), result)
 		require.NoError(t, err)
+		_, exists, err := artifact.ReadFile(t.Context(), "/usr/share/sandbox/kit/private-base/kit.yaml")
+		require.NoError(t, err)
+		require.False(t, exists, "private publication removes the inherited descriptor")
 		for _, file := range []string{
 			"/inherited.txt",
-			"/usr/share/sandbox/kit/private-base/kit.yaml",
 			"/usr/share/sandbox/kit/" + name + "/kit.yaml",
 		} {
 			_, exists, err := artifact.ReadFile(t.Context(), file)
