@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,7 +64,14 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 				for _, version := range []string{CapabilityAgentContext, CapabilityAgentContextV2} {
 					selected := selectExampleContext(t, d, version)
 					require.True(t, HasCapability(selected.Capabilities, version))
+					rawSelected, err := json.Marshal(selected)
+					require.NoError(t, err)
+					_, err = ValidateEffective(rawSelected, selected)
+					require.NoError(t, err, "selected %s must satisfy cross-entry rules", version)
 				}
+			} else {
+				_, err = ValidateRaw(raw, d)
+				require.NoError(t, err)
 			}
 		})
 	}

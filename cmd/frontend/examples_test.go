@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,6 +48,10 @@ func TestExampleCommentDescriptorsValidate(t *testing.T) {
 			for _, version := range []string{spec.CapabilityAgentContext, spec.CapabilityAgentContextV2} {
 				selected := selectExampleContext(t, d, version)
 				require.True(t, spec.HasCapability(selected.Capabilities, version))
+				rawSelected, err := json.Marshal(selected)
+				require.NoError(t, err)
+				_, err = spec.ValidateEffective(rawSelected, selected)
+				require.NoError(t, err)
 			}
 		})
 	}
