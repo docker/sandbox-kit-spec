@@ -410,6 +410,13 @@ written in. See [§3.4](docs/spec/SPEC-v3.md#34-kit-set) for the
 grammar and [§9.5](docs/spec/SPEC-v3.md#95-merging-a-set) for what the
 merge does with each declaration.
 
+When a recipe builds `FROM` another Kit, publication removes inherited
+`/usr/share/sandbox/kit/*/kit.yaml` files before staging the new Kit's own
+descriptor. Inherited guidance, recipes, and payload files remain. A set
+build preserves all of its listed Kits' staged sources. Previously
+published images with inherited descriptors need rebuilding with the
+updated frontend before they can be listed in a set.
+
 Multi-platform builds produce an image index with the descriptor annotation
 on every platform manifest:
 

@@ -232,6 +232,95 @@ kits:
 		child := &e2e{t: t, builder: e.builder}
 		child.volumeSet(frontend, registry)
 	})
+
+	t.Run("inherited kit sources", func(t *testing.T) {
+		child := &e2e{t: t, builder: e.builder}
+		child.inheritedSourcesSet(frontend, registry)
+	})
+	t.Run("private registry", func(t *testing.T) {
+		child := &e2e{t: t, builder: e.builder}
+		child.privateRegistrySet(frontend, registry)
+	})
+}
+
+// A recipe can inherit a merged set's filesystem without contributing its
+// declarations. Publication must leave one descriptor for the new kit,
+// while retaining guidance and payloads from every inherited staged root.
+func (e *e2e) inheritedSourcesSet(frontend, registry string) {
+	t := e.t
+	dir := t.TempDir()
+	for _, indexed := range []bool{false, true} {
+		name := "derived-manifest"
+		var flags []string
+		if indexed {
+			name = "derived-index"
+			flags = []string{"--provenance=true"}
+		}
+		derived := registry + "/sbx-kit-" + name + ":1.0.0"
+		e.publish(dir, name, derived, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+provides: [e2e-derived@1.0.0]
+args:
+  flavor: {required: true}
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow: [derived.example.com]
+  - type: com.docker.sandbox/agent-context@1
+    config: {filename: AGENTS.md, contentFile: ./guidance.md}
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - {path: /etc/derived.conf, content: "flavor=${{ kit.args.flavor }}"}
+build: |
+  FROM `+registry+`/sbx-kit-team:3.0.0
+`, map[string]string{"guidance.md": "Derived guidance."}, flags...)
+
+		set := registry + "/sbx-kit-" + name + "-set:1.0.0"
+		e.publish(dir, name+"-set", set, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: set
+kits:
+  - ref: `+derived+`
+    args: {flavor: selected}
+`, nil)
+		manifest := e.manifest(registry, "sbx-kit-"+name+"-set", "1.0.0")
+		d, err := spec.Decode([]byte(manifest.Annotations[spec.AnnotationDescriptor]))
+		require.NoError(t, err)
+		policy, err := spec.NetworkPolicyOf(d.Capabilities)
+		require.NoError(t, err)
+		require.Equal(t, []string{"derived.example.com"}, policy.Runtime.Allow,
+			"FROM inherits content, not the base kit's declarations")
+		require.Empty(t, policy.Runtime.Deny)
+		require.Contains(t, d.Provides, "e2e-derived@1.0.0")
+		require.NotContains(t, d.Provides, "e2e-base@1.0.0")
+		require.NotContains(t, d.Provides, "e2e-team@3.0.0")
+		lifecycle, err := spec.LifecycleOf(d.Capabilities)
+		require.NoError(t, err)
+		require.Len(t, lifecycle.Files, 1)
+		require.Equal(t, "flavor=selected", lifecycle.Files[0].Content)
+		out := e.run("docker", "run", "--rm", "--pull=always", set, "-c",
+			"cat /usr/share/sandbox/kit/"+name+"/guidance.md && cat /usr/share/sandbox/kit/base/kit.dockerfile && cat /usr/share/sandbox/kit/team/context.md && cat /opt/extra")
+		require.Contains(t, out, "Derived guidance.")
+		require.Contains(t, out, "FROM busybox:1.37")
+		require.Contains(t, out, "Team guidance.")
+		require.Contains(t, out, "extra")
+
+		artifact, err := tckkit.FromRegistry(t.Context(), derived)
+		require.NoError(t, err)
+		stems, err := artifact.StagedStems(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, []string{name}, stems, "publication removes every inherited descriptor")
+		merged, err := tckkit.FromRegistry(t.Context(), set)
+		require.NoError(t, err)
+		stems, err = merged.StagedStems(t.Context())
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{name, name + "-set"}, stems,
+			"set publication preserves the listed kit's descriptor beside its own")
+	}
 }
 
 // Both Kits re-export their own size input to the same set-scoped input.
@@ -311,8 +400,9 @@ kits:
 // e2e runs the docker commands the test needs, failing the test on the
 // first one that does not succeed.
 type e2e struct {
-	t       *testing.T
-	builder string
+	t            *testing.T
+	builder      string
+	dockerConfig string
 }
 
 // dockerDriverBuilder names the builder to build through: the one
@@ -338,6 +428,9 @@ func dockerDriverBuilder(t *testing.T) string {
 
 func (e *e2e) run(name string, args ...string) string {
 	e.t.Helper()
+	if name == "docker" && e.dockerConfig != "" {
+		args = append([]string{"--config", e.dockerConfig}, args...)
+	}
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(e.t, err, "%s %s\n%s", name, strings.Join(args, " "), out)
@@ -391,7 +484,7 @@ func (e *e2e) startRegistry() string {
 // one that can see the locally built frontend image and reach a
 // registry published on the host, and the current builder may be
 // neither.
-func (e *e2e) publish(root, stem, ref, descriptor string, extra map[string]string) string {
+func (e *e2e) publish(root, stem, ref, descriptor string, extra map[string]string, flags ...string) string {
 	e.t.Helper()
 	dir := filepath.Join(root, stem)
 	require.NoError(e.t, os.MkdirAll(dir, 0o755))
@@ -400,9 +493,10 @@ func (e *e2e) publish(root, stem, ref, descriptor string, extra map[string]strin
 		require.NoError(e.t, os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755))
 		require.NoError(e.t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644))
 	}
-	return e.run("docker", "buildx", "--builder", e.builder, "build", dir,
+	args := []string{"buildx", "--builder", e.builder, "build", dir,
 		"-f", filepath.Join(dir, stem+".yaml"),
-		"--push", "-t", ref, "--provenance=false")
+		"--push", "-t", ref, "--provenance=false"}
+	return e.run("docker", append(args, flags...)...)
 }
 
 // publishedManifest is the part of a pushed manifest this test reads.
