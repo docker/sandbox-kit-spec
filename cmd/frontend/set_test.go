@@ -184,6 +184,35 @@ func TestSetDerivedIntersectionUsesEveryPlatformAndEachKit(t *testing.T) {
 	}
 }
 
+func TestSetDerivedIntersectionNormalizesWhitespace(t *testing.T) {
+	for _, whitespace := range []string{"leading", "trailing", "both"} {
+		t.Run(whitespace, func(t *testing.T) {
+			decorate := func(entry string) string {
+				switch whitespace {
+				case "leading":
+					return " \t" + entry
+				case "trailing":
+					return entry + " \t"
+				default:
+					return " \t" + entry + " \t"
+				}
+			}
+			a := &spec.Descriptor{Kind: spec.KindWorkload, Provides: []string{"claude@1.0", "deb/common@1.0", "apk/common@2.0"}}
+			b := &spec.Descriptor{Kind: spec.KindWorkload, Provides: []string{"claude@1.0", decorate("deb/common@1.0"), decorate("apk/common@2.0"), decorate("deb/only-here@1.0")}}
+			kits := [][]resolvedKit{{{reference: "claude", descriptor: a}}, {{reference: "claude", descriptor: b}}}
+			intersectDerivedProvides(kits)
+			for _, platform := range kits {
+				require.Equal(t, []string{"claude@1.0", "apk/common@2.0", "deb/common@1.0"}, platform[0].descriptor.Provides)
+				consumer := resolved("consumer", spec.KindMixin, ocispecs.ImageConfig{})
+				consumer.descriptor.Requires = []string{"deb/common >= 1.0", "apk/common >= 2.0"}
+				_, err := orderKits(append(platform, consumer), &spec.Descriptor{})
+				require.NoError(t, err, "whitespace-equivalent packages satisfy dependencies on every platform")
+			}
+			require.NoError(t, sameDeclarations(kits[0][0].descriptor, kits[1][0].descriptor))
+		})
+	}
+}
+
 func TestSetDerivedIntersectionPreservesOtherDifferences(t *testing.T) {
 	a := &spec.Descriptor{Provides: []string{"claude@1.0", "deb/bash@5.2"}, Licenses: []string{"MIT"}}
 	b := &spec.Descriptor{Provides: []string{"claude@2.0"}, Licenses: []string{"Apache-2.0"}}

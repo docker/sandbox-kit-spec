@@ -156,8 +156,14 @@ func intersectDerivedProvides(kitsByPlatform [][]resolvedKit) {
 		for _, kits := range kitsByPlatform {
 			seen := map[string]bool{}
 			for _, entry := range kits[i].descriptor.Provides {
-				name, _, _ := strings.Cut(entry, "@")
-				if spec.IsDerivedProvide(name) && !seen[entry] {
+				p, err := spec.ParseProvide(entry)
+				if err != nil || !spec.IsDerivedProvide(p.Name) {
+					continue
+				}
+				// Published entries may carry surrounding whitespace;
+				// the grammar treats those spellings as the same fact.
+				entry = strings.TrimSpace(entry)
+				if !seen[entry] {
 					counts[entry]++
 					seen[entry] = true
 				}
@@ -176,8 +182,8 @@ func intersectDerivedProvides(kitsByPlatform [][]resolvedKit) {
 			d := *kits[i].descriptor
 			d.Provides = nil
 			for _, entry := range kits[i].descriptor.Provides {
-				name, _, _ := strings.Cut(entry, "@")
-				if !spec.IsDerivedProvide(name) {
+				p, err := spec.ParseProvide(entry)
+				if err != nil || !spec.IsDerivedProvide(p.Name) {
 					d.Provides = append(d.Provides, entry)
 				}
 			}
