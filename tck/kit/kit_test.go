@@ -747,6 +747,27 @@ func TestMergedSetDeclarationsAllowDerivedIntersection(t *testing.T) {
 		"a retained package still satisfies internal relations, which must be dropped")
 }
 
+func TestMergedSetDeclarationsRejectUnsupportedDerivedProvides(t *testing.T) {
+	for _, namespace := range []string{"deb", "apk"} {
+		t.Run(namespace, func(t *testing.T) {
+			kits := []spec.Contribution{{Reference: "shell", Descriptor: &spec.Descriptor{
+				Provides: []string{"shell@1.0", " \t" + namespace + "/common@5.2.37 \t", namespace + "/omitted@1.0"},
+			}}}
+			for _, entry := range []string{namespace + "/common@5.2.37", " \t" + namespace + "/common@5.2.37 \t"} {
+				merged := &spec.Descriptor{Provides: []string{"shell@1.0", entry, "own@2.0"}}
+				require.Empty(t, judgeMergedDeclarations(merged, kits), "retained packages can use equivalent whitespace, omitted packages are allowed, and the set can add authored provides")
+			}
+			for _, entry := range []string{namespace + "/common@99.0", namespace + "/invented@1.0"} {
+				merged := &spec.Descriptor{Provides: []string{"shell@1.0", entry}}
+				got := judgeMergedDeclarations(merged, kits)
+				require.Len(t, got, 1, "a retained package name and version must come from a member")
+				require.Equal(t, report.Fail, got[0].Severity)
+				require.Contains(t, got[0].Detail, entry)
+			}
+		})
+	}
+}
+
 // A merged kit ships its kits' content, so it reports their terms.
 func TestAMergedSetCarriesItsKitsLicenses(t *testing.T) {
 	a := mergedSet(t, "shell")
