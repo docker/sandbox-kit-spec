@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1116,20 +1117,24 @@ func judgeStagedSources(ctx context.Context, a Artifact, kits []spec.Contributio
 // it was merged from.
 //
 // Three of §9.5's rules are visible from outside: a listed kit's
-// provides carry over, its licenses carry over, and a requirement the
+// authored provides carry over, its licenses carry over, and a requirement the
 // set answers internally is dropped while one nothing answers is kept.
 // The rest of the merge — how policies union, how hooks order — cannot
 // be recovered from the result, because the merged entry does not say
 // which contribution each part came from.
 //
-// Only the subset direction is judged. The merged descriptor also
-// carries the set's OWN declarations, which no consumer can tell apart
-// from its kits', so "nothing was lost" is checkable and "nothing was
-// invented" is not.
+// Only the subset direction is judged for authored declarations. The
+// merged descriptor also carries the set's OWN declarations, which no
+// consumer can tell apart from its kits', so "no authored entry was lost"
+// is checkable and "nothing was invented" is not. Derived entries may be
+// absent after a cross-platform intersection (§9.6), which one artifact
+// cannot reconstruct, but every retained package name and version comes
+// from a listed kit.
 func judgeMergedDeclarations(merged *spec.Descriptor, kits []spec.Contribution) []report.Finding {
 	var findings []report.Finding
 
 	carried := map[string]bool{}
+	var retainedDerived []string
 	for _, s := range merged.Provides {
 		p, err := spec.ParseProvide(s)
 		if err != nil {
@@ -1143,7 +1148,11 @@ func judgeMergedDeclarations(merged *spec.Descriptor, kits []spec.Contribution) 
 			p.Version = merged.Version
 		}
 		carried[p.Name+"@"+p.Version] = true
+		if spec.IsDerivedProvide(p.Name) {
+			retainedDerived = append(retainedDerived, p.Name+"@"+p.Version)
+		}
 	}
+	derivedInventory := map[string]bool{}
 	for _, c := range kits {
 		for _, s := range c.Descriptor.Provides {
 			p, err := spec.ParseProvide(s)
@@ -1153,11 +1162,24 @@ func judgeMergedDeclarations(merged *spec.Descriptor, kits []spec.Contribution) 
 			if p.Version == "" {
 				p.Version = resolve.EffectiveProvideVersion(c.Reference, c.Descriptor)
 			}
+			// A platform's inventory may contain entries the set's
+			// cross-platform intersection omitted (§9.6). This artifact
+			// cannot show what the other target platforms recorded.
+			if spec.IsDerivedProvide(p.Name) {
+				derivedInventory[p.Name+"@"+p.Version] = true
+				continue
+			}
 			if !carried[p.Name+"@"+p.Version] {
 				findings = append(findings, report.Failf(
 					"%s provides %s@%s, which the merged descriptor does not; a merged kit offers what its kits offered",
 					c.Reference, spec.DisplayCapabilityName(p.Name), p.Version))
 			}
+		}
+	}
+	for _, entry := range retainedDerived {
+		if !derivedInventory[entry] {
+			findings = append(findings, report.Failf(
+				"the merged descriptor provides %s, which no listed kit provides; retained derived packages must come from its kits' inventories", entry))
 		}
 	}
 
@@ -1183,6 +1205,16 @@ func judgeMergedDeclarations(merged *spec.Descriptor, kits []spec.Contribution) 
 	// descriptor that dropped one on that basis is wrong however it
 	// reads in isolation.
 	owned := spec.OwnedProvides(kits)
+	for name, providers := range owned {
+		if spec.IsDerivedProvide(name) {
+			// Only retained inventory participated in resolution. A
+			// dropped package cannot make a retained requirement an
+			// internally satisfied one on this platform alone.
+			owned[name] = slices.DeleteFunc(providers, func(p spec.OwnedProvide) bool {
+				return !carried[p.Name+"@"+p.Version]
+			})
+		}
+	}
 	for _, relation := range []struct {
 		name         string
 		mergedStates []string

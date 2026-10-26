@@ -104,10 +104,20 @@ type setPlan struct {
 // accurate on the builder's architecture and a guess on the others.
 func planSet(ctx context.Context, c gwclient.Client, d *spec.Descriptor, platformList []*ocispecs.Platform, stem string) (*setPlan, error) {
 	plan := &setPlan{builds: map[string]*setBuild{}}
+	kitsByPlatform := make([][]resolvedKit, 0, len(platformList))
+	for _, plat := range platformList {
+		kits, err := resolveKits(ctx, c, d, plat)
+		if err != nil {
+			return nil, err
+		}
+		kitsByPlatform = append(kitsByPlatform, kits)
+	}
+	intersectDerivedProvides(kitsByPlatform)
+
 	var first *setBuild
 	var firstID string
-	for _, plat := range platformList {
-		build, err := buildSet(ctx, c, d, plat, stem)
+	for i, plat := range platformList {
+		build, err := buildSet(ctx, c, d, plat, stem, kitsByPlatform[i])
 		if err != nil {
 			return nil, err
 		}
@@ -128,6 +138,59 @@ func planSet(ctx context.Context, c gwclient.Client, d *spec.Descriptor, platfor
 	}
 	plan.published = published
 	return plan, nil
+}
+
+// intersectDerivedProvides applies §9.6 to kits whose platform manifests
+// were published separately. Each platform was allowed to derive its own
+// inventory, but the set can carry only entries all its target platforms
+// agree on. Do this per listed kit and before resolution: otherwise an
+// architecture-only package could satisfy a requirement that the merged
+// descriptor cannot promise. Authored declarations still have to agree.
+func intersectDerivedProvides(kitsByPlatform [][]resolvedKit) {
+	if len(kitsByPlatform) < 2 {
+		return
+	}
+	// resolveKits preserves the authored kits list on every platform.
+	for i := range kitsByPlatform[0] {
+		counts := map[string]int{}
+		for _, kits := range kitsByPlatform {
+			seen := map[string]bool{}
+			for _, entry := range kits[i].descriptor.Provides {
+				p, err := spec.ParseProvide(entry)
+				if err != nil || !spec.IsDerivedProvide(p.Name) {
+					continue
+				}
+				// Published entries may carry surrounding whitespace;
+				// the grammar treats those spellings as the same fact.
+				entry = strings.TrimSpace(entry)
+				if !seen[entry] {
+					counts[entry]++
+					seen[entry] = true
+				}
+			}
+		}
+		var agreed []string
+		for entry, count := range counts {
+			if count == len(kitsByPlatform) {
+				agreed = append(agreed, entry)
+			}
+		}
+		sort.Strings(agreed)
+		for _, kits := range kitsByPlatform {
+			// Keep the original published descriptor intact; only this
+			// set's contribution uses the intersection.
+			d := *kits[i].descriptor
+			d.Provides = nil
+			for _, entry := range kits[i].descriptor.Provides {
+				p, err := spec.ParseProvide(entry)
+				if err != nil || !spec.IsDerivedProvide(p.Name) {
+					d.Provides = append(d.Provides, entry)
+				}
+			}
+			d.Provides = append(d.Provides, agreed...)
+			kits[i].descriptor = &d
+		}
+	}
 }
 
 // sameDeclarations reports whether two merges produced one descriptor.
@@ -189,12 +252,7 @@ func marshalDescriptorYAML(d *spec.Descriptor) ([]byte, error) {
 // What comes out is an ordinary kit — their roles, and the fact that
 // there were several of them at all, survive only as the record in
 // kits:.
-func buildSet(ctx context.Context, c gwclient.Client, d *spec.Descriptor, plat *ocispecs.Platform, stem string) (*setBuild, error) {
-	kits, err := resolveKits(ctx, c, d, plat)
-	if err != nil {
-		return nil, err
-	}
-
+func buildSet(ctx context.Context, c gwclient.Client, d *spec.Descriptor, plat *ocispecs.Platform, stem string, kits []resolvedKit) (*setBuild, error) {
 	// The set's own declarations are read first: they take part in the
 	// resolution, since what a set provides is provided to its kits as
 	// much as to whatever composes the result.

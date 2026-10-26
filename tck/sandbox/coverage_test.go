@@ -230,7 +230,7 @@ var waived = map[string]string{
 	// that ship beside them, but agreement BETWEEN platforms is not — the
 	// kit suite judges one platform manifest at a time, and the reconciled
 	// entry is the only trace the comparison leaves.
-	"SPEC-v3 §9.6/agreed-across-platforms":     "the frontend reconciles every platform's databases at build; one published manifest cannot show what another platform recorded",
+	"SPEC-v3 §9.6/agreed-across-platforms":     "the frontend intersects databases or listed kits' derived entries across target platforms; one published manifest cannot show what another platform recorded",
 	"SPEC-v3 §5.1/derived-namespaces-reserved": "grammar rule, judged by the spec package's validators; a published descriptor cannot distinguish an authored deb/ entry from a derived one, and derived-provides refuses either if the image disagrees",
 	"SPEC-v3 §5.1/namespace-reverse-dns":       "grammar rule, judged by the spec package's validators and schema tests",
 
