@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -516,7 +517,13 @@ func ValidateEffective(raw []byte, d *Descriptor) ([]string, error) {
 			}
 		}
 	}
-	if refs := ReferencedArgs(raw); len(refs) > 0 {
+	refs := ReferencedArgs(raw)
+	for _, name := range capabilityArgRefs(d.Capabilities) {
+		if !slices.Contains(refs, name) {
+			refs = append(refs, name)
+		}
+	}
+	if len(refs) > 0 {
 		errs.add(fieldErrorf("", "effective descriptor still references kit args %v; expansion did not run or a value did not resolve", refs))
 	}
 	if HasEnvReferences(d.Capabilities) {
