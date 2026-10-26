@@ -515,6 +515,14 @@ func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSou
 
 // decodeForMerge reads one entry's typed config, explaining the one
 // failure an author can act on.
+func decodeForMerge(reference string, n Capability, out any) error {
+	if err := DecodeCapabilityConfig(n, out); err != nil {
+		return explainMergeDecode(reference, n, err)
+	}
+	return nil
+}
+
+// explainMergeDecode attributes a config the merge could not read.
 //
 // A re-exported arg leaves a placeholder in the merged descriptor,
 // which is the point of re-exporting — but a placeholder is a string,
@@ -522,11 +530,7 @@ func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSou
 // it. Where the field is a string the value rides through; where it
 // is a number or a boolean the decode fails, and the raw error talks
 // about JSON types rather than about the arg the author re-exported.
-func decodeForMerge(reference string, n Capability, out any) error {
-	err := DecodeCapabilityConfig(n, out)
-	if err == nil {
-		return nil
-	}
+func explainMergeDecode(reference string, n Capability, err error) error {
 	if capabilityIsParameterized(n) {
 		return fmt.Errorf("merge: %s: %s is still parameterized where the merge has to read it, and only a field that holds text can carry a reference this far; pin the arg in kits[].args instead of re-exporting it: %w",
 			reference, n.Type, err)
@@ -760,78 +764,27 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		(*slot).reference, reference, label)
 }
 
-// instanceKey identifies requests to reconcile, per §7.1. The type's
-// composition contract decides whether matching keys merge or conflict.
+// instanceKey identifies requests to reconcile, per §7.1: the key
+// InstanceKeyOf gives the entry, so composition and an integration keying
+// the composed entries cannot disagree. The type's composition contract
+// decides whether matching keys merge or conflict.
 func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, error) {
-	switch n.Type {
-	case CapabilityACP:
-		var a ACP
-		if err := decodeForMerge(reference, n, &a); err != nil {
-			return "", err
-		}
-		return n.Type + "\x00" + NormalizeCapabilityName(a.Agent), nil
-	case CapabilityCredential:
-		var c Credential
-		if err := decodeForMerge(reference, n, &c); err != nil {
-			return "", err
-		}
-		if len(c.Phase) != 1 {
-			return "", fmt.Errorf("merge: %s: credential needs exactly one phase after expansion", reference)
-		}
-		return n.Type + "\x00" + c.Service + "\x00" + c.Phase[0], nil
-	case CapabilitySSHAgent:
-		// One socket per phase, whichever kits asked: two asks for the
-		// same phase are one ask, unlike a credential's single owner.
-		var a SSHAgent
-		if err := decodeForMerge(reference, n, &a); err != nil {
-			return "", err
-		}
-		if len(a.Phase) != 1 {
-			return "", fmt.Errorf("merge: %s: ssh-agent needs exactly one phase after expansion", reference)
-		}
-		return n.Type + "\x00" + a.Phase[0], nil
-	case CapabilityVolume:
-		var v Volume
-		if err := decodeForMerge(reference, n, &v); err != nil {
-			return "", err
-		}
-		// The destination, not the spelling: validation asks only
-		// that a volume path be absolute, so /data/cache and
-		// /data/./cache are one mount written two ways, and keying on
-		// the text would emit both and leave a runtime to reconcile
-		// sizes nobody agreed on.
-		return n.Type + "\x00" + path.Clean(v.Path), nil
-	case CapabilityHostMount:
-		var mount HostMount
-		if err := decodeForMerge(reference, n, &mount); err != nil {
-			return "", err
-		}
-		return CapabilityVolume + "\x00" + path.Clean(mount.Path), nil
-	case CapabilityAgentSkill:
-		var s AgentSkill
-		if err := decodeForMerge(reference, n, &s); err != nil {
-			return "", err
-		}
-		return n.Type + "\x00" + AgentSkillName(s), nil
-	case CapabilityAgentSkills:
-		var s AgentSkills
-		if err := decodeForMerge(reference, n, &s); err != nil {
-			return "", err
-		}
-		return n.Type + "\x00" + s.Path, nil
-	case CapabilityPort:
-		var p Port
-		if err := decodeForMerge(reference, n, &p); err != nil {
-			return "", err
-		}
-		return n.Type + "\x00" + PortKey(p), nil
+	key, arity, err := keyAsWritten(n)
+	if err != nil {
+		// Groups are refused and phases split before anything is keyed,
+		// so what fails here is a config the merge cannot read, or an
+		// empty phase that validation would have refused.
+		return "", explainMergeDecode(reference, n, err)
 	}
-	// Config-less singletons (privileged, kit-registry) key on the type
-	// alone, so presence is the union. Unknown and instance-shaped
-	// types with no key beyond the entry (usb-device) key on the whole
-	// request, which makes an exact duplicate collapse and anything
-	// else a distinct ask.
-	return capabilityIdentity(n), nil
+	if arity != ArityInstance {
+		// The singletons that reach here are config-less (privileged,
+		// kit-registry, sbx and the like) and key on the type alone, so
+		// presence is the union. Whole-entry and unknown types key on the
+		// whole request, which makes an exact duplicate collapse and
+		// anything else a distinct ask.
+		return capabilityIdentity(n), nil
+	}
+	return key.Space + "\x00" + strings.Join(key.Parts, "\x00"), nil
 }
 
 // capabilityIdentity is what makes two entries the same request for
@@ -1216,7 +1169,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 			return nil, nil, mixedContextVersions()
 		}
 	}
-	destination := func(a *AgentContext) string { return path.Join(a.Directory, a.Filename) }
+	destination := func(a *AgentContext) string { return contextDestination(a.Directory, a.Filename) }
 	var profiles []AgentContext
 	profileAt := map[string]int{}
 	// Select explicit destinations first so a shell's legacy profile
