@@ -335,6 +335,7 @@ var waived = map[string]string{
 	// change, not a suite change.
 	"port@1/published-when-granted":      "the adapter contract offers no host-side observation, so a published mapping cannot be seen",
 	"port@1/host-side-allocated-by-host": "the adapter contract offers no host-side observation, so a published mapping cannot be seen",
+	"port@1/family-honored":              "the adapter contract offers no host-side observation, so a connection through a published mapping cannot be made",
 	"port@1/name-surfaced":               "SHOULD; display surface, not sandbox behavior",
 
 	"privileged@1/explicit-consent": "SHOULD; consent flows are host UX the adapter hides",

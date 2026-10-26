@@ -55,9 +55,33 @@ func PortTransport(p Port) string {
 	return p.Transport
 }
 
-// PortKey identifies a port request for uniqueness.
+// PortKey identifies a port request for uniqueness. Family is not part
+// of it: it states which address family the service listens on, so two
+// requests for one port and transport are one publication whatever they
+// say about it, and composition reconciles the family instead.
 func PortKey(p Port) string {
 	return fmt.Sprintf("%d/%s", p.Container, PortTransport(p))
+}
+
+// Port address families. Dual says the service answers on both, so the
+// host may deliver over either.
+const (
+	PortFamilyIPv4 = "ipv4"
+	PortFamilyIPv6 = "ipv6"
+	PortFamilyDual = "dual"
+)
+
+// PortFamily reports the family a composed port request names, resolving
+// the default. It applies after composition, not during it: an omitted
+// family yields to another Kit's stated one for the same port, and only a
+// family still omitted once the set is merged is IPv4 — the family a
+// service bound to 0.0.0.0 answers on, and the one whose host binding
+// fails as a refusal a client can fall back from.
+func PortFamily(p Port) string {
+	if p.Family == "" {
+		return PortFamilyIPv4
+	}
+	return p.Family
 }
 
 // Kit kinds. A workload's layers are a root filesystem that may stand at the
@@ -863,10 +887,17 @@ type HostMount struct {
 }
 
 // Port is CapabilityPort's config: one in-container port to publish.
+//
+// Family describes the service, not the host binding: a service listening
+// on one address family cannot answer a connection forwarded over the
+// other, and a client that reaches a host binding with nothing behind it
+// sees an accepted connection reset rather than a refusal it can fall
+// back from.
 type Port struct {
 	Name      string `json:"name,omitempty" yaml:"name,omitempty"`
 	Container int    `json:"container" yaml:"container"`
 	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
+	Family    string `json:"family,omitempty" yaml:"family,omitempty"`
 }
 
 // USBDevice is CapabilityUSBDevice's config: one passthrough match by
