@@ -27,8 +27,10 @@ versions. Legacy-only Kits and required `@1` requests retain `@1`. Use
 `-supported-types=type1,type2` to supply a runtime's actual supported
 types. Add `-allow-volumes=false` to simulate a host rejecting persistent
 storage: an optional cache group then contributes neither its volume nor
-its lifecycle configuration file. A required rejected entry or group
-fails resolution. An explicit type list replaces the default policy;
+its lifecycle configuration file. If a modern context belongs to such a
+group, the preview retains an independent optional legacy fallback.
+A required rejected entry or group fails resolution.
+An explicit type list replaces the default policy;
 claim one context version to avoid selecting incompatible versions.
 These flags control the preview; it does not inspect the host or apply
 capabilities.

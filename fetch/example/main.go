@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,18 @@ func capabilitySelector(supportedTypes string, allowVolumes bool) spec.SelectCap
 			claimed[i] = strings.TrimSpace(claimed[i])
 		}
 		supported = spec.Supported(claimed...)
+	} else if !allowVolumes {
+		supported = func(ctx context.Context, target spec.SelectionTarget, kit spec.Descriptor, capability spec.Capability) spec.CapabilityDecision {
+			// Context preference must account for the host's group availability.
+			// Filter a copy for this decision; selection still evaluates every
+			// original declaration and records the rejected volume group.
+			kit.Capabilities = slices.DeleteFunc(slices.Clone(kit.Capabilities), func(item spec.Capability) bool {
+				return item.Group != nil && item.Group.Optional && slices.ContainsFunc(item.Group.Capabilities, func(member spec.Capability) bool {
+					return member.Type == spec.CapabilityVolume
+				})
+			})
+			return fetch.DefaultCapabilitySelector(ctx, target, kit, capability)
+		}
 	}
 	return func(ctx context.Context, target spec.SelectionTarget, kit spec.Descriptor, capability spec.Capability) spec.CapabilityDecision {
 		if decision := supported(ctx, target, kit, capability); !decision.Accepted {
