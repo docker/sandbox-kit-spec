@@ -87,11 +87,11 @@ esac
 				calls, err := os.ReadFile(callsPath)
 				require.NoError(t, err)
 				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
-				want := []string{`{"name":"sbx_desktop_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
+				want := []string{`{"name":"narwhal_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
 				if tc.withRollout {
 					title, err := json.Marshal(tc.title)
 					require.NoError(t, err)
-					want = append(want, `{"name":"sbx_desktop_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":`+string(title)+`,"model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
+					want = append(want, `{"name":"narwhal_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":`+string(title)+`,"model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
 				}
 				require.Len(t, lines, len(want))
 				for i, expected := range want {
@@ -184,7 +184,7 @@ esac
 					require.NoError(t, json.Unmarshal([]byte(lines[0]), &call))
 					title, err := json.Marshal(tc.title)
 					require.NoError(t, err)
-					require.JSONEq(t, `{"name":"sbx_desktop_session","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":`+string(title)+`}}`, string(call.Params))
+					require.JSONEq(t, `{"name":"narwhal_session","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":`+string(title)+`}}`, string(call.Params))
 				})
 			}
 		})
@@ -239,7 +239,7 @@ if [ -n "$headers" ]; then
   printf 'Mcp-Session-Id: test\r\n' > "$headers"
 fi
 case "$payload" in
-  *'"name":"sbx_desktop_session"'*)
+  *'"name":"narwhal_session"'*)
     printf '%s\n' "$payload" >> "$MOCK_DELIVERIES"
     if [ "$MOCK_DELIVERY_RESULT" = http ]; then
       "$fail_http" && exit 22
@@ -407,7 +407,7 @@ if [ -n "$headers" ]; then
   printf 'Mcp-Session-Id: test\r\n' > "$headers"
 fi
 case "$payload" in
-  *'"name":"sbx_desktop_session"'*)
+  *'"name":"narwhal_session"'*)
     if [ ! -f "$MOCK_ENTERED" ]; then
       touch "$MOCK_ENTERED"
       while [ ! -f "$MOCK_RELEASE" ]; do sleep 0.01; done

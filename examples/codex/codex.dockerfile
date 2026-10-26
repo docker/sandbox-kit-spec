@@ -51,7 +51,7 @@ RUN npm uninstall -g --no-fund --no-audit @openai/codex \
 USER root
 COPY --from=codex /out/ /
 # `notify` hook the config seed points Codex at: it reports a completed
-# turn to sbx Desktop through the MCP gateway and is a silent no-op when
+# turn to Narwhal through the MCP gateway and is a silent no-op when
 # no desktop server is loaded.
 COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-codex-hook
 RUN chmod 0755 /usr/local/bin/sbx-codex-hook \

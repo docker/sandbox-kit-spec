@@ -38,7 +38,7 @@ COPY scripts/interactive-sessions.mjs /opt/claude-sessions/interactive-sessions.
 RUN chmod 0755 /opt/claude-sessions/interactive-sessions.mjs
 
 # Lifecycle hook the settings seed registers for Stop/Notification: it
-# reports the event to sbx Desktop through the MCP gateway and is a
+# reports the event to Narwhal through the MCP gateway and is a
 # silent no-op when no desktop server is loaded. See the script header.
 COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-claude-hook
 RUN chmod 0755 /usr/local/bin/sbx-claude-hook

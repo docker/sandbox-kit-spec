@@ -111,7 +111,7 @@ capabilities:
             approval_policy = "never"
             sandbox_mode = "danger-full-access"
             mcp_oauth_credentials_store = "file"
-            # Turn-complete hook for sbx Desktop (see /usr/local/bin/sbx-codex-hook):
+            # Turn-complete hook for Narwhal (see /usr/local/bin/sbx-codex-hook):
             # raises the desktop notification and forwards the session's model,
             # effort, token usage and git state read from this thread's rollout
             # file. `notify` is top-level and needs no hook trust; Codex spawns

@@ -242,7 +242,7 @@ capabilities:
             "
                 ;;
             esac
-            # Lifecycle hooks for sbx Desktop (see /usr/local/bin/sbx-claude-hook):
+            # Lifecycle hooks for Narwhal (see /usr/local/bin/sbx-claude-hook):
             # Stop and StopFailure report a finished turn, Notification the
             # moments Claude waits on the user, UserPromptSubmit the prompt
             # that names the conversation (Claude Code lists sessions by id
@@ -259,7 +259,7 @@ capabilities:
             "
             # The statusLine command is the only place Claude Code exposes
             # the live session (model, context window, cost, lines changed);
-            # sbx-agent-hook forwards it to sbx Desktop's status bar and prints
+            # sbx-agent-hook forwards it to Narwhal's status bar and prints
             # nothing, so no status line is drawn in the terminal. A mixin that
             # sets its own statusLine (e.g. claude-sbx-statusline) replaces
             # this one and the app's session view goes quiet for that sandbox.

@@ -1,11 +1,11 @@
 #!/bin/sh
-# sbx-agent-hook — forwards agent lifecycle and session information to sbx Desktop.
+# sbx-agent-hook — forwards agent lifecycle and session information to Narwhal.
 #
 # The desktop app registers an MCP server per sandbox on the sandbox's MCP
 # gateway (the same gateway the agent already talks to). This script turns
 # harness payloads into `tools/call`s on that server so the app can raise a
-# macOS notification (`sbx_desktop_notify`) and render a status line for the
-# session (`sbx_desktop_session`: model, effort, context window, tokens,
+# macOS notification (`narwhal_notify`) and render a status line for the
+# session (`narwhal_session`: model, effort, context window, tokens,
 # cost, lines changed, git branch). When the app is not installed, not
 # running, or has not loaded its server into this sandbox, the gateway
 # answers with an error and nothing else happens.
@@ -228,7 +228,7 @@ send_session() { # args-json
   [ -r "$stamp" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$sum" ] && return 0
   mcp_open || return 0
   # Keep failed deliveries eligible for retry on the next identical update.
-  if mcp_call sbx_desktop_session "$1"; then
+  if mcp_call narwhal_session "$1"; then
     printf '%s' "$sum" > "$stamp" 2>/dev/null
   fi
   mcp_close
@@ -271,7 +271,7 @@ send_pending() { # session-key
           args=$(claude_prompt_args) || exit 0
           [ -n "$args" ] || exit 0
           mcp_open || exit 0
-          mcp_call sbx_desktop_session "$args"
+          mcp_call narwhal_session "$args"
           mcp_close
           exit 0
           ;;
@@ -281,7 +281,7 @@ send_pending() { # session-key
       # A Stop that a previous Stop hook already continued is the same turn.
       case "$args" in *'"stop_hook_active":true'*) exit 0 ;; esac
       mcp_open || exit 0
-      mcp_call sbx_desktop_notify "$args"
+      mcp_call narwhal_notify "$args"
       mcp_close
       ;;
     claude-status)
@@ -314,8 +314,8 @@ send_pending() { # session-key
         fi
       fi
       mcp_open || exit 0
-      mcp_call sbx_desktop_notify "$args"
-      [ -n "$session" ] && mcp_call sbx_desktop_session "$session"
+      mcp_call narwhal_notify "$args"
+      [ -n "$session" ] && mcp_call narwhal_session "$session"
       mcp_close
       ;;
   esac

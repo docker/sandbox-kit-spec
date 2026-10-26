@@ -38,7 +38,7 @@ RUN case "$TARGETARCH" in \
  && /out/opt/codex/bin/codex --version | grep -q "${CODEX_VERSION}"
 
 # `notify` hook the config seed points Codex at: it reports a completed
-# turn to sbx Desktop through the MCP gateway and is a silent no-op when
+# turn to Narwhal through the MCP gateway and is a silent no-op when
 # no desktop server is loaded. Rides the overlay like the binaries above.
 COPY scripts/sbx-agent-hook.sh /out/usr/local/bin/sbx-codex-hook
 RUN chmod 0755 /out/usr/local/bin/sbx-codex-hook && chown 0:0 /out/usr/local/bin/sbx-codex-hook
