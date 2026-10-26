@@ -1,5 +1,5 @@
 # syntax=docker/sandbox-kit:3
-# OpenCode as a MIXIN: node plus the npm package in an overlay, with the
+# OpenCode as a MIXIN: node plus the native CLI in an overlay, with the
 # same credentials, egress, and seeds as the opencode workload, minus what
 # only the environment-owning kit carries (the entrypoint — run `opencode`
 # in the base's shell — and the base's apt mirrors).
