@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -1344,17 +1343,17 @@ func validatePresenceRules(path string, i int, n Capability) error {
 }
 
 // capabilityIsParameterized reports whether the entry's config references
-// a Kit argument or environment value in its canonical JSON rendering.
+// a Kit argument, in a value or a mapping key, or an environment value.
+// Decoded strings are read rather than the JSON text: encoding escapes
+// the tabs and newlines an arg reference may hold inside its braces, so
+// a reference expansion would replace could otherwise pass as literal.
 func capabilityIsParameterized(n Capability) bool {
 	if len(n.Config) == 0 {
 		return false
 	}
-	data, err := json.Marshal(n.Config)
-	if err != nil {
-		return false
-	}
-	values, _ := environmentReferences(n.Config)
-	return ContainsArgRef(string(data)) || values
+	argValues, argKeys := configReferences(n.Config, ContainsArgRef)
+	envValues, _ := environmentReferences(n.Config)
+	return argValues || argKeys || envValues
 }
 
 // validateCredentialNeed decodes and checks one credential entry.

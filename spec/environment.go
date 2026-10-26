@@ -150,6 +150,12 @@ func HasEnvReferences(items []Capability) bool {
 // Normalize caller-created containers as well as decoded ones. Key references
 // are invalid at publication; only value references can defer typed validation.
 func environmentReferences(config map[string]any) (values, keys bool) {
+	return configReferences(config, ContainsEnvRef)
+}
+
+// configReferences reports whether any decoded string in config, among
+// the values and among the mapping keys, holds a reference contains finds.
+func configReferences(config map[string]any, contains func(string) bool) (values, keys bool) {
 	raw, err := json.Marshal(config)
 	if err != nil {
 		return false, false // Configuration validation owns unrepresentable values.
@@ -162,10 +168,10 @@ func environmentReferences(config map[string]any) (values, keys bool) {
 	walk = func(value any) {
 		switch v := value.(type) {
 		case string:
-			values = values || ContainsEnvRef(v)
+			values = values || contains(v)
 		case map[string]any:
 			for key, child := range v {
-				keys = keys || ContainsEnvRef(key)
+				keys = keys || contains(key)
 				walk(child)
 			}
 		case []any:
