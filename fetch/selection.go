@@ -21,6 +21,20 @@ func DefaultCapabilitySelector(ctx context.Context, target spec.SelectionTarget,
 		members, optional := []spec.Capability{item}, item.Optional
 		if item.Group != nil {
 			members, optional = item.Group.Capabilities, item.Group.Optional
+			// An unavailable optional group contributes no context. Do not let
+			// its unselectable @2 request suppress an independent @1 fallback.
+			if optional {
+				available := true
+				for _, member := range members {
+					if !knownCapabilities(ctx, target, kit, member).Accepted {
+						available = false
+						break
+					}
+				}
+				if !available {
+					continue
+				}
+			}
 		}
 		for _, member := range members {
 			modern = modern || member.Type == spec.CapabilityAgentContextV2

@@ -71,13 +71,14 @@ func TestDefaultContextSelectionThroughPublicAPIs(t *testing.T) {
 
 func TestDefaultContextSelectionCompatibility(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		legacy, modern bool
-		legacyRequired bool
-		grouped        bool
-		selector       spec.SelectCapability
-		want           string
-		message        string
+		name              string
+		legacy, modern    bool
+		legacyRequired    bool
+		grouped           bool
+		modernUnavailable bool
+		selector          spec.SelectCapability
+		want              string
+		message           string
 	}{
 		{name: "optional legacy only", legacy: true, want: spec.CapabilityAgentContext},
 		{name: "required legacy only", legacy: true, legacyRequired: true, want: spec.CapabilityAgentContext},
@@ -85,6 +86,7 @@ func TestDefaultContextSelectionCompatibility(t *testing.T) {
 		{name: "optional alternatives", legacy: true, modern: true, want: spec.CapabilityAgentContextV2},
 		{name: "required legacy takes precedence", legacy: true, modern: true, legacyRequired: true, want: spec.CapabilityAgentContext},
 		{name: "optional group alternatives", legacy: true, modern: true, grouped: true, want: spec.CapabilityAgentContextV2},
+		{name: "unavailable modern group keeps legacy fallback", legacy: true, modern: true, grouped: true, modernUnavailable: true, want: spec.CapabilityAgentContext},
 		{name: "required legacy group", legacy: true, modern: true, legacyRequired: true, grouped: true, want: spec.CapabilityAgentContext},
 		{name: "explicit legacy runtime", legacy: true, modern: true, selector: spec.Supported(spec.CapabilityAgentContext), want: spec.CapabilityAgentContext},
 		{name: "explicit both still conflicts", legacy: true, modern: true, selector: spec.Supported(spec.KnownCapabilities()...), message: "cannot compose"},
@@ -101,12 +103,33 @@ func TestDefaultContextSelectionCompatibility(t *testing.T) {
 				if tc.grouped {
 					optional := c.Optional
 					c.Optional = false
-					c = spec.Capability{Group: &spec.CapabilityGroup{Optional: optional, Capabilities: []spec.Capability{c}}}
+					members := []spec.Capability{c}
+					if tc.modernUnavailable && c.Type == spec.CapabilityAgentContextV2 {
+						members = append(members, spec.Capability{Type: "com.example/unavailable@1"})
+					}
+					c = spec.Capability{Group: &spec.CapabilityGroup{Optional: optional, Capabilities: members}}
 				}
 				d.Capabilities = append(d.Capabilities, c)
 			}
 			input, _ := assemblyFixture(t, spec.KindWorkload, "base", "base")
 			input.Descriptor = kitJSON(t, d)
+			if tc.modernUnavailable {
+				reg := newRegistry(t)
+				reg.tag("kits/context", "1.0.0", reg.image(t, input.Descriptor))
+				client, err := New()
+				require.NoError(t, err)
+				for _, resolve := range []func() (*Resolved, error){
+					func() (*Resolved, error) { return client.Resolve(t.Context(), reqs(reg.ref("kits/context", "1.0.0"))) },
+					func() (*Resolved, error) {
+						return client.ResolvePartial(t.Context(), reqs(reg.ref("kits/context", "1.0.0")))
+					},
+				} {
+					result, err := resolve()
+					require.NoError(t, err)
+					require.Len(t, result.Descriptor.Capabilities, 1)
+					require.Equal(t, spec.CapabilityAgentContext, result.Descriptor.Capabilities[0].Type)
+				}
+			}
 			result, err := Assemble(t.Context(), fixtureRequests(1), Options{Loader: fixtureLoader(input), CapabilitySelector: tc.selector})
 			if tc.message != "" {
 				require.ErrorContains(t, err, tc.message)
