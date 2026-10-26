@@ -11,7 +11,7 @@ WORKDIR /src
 # branch head at the time of writing.
 COPY <<'EOF' flake.nix
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/3ec636362e1816bc2f0888fa0fa2c69f1bc9e504";
   outputs = { self, nixpkgs }:
     let
       forAll = f: nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ]

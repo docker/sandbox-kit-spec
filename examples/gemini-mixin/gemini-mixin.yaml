@@ -16,7 +16,7 @@ kind: mixin
 
 args:
   version:
-    default: "0.62.0"
+    default: "0.65.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Gemini CLI release to install
     buildArg: GEMINI_VERSION

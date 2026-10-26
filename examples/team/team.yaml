@@ -16,7 +16,7 @@ licenses: [Apache-2.0]
 # publishes is a workload (shell is one), and `kind: set` never reaches
 # a consumer.
 kind: set
-version: "1.0.0"
+version: "1.0.1"
 
 args:
   # A set's kits are published references, so the namespace they live
@@ -40,7 +40,7 @@ kits:
   # A content-bearing mixin: its gh binary and nix closure become layers
   # of the merged kit, and its network policy and GitHub credential merge
   # into the merged descriptor.
-  - ref: ${{ kit.args.registry }}/sbx-kit-gh:2.72.0
+  - ref: ${{ kit.args.registry }}/sbx-kit-gh:2.103.0
 
 # The set's own declarations merge on top of theirs. This one adds a note
 # of its own; shell's AGENTS.md profile and gh's guidance are merged with

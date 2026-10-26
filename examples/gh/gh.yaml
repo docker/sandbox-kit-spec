@@ -10,7 +10,7 @@ kind: mixin
 # The nixpkgs commit in the companion Dockerfile is the version authority:
 # gh's version follows from it, a bump is editing the pin, and this kit has
 # no version arg at all.
-provides: ["gh@2.101.0"]
+provides: ["gh@2.103.0"]
 
 capabilities:
   - type: com.docker.sandbox/network-policy@2

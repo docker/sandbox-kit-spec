@@ -18,7 +18,7 @@
 #   # The nixpkgs commit below is the version authority: gh's version
 #   # follows from it, a bump is editing the pin, and this kit has no
 #   # version arg at all.
-#   provides: ["gh@2.101.0"]
+#   provides: ["gh@2.103.0"]
 #
 #   capabilities:
 #     - type: com.docker.sandbox/network-policy@2
@@ -80,7 +80,7 @@ WORKDIR /src
 # nixos-unstable branch head at the time of writing.
 COPY <<'EOF' flake.nix
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/3ec636362e1816bc2f0888fa0fa2c69f1bc9e504";
   outputs = { self, nixpkgs }:
     let
       forAll = f: nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ]

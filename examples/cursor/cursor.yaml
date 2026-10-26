@@ -11,7 +11,7 @@ description: >-
   the Cursor credential (API key or OAuth), scoped egress, and the
   workspace pre-trust and config seeds the agent needs.
 sourceUrl: https://cursor.com
-version: "2026.10.1"  # the cursor-agent build cursor.dockerfile pins and asserts
+version: "2026.10.22"  # the cursor-agent build cursor.dockerfile pins and asserts
 
 kind: workload
 
