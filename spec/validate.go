@@ -596,14 +596,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 	}
 	seenSingleton := map[string]int{}
 	seenExact := map[string]int{}
-	seenCredential := map[string]int{}
-	seenSSHAgent := map[string]int{}
-	seenACP := map[string]int{}
-	seenVolume := map[string]int{}
-	seenHostMount := map[string]int{}
-	seenSkills := map[string]int{}
-	seenBundledSkills := map[string]int{}
-	seenPort := map[string]int{}
+	declared := declaredKeys{}
 	// Published descriptors can offer optional versions of one profile;
 	// selection decides which version survives before mixed-version checks.
 	contexts := map[string]*contextArity{
@@ -670,48 +663,47 @@ func validateCapabilityBlock(d *Descriptor) error {
 			errs.add(fieldErrorf(path+".config", "capabilities[%d]: %s takes no config", i, n.Type))
 		}
 
-		// Record literal phases before deferring parameterized values. A
-		// merge can otherwise union overlapping entries and erase the error.
-		if n.Type == CapabilitySSHAgent {
-			var phaseOnly SSHAgent
-			phaseConfig := Capability{Type: n.Type, Config: map[string]any{"phase": n.Config["phase"]}}
-			if DecodeCapabilityConfig(phaseConfig, &phaseOnly) == nil {
-				for _, phase := range phaseOnly.Phase {
-					if ContainsArgRef(phase) || ContainsEnvRef(phase) {
-						continue
-					}
-					if prev, dup := seenSSHAgent[phase]; dup && prev != i {
-						errs.add(fieldErrorf(path+".config.phase", "capabilities[%d]: ssh-agent for phase %q already declared at capabilities[%d]", i, phase, prev))
-					}
-					seenSSHAgent[phase] = i
+		// A literal key holds the block to one entry per key before
+		// parameterized values defer, whatever another setting waits for
+		// or gets wrong: a merge can otherwise union overlapping entries,
+		// or publication separate them, and erase the error. One phase
+		// listed twice in an entry is refused as such, not as a repeat.
+		// Agent-context profiles are held below, and ports and skills
+		// once their entry decodes.
+		switch n.Type {
+		case CapabilitySSHAgent:
+			for _, key := range literalInstanceKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup && prev != i {
+					errs.add(fieldErrorf(path+".config.phase", "capabilities[%d]: ssh-agent for phase %q already declared at capabilities[%d]", i, key.Parts[0], prev))
 				}
 			}
-		}
-
-		if n.Type == CapabilityCredential {
-			service, literal := n.Config["service"].(string)
-			phaseOnly, err := credentialPhases(n)
-			if err == nil && literal && !ContainsArgRef(service) && !ContainsEnvRef(service) {
-				for _, phase := range phaseOnly {
-					if ContainsArgRef(phase) || ContainsEnvRef(phase) {
-						continue
-					}
-					key := service + "\x00" + phase
-					if prev, dup := seenCredential[key]; dup && prev != i {
-						errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, service, phase, prev))
-					}
-					seenCredential[key] = i
+		case CapabilityCredential:
+			for _, key := range literalInstanceKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup && prev != i {
+					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.Parts[0], key.Parts[1], prev))
 				}
 			}
-		}
-
-		if n.Type == CapabilityACP {
-			if agent, ok := n.Config["agent"].(string); ok && !ContainsArgRef(agent) && !ContainsEnvRef(agent) {
-				key := NormalizeCapabilityName(agent)
-				if prev, dup := seenACP[key]; dup {
-					errs.add(fieldErrorf(path+".config.agent", "capabilities[%d]: ACP for agent %q already declared at capabilities[%d]", i, agent, prev))
+		case CapabilityACP:
+			for _, key := range literalInstanceKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config.agent", "capabilities[%d]: ACP for agent %q already declared at capabilities[%d]", i, n.Config["agent"], prev))
 				}
-				seenACP[key] = i
+			}
+		case CapabilityVolume, CapabilityHostMount:
+			// host-mount@1 keys into volume@1's path space, so one path
+			// asked for by both is a conflict rather than a repeat.
+			label, other, otherLabel := "volume", CapabilityHostMount, "host mount"
+			if n.Type == CapabilityHostMount {
+				label, other, otherLabel = otherLabel, CapabilityVolume, label
+			}
+			destination := n.Config["path"]
+			for _, key := range literalInstanceKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s for %q already declared at capabilities[%d]", i, label, destination, prev))
+				}
+				if prev, dup := declared.at(other, key); dup {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, destination, otherLabel, prev))
+				}
 			}
 		}
 
@@ -721,28 +713,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(validateContextV2(path, i, n))
 			}
 			errs.add(contexts[n.Type].add(path, i, n))
-		}
-
-		// Literal destinations determine declaration arity even when size,
-		// mode, or another setting waits for expansion. Publication can
-		// otherwise separate the entries and erase an invalid block.
-		if n.Type == CapabilityVolume || n.Type == CapabilityHostMount {
-			if destination, ok := n.Config["path"].(string); ok && !ContainsArgRef(destination) && !ContainsEnvRef(destination) {
-				key := containerpath.Clean(destination)
-				own, other := seenVolume, seenHostMount
-				label, otherLabel := "volume", "host mount"
-				if n.Type == CapabilityHostMount {
-					own, other = seenHostMount, seenVolume
-					label, otherLabel = otherLabel, label
-				}
-				if prev, dup := own[key]; dup {
-					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s for %q already declared at capabilities[%d]", i, label, destination, prev))
-				}
-				own[key] = i
-				if prev, dup := other[key]; dup {
-					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, destination, otherLabel, prev))
-				}
-			}
 		}
 
 		// A parameterized entry — its config references a kit arg — defers
@@ -824,16 +794,15 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
 			}
 		case CapabilityAgentSkill:
-			key, err := validateBundledSkill(path, n)
-			if err != nil {
+			if err := validateBundledSkill(path, n); err != nil {
 				errs.add(err)
 				continue
 			}
-			seen := seenBundledSkills
-			if prev, dup := seen[key]; dup {
-				errs.add(fieldErrorf(path+".config", "%s %q already declared at capabilities[%d]", n.Type, key, prev))
+			if key, _, err := InstanceKeyOf(n); err == nil {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config", "%s %q already declared at capabilities[%d]", n.Type, key.Parts[0], prev))
+				}
 			}
-			seen[key] = i
 		case CapabilityAgentSkills:
 			var s AgentSkills
 			if err := DecodeCapabilityConfig(n, &s); err != nil {
@@ -857,10 +826,11 @@ func validateCapabilityBlock(d *Descriptor) error {
 			// rule above already rejects; naming one path with different
 			// modes is contradictory, so the narrower one is the request
 			// and stating both is an error.
-			if prev, dup := seenSkills[s.Path]; dup {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, s.Path, prev))
+			if key, _, err := InstanceKeyOf(n); err == nil {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, s.Path, prev))
+				}
 			}
-			seenSkills[s.Path] = i
 		case CapabilityPort:
 			var p Port
 			if err := DecodeCapabilityConfig(n, &p); err != nil {
@@ -880,11 +850,11 @@ func validateCapabilityBlock(d *Descriptor) error {
 			default:
 				errs.add(fieldErrorf(path+".config.family", "capabilities[%d]: family must be %s, %s, or %s, got %q", i, PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual, p.Family))
 			}
-			key := PortKey(p)
-			if prev, dup := seenPort[key]; dup {
-				errs.add(fieldErrorf(path+".config.container", "capabilities[%d]: port %d already declared at capabilities[%d]", i, p.Container, prev))
+			if key, _, err := InstanceKeyOf(n); err == nil {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config.container", "capabilities[%d]: port %d already declared at capabilities[%d]", i, p.Container, prev))
+				}
 			}
-			seenPort[key] = i
 		case CapabilityUSBDevice:
 			var u USBDevice
 			if err := DecodeCapabilityConfig(n, &u); err != nil {
@@ -1055,20 +1025,40 @@ func (a *contextArity) add(field string, i int, n Capability) error {
 			a.seenBody, a.body = true, i
 		}
 	}
-	directory, literalDirectory := n.Config["directory"].(string)
-	filename, literalFilename := n.Config["filename"].(string)
-	if hasDirectory && literalDirectory && literalFilename && !ContainsArgRef(directory+filename) && !ContainsEnvRef(directory+filename) {
+	for _, key := range literalInstanceKeys(n) {
+		if len(key.Parts) == 0 {
+			// An empty directory names no profile; validateContextDirectory
+			// refuses it.
+			continue
+		}
 		if a.destinations == nil {
 			a.destinations = map[string]int{}
 		}
-		key := containerpath.Join(directory, filename)
-		if prev, dup := a.destinations[key]; dup {
-			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context profile %s already declared at capabilities[%d]", i, key, prev))
+		if prev, dup := a.destinations[key.identity()]; dup {
+			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context profile %s already declared at capabilities[%d]", i, key.Parts[0], prev))
 		} else {
-			a.destinations[key] = i
+			a.destinations[key.identity()] = i
 		}
 	}
 	return errs.err()
+}
+
+// declaredKeys remembers, per type, the entry of a declaration block that
+// last asked for each literal instance key.
+type declaredKeys map[string]int
+
+// add records entry i as asking for key and reports the entry that asked
+// for it before, if any.
+func (d declaredKeys) add(typ string, key InstanceKey, i int) (prev int, dup bool) {
+	prev, dup = d.at(typ, key)
+	d[typ+"\x00"+key.identity()] = i
+	return prev, dup
+}
+
+// at reports the entry of type typ that last asked for key, if any.
+func (d declaredKeys) at(typ string, key InstanceKey) (int, bool) {
+	i, dup := d[typ+"\x00"+key.identity()]
+	return i, dup
 }
 
 // Validate literal destination structure even when another config field
@@ -1279,7 +1269,7 @@ func validatePresenceRules(path string, i int, n Capability) error {
 		return validateInteractiveSessionsAuthored(path, i, n)
 	}
 	if n.Type == CapabilityCredential {
-		phases, err := credentialPhases(n)
+		phases, err := phasesOf(n)
 		if err != nil {
 			return fieldErrorf(path+".config.phase", "capabilities[%d]: %v", i, err)
 		}
