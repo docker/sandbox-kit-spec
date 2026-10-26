@@ -19,7 +19,7 @@ sourceUrl: https://github.com/docker/sandbox-kit-spec
 licenses: [MIT, GPL-3.0-only, Apache-2.0]
 
 kind: mixin
-version: "1.0.0"
+version: "1.0.1"
 
 # One arg per tool. Each drives the download, the build's version check
 # and the provide, so a bump is one edit and the provide cannot claim a
@@ -36,7 +36,7 @@ args:
     description: golangci-lint release to install; ci.yaml pins the same one
     buildArg: GOLANGCI_LINT_VERSION
   regctlVersion:
-    default: "0.11.6"
+    default: "0.11.7"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: regclient release whose regctl to install
     buildArg: REGCTL_VERSION
@@ -83,8 +83,10 @@ capabilities:
           - registry.npmjs.org:443
           - downloads.claude.ai:443
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       content: |
         ## Sandbox Kit Spec dev tools
 
@@ -109,3 +111,7 @@ capabilities:
         names, which this policy does not cover; if one fails on a network refusal,
         that is the boundary doing its job, and the fix is to declare the host in
         the composition rather than to work around it.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

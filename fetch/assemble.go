@@ -14,7 +14,7 @@ import (
 )
 
 // Options configures Assemble. Its zero value loads from registries using
-// Docker credentials and accepts the library's known capability types.
+// Docker credentials and uses DefaultCapabilitySelector.
 // Layer validation is opt-in; set LayerValidator to DefaultLayerValidator to run
 // the built-in layer integrity, extraction, and collision checks.
 type Options struct {
@@ -24,8 +24,8 @@ type Options struct {
 	// descriptor (including DisplayName), and capability. It decides availability
 	// and policy without applying effects. Target, descriptor, and capability inputs are
 	// passed by value.
-	// Nil accepts KnownCapabilities; a runtime with fewer implementations supplies
-	// spec.Supported with its actual claims. Groups remain atomic.
+	// Nil uses DefaultCapabilitySelector; a runtime with fewer implementations
+	// supplies spec.Supported with its actual claims. Groups remain atomic.
 	CapabilitySelector spec.SelectCapability
 	// RetainExpandedDescriptors opts into independent pre-selection snapshots in
 	// Resolved.Selections. They include skipped declarations and may contain
@@ -157,7 +157,7 @@ func Assemble(ctx context.Context, requests []Request, options Options) (*Result
 	err = progressStep(ctx, options.OnProgress, Progress{Stage: StageResolve}, func() error {
 		selector := options.CapabilitySelector
 		if selector == nil {
-			selector = spec.Supported(spec.KnownCapabilities()...)
+			selector = DefaultCapabilitySelector
 		}
 		var err error
 		resolveOptions := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(environment, options.Overrides.Env)}

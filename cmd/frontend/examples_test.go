@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,9 +34,41 @@ func TestExampleCommentDescriptorsValidate(t *testing.T) {
 		t.Run(filepath.Base(filepath.Dir(path)), func(t *testing.T) {
 			d, err := spec.Decode(yamlBytes)
 			require.NoError(t, err)
-			_, err = spec.ValidateRaw(yamlBytes, d)
+			_, err = spec.ValidateDeclarations(yamlBytes, d)
 			require.NoError(t, err)
+			contexts := map[string]spec.Capability{}
+			for _, c := range spec.DeclaredCapabilities(d.Capabilities) {
+				if c.Type == spec.CapabilityAgentContext || c.Type == spec.CapabilityAgentContextV2 {
+					require.True(t, c.Optional)
+					contexts[c.Type] = c
+				}
+			}
+			require.Len(t, contexts, 2)
+			require.Equal(t, contexts[spec.CapabilityAgentContext].Config, contexts[spec.CapabilityAgentContextV2].Config)
+			for _, version := range []string{spec.CapabilityAgentContext, spec.CapabilityAgentContextV2} {
+				selected := selectExampleContext(t, d, version)
+				require.True(t, spec.HasCapability(selected.Capabilities, version))
+				rawSelected, err := json.Marshal(selected)
+				require.NoError(t, err)
+				_, err = spec.ValidateEffective(rawSelected, selected)
+				require.NoError(t, err)
+			}
 		})
 	}
 	require.NotZero(t, found, "no example carries a %s comment descriptor", kitCommentMarker)
+}
+
+func selectExampleContext(t *testing.T, d *spec.Descriptor, version string) *spec.Descriptor {
+	t.Helper()
+	var supported []string
+	for _, typ := range spec.KnownCapabilities() {
+		if typ != spec.CapabilityAgentContext && typ != spec.CapabilityAgentContextV2 || typ == version {
+			supported = append(supported, typ)
+		}
+	}
+	selection, err := spec.SelectCapabilities(t.Context(), "example", d, spec.Supported(supported...))
+	require.NoError(t, err)
+	selected := *d
+	selected.Capabilities = selection.Capabilities
+	return &selected
 }

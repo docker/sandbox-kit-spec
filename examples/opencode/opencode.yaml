@@ -17,7 +17,7 @@ kind: workload
 
 args:
   version:
-    default: "1.18.33"
+    default: "1.19.4"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: OpenCode release to install
     buildArg: OPENCODE_VERSION
@@ -263,8 +263,10 @@ capabilities:
     config:
       path: /home/agent/.config/opencode/skills
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: AGENTS.md
       directory: /home/agent/.config/opencode
       content: |
@@ -273,3 +275,7 @@ capabilities:
         This sandbox runs OpenCode, a multi-provider coding agent. Provider keys
         are proxy-managed sentinels; ChatGPT-subscription OAuth renders into
         ~/.local/share/opencode/auth.json for OpenCode's codex auth plugin.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

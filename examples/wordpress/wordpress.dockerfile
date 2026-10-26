@@ -5,5 +5,5 @@
 # The public image rather than the hardened one on purpose: dhi.io ships
 # WordPress as php-fpm only, and this kit pins an -apache tag because the
 # compose service it migrates expects one container serving HTTP.
-ARG WP_VERSION=6.8.2
+ARG WP_VERSION=7.1.3
 FROM wordpress:${WP_VERSION}-apache

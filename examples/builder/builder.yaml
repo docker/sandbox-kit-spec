@@ -200,8 +200,10 @@ capabilities:
           env: [HTTP_PROXY, HTTPS_PROXY]
           description: Bootstrap the agent's container-driver buildx builder
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: AGENTS.md
       content: |
         ## Kit builder sandbox
@@ -232,3 +234,7 @@ capabilities:
         Re-create the remote builder if the host port changes after a
         sandbox recreate. That endpoint is an unauthenticated root build
         API, so only turn it on where the host binds loopback.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

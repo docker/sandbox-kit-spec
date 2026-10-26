@@ -24,7 +24,7 @@ kind: mixin
 
 args:
   version:
-    default: "0.89.1"
+    default: "0.96.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: claude-agent-acp release to install
     buildArg: ACP_VERSION
@@ -53,8 +53,10 @@ capabilities:
       agent: claude
       command: [claude-agent-acp]
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       content: |
         ## Claude Code ACP adapter
 
@@ -76,3 +78,7 @@ capabilities:
         works here, the adapter works with no extra setup and nothing separate to
         log in to. Sessions created through ACP share the session-state volumes
         with interactive `claude` runs.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

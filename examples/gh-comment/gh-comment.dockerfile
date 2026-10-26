@@ -18,7 +18,7 @@
 #   # The nixpkgs commit below is the version authority: gh's version
 #   # follows from it, a bump is editing the pin, and this kit has no
 #   # version arg at all.
-#   provides: ["gh@2.101.0"]
+#   provides: ["gh@2.103.0"]
 #
 #   capabilities:
 #     - type: com.docker.sandbox/network-policy@2
@@ -51,8 +51,10 @@
 #             - {domain: uploads.github.com, header: Authorization, format: "Bearer %s"}
 #             - {domain: github.com, header: Authorization, format: "Bearer %s"}
 #
-#     - type: com.docker.sandbox/agent-context@2
-#       config:
+#     # Offer both versions during the runtime rollout; select one.
+#     - type: com.docker.sandbox/agent-context@1
+#       optional: true
+#       config: &agent-context
 #         content: |
 #           # GitHub CLI
 #
@@ -66,6 +68,10 @@
 #           - Prefer `gh` over raw git for GitHub operations: `gh pr create`,
 #             `gh issue list`, `gh run watch`, `gh api` for anything without a
 #             dedicated subcommand.
+#
+#     - type: com.docker.sandbox/agent-context@2
+#       optional: true
+#       config: *agent-context
 
 # The second stanza names the content's own frontend; everything from it
 # down is what the kit frontend hands on as the recipe.
@@ -74,13 +80,17 @@
 # and the hardened catalog carries no nix toolchain, so this build stage
 # stays on the upstream image. Nothing from it reaches the overlay: the
 # final stage is scratch and copies only the closure nix produced.
-FROM nixos/nix:2.35.2 AS build
+# Nix crashes under amd64 emulation on arm64 builders. Evaluate natively
+# and select the target package explicitly; its cached closure carries
+# the target architecture without running target binaries here.
+FROM --platform=$BUILDPLATFORM nixos/nix:2.35.2 AS build
+ARG TARGETARCH
 WORKDIR /src
 # Pin a full commit hash — a branch name would float. This one is the
 # nixos-unstable branch head at the time of writing.
 COPY <<'EOF' flake.nix
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/3ec636362e1816bc2f0888fa0fa2c69f1bc9e504";
   outputs = { self, nixpkgs }:
     let
       forAll = f: nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ]
@@ -90,7 +100,19 @@ COPY <<'EOF' flake.nix
     };
 }
 EOF
-RUN nix --extra-experimental-features 'nix-command flakes' build .
+# A builder behind a TLS proxy can supply its CA as the optional nix-ca
+# secret. It stays in this step and out of the published closure.
+RUN --mount=type=secret,id=nix-ca \
+    if [ -f /run/secrets/nix-ca ]; then \
+      export NIX_SSL_CERT_FILE=/run/secrets/nix-ca; \
+    fi \
+ && case "$TARGETARCH" in \
+      amd64) system=x86_64-linux ;; \
+      arm64) system=aarch64-linux ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+ && nix --extra-experimental-features 'nix-command flakes' build \
+      ".#packages.${system}.default"
 RUN mkdir -p /out/nix/store /out/usr/local/bin \
  && cp -a $(nix-store --query --requisites result) /out/nix/store/ \
  && ln -s "$(readlink -f result)/bin/gh" /out/usr/local/bin/gh

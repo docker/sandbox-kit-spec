@@ -19,7 +19,7 @@ kind: workload
 
 args:
   version:
-    default: "0.162.1"
+    default: "0.164.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: Codex CLI release to install
     buildArg: CODEX_VERSION
@@ -291,8 +291,10 @@ capabilities:
     config:
       path: /home/agent/.agents/skills
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: AGENTS.md
       directory: /home/agent/.codex
       content: |
@@ -302,3 +304,7 @@ capabilities:
         in dangerous-bypass mode; credentials arrive proxy-managed (API key or
         ChatGPT OAuth), so tokens in local config files are sentinels, never
         secrets.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

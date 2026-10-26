@@ -36,6 +36,8 @@ contents:
         - grep
         - gzip
         - iproute2
+        # DHI supplies nft-backed aliases. Restating them under paths
+        # follows the existing links and collides with their target.
         - iptables
         - libc-bin
         - libpam-modules
@@ -178,39 +180,6 @@ paths:
       uid: 0
       gid: 0
       mode: "0644"
-    # dockerd on trixie wants the nft backend; the DHI iptables package
-    # registers no alternatives, so pin the symlinks like the DHI sandbox
-    # template does.
-    - type: symlink
-      path: /usr/sbin/iptables
-      uid: 0
-      gid: 0
-      source: iptables-nft
-    - type: symlink
-      path: /usr/sbin/iptables-save
-      uid: 0
-      gid: 0
-      source: iptables-nft-save
-    - type: symlink
-      path: /usr/sbin/iptables-restore
-      uid: 0
-      gid: 0
-      source: iptables-nft-restore
-    - type: symlink
-      path: /usr/sbin/ip6tables
-      uid: 0
-      gid: 0
-      source: ip6tables-nft
-    - type: symlink
-      path: /usr/sbin/ip6tables-save
-      uid: 0
-      gid: 0
-      source: ip6tables-nft-save
-    - type: symlink
-      path: /usr/sbin/ip6tables-restore
-      uid: 0
-      gid: 0
-      source: ip6tables-nft-restore
 
 annotations:
     org.opencontainers.image.description: DHI-based Docker-in-Docker builder for sandbox kits

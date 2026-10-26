@@ -11,7 +11,7 @@ description: >-
   the Cursor credential (API key or OAuth), scoped egress, and the
   workspace pre-trust and config seeds the agent needs.
 sourceUrl: https://cursor.com
-version: "2026.10.1"  # the cursor-agent build cursor.dockerfile pins and asserts
+version: "2026.10.22"  # the cursor-agent build cursor.dockerfile pins and asserts
 
 kind: workload
 
@@ -155,8 +155,10 @@ capabilities:
     config:
       path: /home/agent/.cursor/skills
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: AGENTS.md
       directory: /home/agent/workspace
       content: |
@@ -165,3 +167,7 @@ capabilities:
         This sandbox runs the Cursor agent CLI. Credentials are proxy-managed: an
         API key or Cursor OAuth arrives as sentinels, and the workspace is
         pre-trusted so the TUI skips its trust prompt.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

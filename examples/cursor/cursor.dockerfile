@@ -2,18 +2,26 @@
 # and the cursor-agent install; the workload publishes it as-is. Cursor's
 # installer has no version pin, so the kit's version: field is the semver
 # spelling of the cursor-agent this template build carries
-# (2026.10.01-e373342 is 2026.10.1). The template tag moves on every
+# (2026.10.22-27dcf5f is 2026.10.22). The template tag moves on every
 # refresh, so the base is pinned by digest and the build asserts the
 # agent it carries: otherwise a refresh would publish a different binary
 # under an unchanged kit tag. Move the digest, CURSOR_AGENT_BUILD, and
 # version: together.
-FROM dhi.io/sbx-templates:cursor-agent-docker@sha256:a75af8edd517e5a4f3cc0986b1d451135fb090b21ac750548653c0d1227978d8
-ARG CURSOR_AGENT_BUILD=2026.10.01-e373342
-# A scratch HOME, so asking for the version leaves no state in the image.
-RUN scratch=$(mktemp -d) \
- && got=$(HOME="$scratch" cursor-agent --version) \
- && rm -rf "$scratch" \
- && { [ "$got" = "${CURSOR_AGENT_BUILD}" ] || { echo "cursor-agent is $got, expected ${CURSOR_AGENT_BUILD}" >&2; exit 1; }; }
+FROM dhi.io/sbx-templates:cursor-agent-docker@sha256:6e72111ba6e9d44f02c2a29f479a8b7f1e6f4b3a50bf5e94ff7e06b0cbdc3ae8
+ARG CURSOR_AGENT_BUILD=2026.10.22-27dcf5f
+ARG BUILDARCH
+ARG TARGETARCH
+# Check the installed release on every target. QEMU cannot map the amd64
+# SQLite addon on 16 KiB arm64 hosts, so execute the CLI only on native
+# builds. A scratch HOME keeps the version check out of the agent's state.
+RUN test "$(readlink -f "$(command -v cursor-agent)")" = \
+      "/home/agent/.local/share/cursor-agent/versions/${CURSOR_AGENT_BUILD}/cursor-agent" \
+ && if [ "$BUILDARCH" = "$TARGETARCH" ]; then \
+      scratch=$(mktemp -d) \
+      && got=$(HOME="$scratch" cursor-agent --version) \
+      && rm -rf "$scratch" \
+      && { [ "$got" = "${CURSOR_AGENT_BUILD}" ] || { echo "cursor-agent is $got, expected ${CURSOR_AGENT_BUILD}" >&2; exit 1; }; }; \
+    fi
 # v2's environment.variables. AGENT_CLI_CREDENTIAL_STORE=memory keeps
 # cursor from validating a file-backed sentinel and re-prompting login;
 # auth bootstraps through the environment when host OAuth creds exist.

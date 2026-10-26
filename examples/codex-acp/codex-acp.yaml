@@ -43,11 +43,12 @@ provides: ["codex-acp@${{ kit.args.version }}"]
 # codex-mixin kit installs /usr/local/bin/codex.
 #
 # codex-acp 2.2.2 declares @openai/codex ^0.160.1. With the bundled
-# binary removed, the composed codex must satisfy this range instead. The
-# upper bound is wider than the declared dependency: no adapter release
-# yet targets codex past 0.160.x, and the codex kits ship 0.162. The
-# lower bound stays the adapter's own.
-requires: ["codex >= 0.160.1, < 0.163.0"]
+# binary removed, the composed codex must satisfy this range instead.
+# The upper bound also admits the codex kits' 0.164.x: ACP initialize,
+# session creation and listing were smoke-tested with Codex 0.164.0.
+# Keep the next minor excluded until adapter compatibility is checked;
+# the lower bound stays the adapter's declared dependency.
+requires: ["codex >= 0.160.1, < 0.165.0"]
 
 # No network policy and no credential: the adapter opens no sockets of
 # its own. Its egress and auth are whatever the codex it execs already
@@ -69,8 +70,10 @@ capabilities:
       env:
         INITIAL_AGENT_MODE: agent-full-access
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       content: |
         ## Codex ACP adapter
 
@@ -104,3 +107,7 @@ capabilities:
         terminating it.
         The optional declaration enables discovery; it does not certify full
         adapter conformance.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
