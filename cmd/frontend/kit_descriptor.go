@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"path"
 	"sort"
 	"strings"
 
@@ -35,51 +33,47 @@ func resolvePublishedDescriptor(ctx context.Context, c gwclient.Client, pinned s
 		return nil, fmt.Errorf("published descriptor lookup needs a digest-pinned image, got %q", pinned)
 	}
 
-	// The gateway exposes image config, not the descriptor annotation.
-	// Read the pinned manifest through the same bounded registry reader
-	// as other Kit consumers. This process does not receive BuildKit's
-	// registry credentials or mirror configuration.
-	// The attestation-chain API is not a substitute: it omits platform
-	// manifest bodies, and current BuildKit releases dereference a nil
-	// chain when asked for metadata of a bare image manifest.
-	options := []fetch.Option{fetch.WithPlatform(p)}
-	if c != nil {
-		options = append(options, fetch.WithTransport(manifestTransport{client: c}))
-	}
-	client, err := fetch.New(options...)
+	// ImageBlob uses the builder's registry resolver and session, so
+	// manifest reads share the image pull's credentials, mirrors, CAs,
+	// and network namespace. The transport only adapts those reads to
+	// fetch.Client's bounded, platform-aware metadata walk.
+	client, err := fetch.New(fetch.WithPlatform(p), fetch.WithTransport(builderManifestTransport{
+		client: c, repository: reference.TrimNamed(named),
+	}))
 	if err != nil {
 		return nil, err
 	}
 	kit, err := client.Fetch(ctx, pinned)
 	if err != nil {
-		return nil, fmt.Errorf("read published descriptor from %s: %w; descriptor lookup is anonymous and cannot use the builder's registry credentials or mirrors", pinned, err)
+		return nil, fmt.Errorf("read published descriptor from %s: %w", pinned, err)
 	}
 	return kit.Descriptor, nil
 }
 
-// manifestTransport keeps loopback registry references in the builder's
-// network namespace. A frontend has its own loopback, so an ordinary
-// HTTP client cannot reach a registry BuildKit resolves as localhost.
-// Only anonymous, digest-addressed HTTP GETs use this source: it is not
-// a general HTTP transport and cannot relay authentication challenges.
-type manifestTransport struct{ client gwclient.Client }
+// builderManifestTransport retrieves every manifest through BuildKit,
+// including private registries and localhost. It never makes an HTTP
+// request from the frontend or resolves a mutable tag a second time.
+type builderManifestTransport struct {
+	client     gwclient.Client
+	repository reference.Named
+}
 
-func (t manifestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	host := req.URL.Hostname()
-	ip := net.ParseIP(host)
-	if req.URL.Scheme != "http" || (host != "localhost" && (ip == nil || !ip.IsLoopback())) {
-		return http.DefaultTransport.RoundTrip(req)
+func (t builderManifestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	prefix := "/v2/" + reference.Path(t.repository) + "/manifests/"
+	if req.Method != http.MethodGet || !strings.HasPrefix(req.URL.Path, prefix) {
+		return nil, fmt.Errorf("descriptor lookup supports only digest-addressed manifest GETs")
 	}
-	if req.Method != http.MethodGet || req.Header.Get("Authorization") != "" || !strings.Contains(req.URL.Path, "/manifests/") {
-		return nil, fmt.Errorf("loopback descriptor lookup supports only anonymous manifest GETs")
-	}
-	dgst, err := digest.Parse(path.Base(req.URL.Path))
+	dgst, err := digest.Parse(strings.TrimPrefix(req.URL.Path, prefix))
 	if err != nil {
-		return nil, fmt.Errorf("loopback manifest lookup needs a digest: %w", err)
+		return nil, fmt.Errorf("manifest lookup needs a digest: %w", err)
+	}
+	pinned, err := reference.WithDigest(t.repository, dgst)
+	if err != nil {
+		return nil, err
 	}
 	const filename = "kit-manifest.json"
-	state := llb.HTTP(req.URL.String(), llb.Filename(filename), llb.Checksum(dgst),
-		llb.Header(llb.HTTPHeader{Accept: req.Header.Get("Accept")}))
+	state := llb.ImageBlob(pinned.String(), llb.Filename(filename),
+		llb.WithCustomName("[kit] manifest "+pinned.String()))
 	def, err := state.Marshal(req.Context())
 	if err != nil {
 		return nil, err
@@ -92,12 +86,17 @@ func (t manifestTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if err != nil {
 		return nil, err
 	}
-	body, ok, err := readImageFile(req.Context(), ref, "/"+filename)
+	// Bound the gateway read too: fetch.Client's metadata limit applies
+	// after this transport has handed it a response body.
+	const maxManifestBytes = 8 << 20
+	body, err := ref.ReadFile(req.Context(), gwclient.ReadRequest{
+		Filename: "/" + filename, Range: &gwclient.FileRange{Length: maxManifestBytes + 1},
+	})
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, fmt.Errorf("BuildKit HTTP source returned no manifest")
+	if len(body) > maxManifestBytes {
+		return nil, fmt.Errorf("manifest exceeds %d bytes", maxManifestBytes)
 	}
 	var metadata struct {
 		MediaType string `json:"mediaType"`

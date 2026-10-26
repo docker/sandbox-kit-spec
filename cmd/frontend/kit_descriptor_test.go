@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path"
 	"strings"
 	"testing"
 
+	"github.com/distribution/reference"
 	"github.com/moby/buildkit/client/llb"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
@@ -25,32 +25,36 @@ import (
 
 type descriptorGateway struct {
 	fakeGatewayClient
-	staged map[string][]byte
+	staged       map[string][]byte
+	manifests    map[digest.Digest][]byte
+	manifestRefs []string
+	manifestErr  error
 }
 
-func (c *descriptorGateway) Solve(ctx context.Context, req gwclient.SolveRequest) (*gwclient.Result, error) {
+func (c *descriptorGateway) Solve(_ context.Context, req gwclient.SolveRequest) (*gwclient.Result, error) {
 	res := gwclient.NewResult()
 	for _, raw := range req.Definition.Def {
 		var op pb.Op
 		if err := op.UnmarshalVT(raw); err != nil {
 			return nil, err
 		}
-		if source := op.GetSource(); source != nil && strings.HasPrefix(source.Identifier, "http://") {
-			request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.Identifier, nil)
-			if err != nil {
-				return nil, err
+		if source := op.GetSource(); source != nil {
+			if ref, ok := strings.CutPrefix(source.Identifier, "docker-image+blob://"); ok {
+				c.manifestRefs = append(c.manifestRefs, ref)
+				if c.manifestErr != nil {
+					return nil, c.manifestErr
+				}
+				named, err := reference.ParseNormalizedNamed(ref)
+				if err != nil {
+					return nil, err
+				}
+				body, ok := c.manifests[named.(reference.Canonical).Digest()]
+				if !ok {
+					return nil, fmt.Errorf("manifest not found: %s", ref)
+				}
+				res.SetRef(descriptorReference{manifest: body})
+				return res, nil
 			}
-			response, err := http.DefaultClient.Do(request)
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = response.Body.Close() }()
-			body, err := io.ReadAll(response.Body)
-			if err != nil {
-				return nil, err
-			}
-			res.SetRef(descriptorReference{manifest: body})
-			return res, nil
 		}
 	}
 	res.SetRef(descriptorReference{staged: c.staged})
@@ -76,7 +80,11 @@ func (r descriptorReference) ReadDir(_ context.Context, req gwclient.ReadDirRequ
 
 func (r descriptorReference) ReadFile(_ context.Context, req gwclient.ReadRequest) ([]byte, error) {
 	if req.Filename == "/kit-manifest.json" && r.manifest != nil {
-		return r.manifest, nil
+		body := r.manifest
+		if req.Range != nil && len(body) > req.Range.Length {
+			body = body[:req.Range.Length]
+		}
+		return body, nil
 	}
 	for stem, raw := range r.staged {
 		if req.Filename == path.Join(stagedKitRoot, stem, stagedDescriptorName) {
@@ -86,9 +94,9 @@ func (r descriptorReference) ReadFile(_ context.Context, req gwclient.ReadReques
 	return nil, os.ErrNotExist
 }
 
-// descriptorRegistry serves metadata only, and accepts the digest pin
-// rather than the mutable tag used to name the image.
-func descriptorRegistry(t *testing.T, annotation string) string {
+// Only the fake builder has metadata: these references cannot resolve
+// through an HTTP client in the frontend, and mutable tags are not keys.
+func publishedDescriptor(t *testing.T, annotation string) (string, *descriptorGateway) {
 	t.Helper()
 	raw, err := json.Marshal(ocispecs.Manifest{
 		Versioned:   ocispec.Versioned{SchemaVersion: 2},
@@ -98,25 +106,16 @@ func descriptorRegistry(t *testing.T, annotation string) string {
 	})
 	require.NoError(t, err)
 	dgst := digest.FromBytes(raw)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v2/kit/manifests/"+dgst.String() {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", ocispecs.MediaTypeImageManifest)
-		w.Header().Set("Docker-Content-Digest", dgst.String())
-		_, _ = w.Write(raw)
-	}))
-	t.Cleanup(server.Close)
-	return strings.TrimPrefix(server.URL, "http://") + "/kit:mutable@" + dgst.String()
+	return "private.example.com/kit:mutable@" + dgst.String(), &descriptorGateway{
+		manifests: map[digest.Digest][]byte{dgst: raw},
+	}
 }
 
 func TestReadKitDescriptorUsesPublishedIdentity(t *testing.T) {
 	// The base looks like a merged set, so a kits:-based heuristic would
 	// pick it. The outer kit's name also bears no relation to its stem.
 	raw := `{"schemaVersion":"3","kind":"workload","version":"2.0.0","provides":["agent@2.0.0"]}`
-	pinned := descriptorRegistry(t, raw)
-	c := &descriptorGateway{}
+	pinned, c := publishedDescriptor(t, raw)
 	c.staged = map[string][]byte{
 		"base-set":           []byte(`{"schemaVersion":"3","kind":"workload","version":"1.0.0","kits":[{"ref":"example.com/base","digest":"sha256:` + strings.Repeat("a", 64) + `"}]}`),
 		"unrelated-filename": []byte("schemaVersion: \"3\"\nkind: workload\nversion: 2.0.0\nprovides: [agent@2.0.0]\n"),
@@ -127,6 +126,8 @@ func TestReadKitDescriptorUsesPublishedIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "unrelated-filename", stem)
 	require.Equal(t, []string{"agent@2.0.0"}, d.Provides)
+	require.Equal(t, []string{strings.Replace(pinned, ":mutable@", "@", 1)}, c.manifestRefs,
+		"the builder reads the same digest, with the mutable tag removed")
 }
 
 func TestReadSingleStagedDescriptorNeedsNoRegistryAccess(t *testing.T) {
@@ -167,7 +168,8 @@ func TestPublishedDescriptorRejectsUnpinnedOrInvalidMetadata(t *testing.T) {
 		`{"schemaVersion":"3","kind":"mixin","unknown":true}`,
 		"",
 	} {
-		_, err := resolvePublishedDescriptor(t.Context(), nil, descriptorRegistry(t, annotation), p)
+		pinned, c := publishedDescriptor(t, annotation)
+		_, err := resolvePublishedDescriptor(t.Context(), c, pinned, p)
 		require.Error(t, err)
 	}
 }
@@ -197,53 +199,56 @@ func TestPublishedDescriptorReadsPinnedPlatformManifest(t *testing.T) {
 	require.NoError(t, err)
 	for _, root := range [][]byte{arm64, index} {
 		rootDigest := digest.FromBytes(root)
-		blobs := map[string][]byte{rootDigest.String(): root, digest.FromBytes(arm64).String(): arm64}
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			raw, ok := blobs[strings.TrimPrefix(r.URL.Path, "/v2/kit/manifests/")]
-			if !ok {
-				http.NotFound(w, r)
-				return
-			}
-			w.Header().Set("Content-Type", ocispecs.MediaTypeImageManifest)
-			if string(raw) == string(index) {
-				w.Header().Set("Content-Type", ocispecs.MediaTypeImageIndex)
-			}
-			w.Header().Set("Docker-Content-Digest", digest.FromBytes(raw).String())
-			_, _ = w.Write(raw)
-		}))
-		pinned := strings.TrimPrefix(server.URL, "http://") + "/kit:mutable@" + rootDigest.String()
-		d, err := resolvePublishedDescriptor(t.Context(), nil, pinned, ocispecs.Platform{OS: "linux", Architecture: "arm64"})
+		c := &descriptorGateway{manifests: map[digest.Digest][]byte{
+			rootDigest: root, digest.FromBytes(arm64): arm64,
+		}}
+		pinned := "private.example.com/kit:mutable@" + rootDigest.String()
+		d, err := resolvePublishedDescriptor(t.Context(), c, pinned, ocispecs.Platform{OS: "linux", Architecture: "arm64"})
 		require.NoError(t, err)
 		require.Equal(t, "2.0.0", d.Version)
-		server.Close()
 	}
 }
 
-func TestPublishedDescriptorExplainsPrivateRegistryAccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer server.Close()
-	pinned := strings.TrimPrefix(server.URL, "http://") + "/kit@" + digest.FromString("private").String()
-	_, err := resolvePublishedDescriptor(t.Context(), nil, pinned, ocispecs.Platform{OS: "linux", Architecture: "amd64"})
-	require.ErrorContains(t, err, "descriptor lookup is anonymous")
+func TestPublishedDescriptorPropagatesBuilderErrors(t *testing.T) {
+	pinned, c := publishedDescriptor(t, `{"schemaVersion":"3","kind":"mixin"}`)
+	c.manifestErr = fmt.Errorf("builder registry resolver: unauthorized")
+	_, err := resolvePublishedDescriptor(t.Context(), c, pinned, ocispecs.Platform{OS: "linux", Architecture: "amd64"})
+	require.ErrorIs(t, err, c.manifestErr)
+	require.Len(t, c.manifestRefs, 1, "a failed builder lookup has no anonymous HTTP fallback")
 }
 
-func TestLoopbackManifestLookupRequiresPinnedAnonymousGET(t *testing.T) {
+func TestPublishedDescriptorVerifiesBuilderManifest(t *testing.T) {
+	pinned, c := publishedDescriptor(t, `{"schemaVersion":"3","kind":"mixin"}`)
+	for dgst, raw := range c.manifests {
+		c.manifests[dgst] = append(raw, ' ')
+	}
+	_, err := resolvePublishedDescriptor(t.Context(), c, pinned, ocispecs.Platform{OS: "linux", Architecture: "amd64"})
+	require.Error(t, err, "the manifest must still match the resolved pin")
+}
+
+func TestBuilderManifestReadIsBounded(t *testing.T) {
+	body := []byte(strings.Repeat(" ", (8<<20)+1))
+	dgst := digest.FromBytes(body)
+	c := &descriptorGateway{manifests: map[digest.Digest][]byte{dgst: body}}
+	_, err := resolvePublishedDescriptor(t.Context(), c, "private.example.com/kit@"+dgst.String(), ocispecs.Platform{OS: "linux", Architecture: "amd64"})
+	require.ErrorContains(t, err, "manifest exceeds")
+}
+
+func TestBuilderManifestLookupRequiresPinnedGET(t *testing.T) {
+	repo, err := reference.ParseNormalizedNamed("private.example.com/kit")
+	require.NoError(t, err)
 	for _, tc := range []struct {
 		method string
 		path   string
-		auth   string
 	}{
 		{method: http.MethodHead, path: "/v2/kit/manifests/" + digest.FromString("manifest").String()},
 		{method: http.MethodGet, path: "/v2/kit/manifests/mutable"},
 		{method: http.MethodGet, path: "/v2/kit/blobs/" + digest.FromString("manifest").String()},
-		{method: http.MethodGet, path: "/v2/kit/manifests/" + digest.FromString("manifest").String(), auth: "Bearer test"},
+		{method: http.MethodGet, path: "/v2/other/manifests/" + digest.FromString("manifest").String()},
 	} {
-		req, err := http.NewRequest(tc.method, "http://localhost:5000"+tc.path, nil)
+		req, err := http.NewRequest(tc.method, "https://private.example.com"+tc.path, nil)
 		require.NoError(t, err)
-		req.Header.Set("Authorization", tc.auth)
-		_, err = (manifestTransport{}).RoundTrip(req)
+		_, err = (builderManifestTransport{repository: repo}).RoundTrip(req)
 		require.Error(t, err)
 	}
 }

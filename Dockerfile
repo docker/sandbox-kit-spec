@@ -18,8 +18,4 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM scratch
 COPY --from=build /frontend /bin/frontend
-# Set descriptor lookup may read a public platform manifest directly
-# when the gateway exposes no annotated index. The scratch image has no
-# system trust store of its own.
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENTRYPOINT ["/bin/frontend"]

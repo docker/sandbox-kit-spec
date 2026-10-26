@@ -50,6 +50,23 @@ func TestSetBuildsEndToEnd(t *testing.T) {
 	e := &e2e{t: t, builder: dockerDriverBuilder(t)}
 	frontend := e.buildFrontend()
 	registry := e.startRegistry()
+	if image := os.Getenv("KIT_E2E_BUILDKIT_IMAGE"); image != "" {
+		// An explicit daemon image lets this suite exercise BuildKit
+		// integration changes without replacing Docker's own builder.
+		published := registry + "/set-frontend:latest"
+		e.run("docker", "tag", frontend, published)
+		t.Cleanup(func() { _ = exec.Command("docker", "rmi", published).Run() })
+		e.run("docker", "push", published)
+		frontend = published
+		config := filepath.Join(t.TempDir(), "buildkitd.toml")
+		require.NoError(t, os.WriteFile(config, fmt.Appendf(nil, "[registry.%q]\n  http = true\n", registry), 0o644))
+		builder := fmt.Sprintf("kit-set-e2e-%d", time.Now().UnixNano())
+		e.run("docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
+			"--driver-opt", "network=host", "--driver-opt", "image="+image, "--buildkitd-config", config)
+		t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", "--force", builder).Run() })
+		e.run("docker", "buildx", "inspect", "--bootstrap", builder)
+		e.builder = builder
+	}
 
 	dir := t.TempDir()
 	// A workload with a policy, a profile, and a license of its own.
@@ -237,6 +254,10 @@ kits:
 		child := &e2e{t: t, builder: e.builder}
 		child.inheritedSourcesSet(frontend, registry)
 	})
+	t.Run("private registry", func(t *testing.T) {
+		child := &e2e{t: t, builder: e.builder}
+		child.privateRegistrySet(frontend, registry)
+	})
 }
 
 // A FROM-derived workload and a merged set both carry several staged
@@ -398,8 +419,9 @@ kits:
 // e2e runs the docker commands the test needs, failing the test on the
 // first one that does not succeed.
 type e2e struct {
-	t       *testing.T
-	builder string
+	t            *testing.T
+	builder      string
+	dockerConfig string
 }
 
 // dockerDriverBuilder names the builder to build through: the one
@@ -425,6 +447,9 @@ func dockerDriverBuilder(t *testing.T) string {
 
 func (e *e2e) run(name string, args ...string) string {
 	e.t.Helper()
+	if name == "docker" && e.dockerConfig != "" {
+		args = append([]string{"--config", e.dockerConfig}, args...)
+	}
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(e.t, err, "%s %s\n%s", name, strings.Join(args, " "), out)

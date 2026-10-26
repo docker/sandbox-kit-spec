@@ -416,12 +416,14 @@ sources. The frontend selects the descriptor matching the published
 annotation, read at the same digest and platform as the image being
 composed. It keeps the inherited sources in the result.
 
-This extra manifest lookup is anonymous. The gateway does not expose
-manifest annotations or pass the builder's registry credentials, mirrors,
-or custom certificate configuration to the frontend's registry client.
-Images with several staged descriptors therefore need metadata reachable
-without those settings. Images with one staged descriptor keep using
-their staged copy without an extra registry request.
+Manifest reads use BuildKit's registry resolver, including the build
+session's credentials and the builder's mirrors and certificate settings.
+Images with one staged descriptor use their staged copy without an extra
+manifest request.
+
+Multi-descriptor composition needs BuildKit's image-blob source to
+negotiate OCI manifest types. The negotiation fix is tracked in
+[moby/buildkit#7324](https://github.com/moby/buildkit/pull/7324).
 
 Multi-platform builds produce an image index with the descriptor annotation
 on every platform manifest:
