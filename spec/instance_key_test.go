@@ -313,3 +313,30 @@ func ExampleInstanceKeyOf() {
 	// instance com.docker.sandbox/volume@1 [/data/cache]
 	// singleton
 }
+
+// Quoted YAML and JSON escape the whitespace an arg reference may hold
+// inside its braces, so the gates that refuse a leftover reference read
+// decoded strings: such an entry defers typed validation like any
+// parameterized one, and only these gates stand between it and a port
+// whose container is still a string.
+func TestLeftoverArgReferencesSpelledWithWhitespaceAreRefused(t *testing.T) {
+	const entry = `type: com.docker.sandbox/port@1
+    config: {container: "${{\tkit.args.port\n}}"}`
+	for name, capabilities := range map[string]string{
+		"ordinary entry": "  - " + entry,
+		"group member":   "  - group:\n      optional: true\n      capabilities:\n        - " + strings.ReplaceAll(entry, "\n    ", "\n          "),
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := []byte("schemaVersion: \"3\"\nkind: mixin\nversion: \"1.0.0\"\nargs:\n  port:\n    default: \"8080\"\ncapabilities:\n" + capabilities + "\n")
+			require.NotContains(t, ReferencedArgs(raw), "port", "the raw bytes hide the reference")
+			d, err := Decode(raw)
+			require.NoError(t, err)
+
+			_, err = ValidateEffective(raw, d)
+			require.ErrorContains(t, err, "still references kit args [port]")
+
+			_, err = SelectCapabilities(t.Context(), "kit", d, Supported(CapabilityPort))
+			require.ErrorContains(t, err, "still contains unresolved arguments")
+		})
+	}
+}

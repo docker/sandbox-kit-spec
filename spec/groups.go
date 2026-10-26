@@ -402,7 +402,7 @@ func SelectCapabilities(ctx context.Context, reference string, d *Descriptor, se
 		if err != nil {
 			return result, fmt.Errorf("select capabilities: capabilities[%d]: %w", i, err)
 		}
-		if argRef.Match(raw) {
+		if argRef.Match(raw) || len(capabilityArgRefs([]Capability{item})) > 0 {
 			return result, fmt.Errorf("select capabilities: capabilities[%d] still contains unresolved arguments", i)
 		}
 	}
