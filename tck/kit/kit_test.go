@@ -732,6 +732,21 @@ func TestAMergedSetCarriesItsKitsProvides(t *testing.T) {
 	require.Contains(t, got["merged-set-declarations"].Detail, "provides gh@1.0.0")
 }
 
+func TestMergedSetDeclarationsAllowDerivedIntersection(t *testing.T) {
+	merged := &spec.Descriptor{Provides: []string{"shell@1.0.0", "deb/common@1.0"}}
+	kits := []spec.Contribution{
+		{Reference: "shell", Descriptor: &spec.Descriptor{Provides: []string{"shell@1.0.0", "deb/common@1.0", "deb/only-here@1.0"}}},
+		{Reference: "extra", Descriptor: &spec.Descriptor{Integrates: []string{"deb/only-here >= 1.0"}}},
+	}
+	merged.Integrates = []string{"deb/only-here >= 1.0"}
+	require.Empty(t, judgeMergedDeclarations(merged, kits),
+		"a package absent from the intersection neither carries over nor satisfies a relation")
+
+	merged.Provides = append(merged.Provides, "deb/only-here@1.0")
+	require.NotEmpty(t, judgeMergedDeclarations(merged, kits),
+		"a retained package still satisfies internal relations, which must be dropped")
+}
+
 // A merged kit ships its kits' content, so it reports their terms.
 func TestAMergedSetCarriesItsKitsLicenses(t *testing.T) {
 	a := mergedSet(t, "shell")

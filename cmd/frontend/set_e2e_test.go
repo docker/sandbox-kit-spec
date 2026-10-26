@@ -233,6 +233,10 @@ kits:
 		child.volumeSet(frontend, registry)
 	})
 
+	t.Run("platform package intersection", func(t *testing.T) {
+		(&e2e{t: t, builder: e.builder}).platformPackageSet(frontend, registry)
+	})
+
 	t.Run("inherited kit sources", func(t *testing.T) {
 		child := &e2e{t: t, builder: e.builder}
 		child.inheritedSourcesSet(frontend, registry)
@@ -320,6 +324,105 @@ kits:
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{name, name + "-set"}, stems,
 			"set publication preserves the listed kit's descriptor beside its own")
+	}
+}
+
+// Separate platform publications each derive a truthful local inventory.
+// Combining them into an index does not reconcile their descriptors; the
+// set must intersect that inventory before resolving its dependencies.
+func (e *e2e) platformPackageSet(frontend, registry string) {
+	t := e.t
+	dir := t.TempDir()
+	baseRef := registry + "/sbx-kit-platform"
+	descriptor := `# syntax=` + frontend + `
+schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+provides: [e2e-platform@1.0.0]
+build: |
+  FROM scratch
+  ARG TARGETARCH
+  COPY status-${TARGETARCH} /var/lib/dpkg/status
+  CMD ["unused"]
+`
+	status := func(arch, version string) string {
+		return "Package: common\nStatus: install ok installed\nVersion: 1.0-1\n\n" +
+			"Package: moved\nStatus: install ok installed\nVersion: " + version + "-1\n\n" +
+			"Package: " + arch + "-only\nStatus: install ok installed\nVersion: 1.0-1\n\n"
+	}
+	files := map[string]string{"status-amd64": status("amd64", "2.0"), "status-arm64": status("arm64", "3.0")}
+	for _, arch := range []string{"amd64", "arm64"} {
+		e.publish(dir, "platform", baseRef+":"+arch, descriptor, files, "--platform=linux/"+arch)
+		raw := e.manifest(registry, "sbx-kit-platform", arch).Annotations[spec.AnnotationDescriptor]
+		d, err := spec.Decode([]byte(raw))
+		require.NoError(t, err)
+		require.Contains(t, d.Provides, "deb/"+arch+"-only@1.0")
+	}
+	e.run("docker", "buildx", "imagetools", "create", "--tag", baseRef+":1.0.0", baseRef+":amd64", baseRef+":arm64")
+
+	setDescriptor := `# syntax=` + frontend + `
+schemaVersion: "3"
+kind: set
+version: "1.0.0"
+kits:
+  - ref: ` + baseRef + `:1.0.0
+`
+	setRef := registry + "/sbx-kit-platform-set:1.0.0"
+	e.publish(dir, "platform-set", setRef, setDescriptor, nil, "--platform=linux/amd64,linux/arm64")
+	artifacts, err := tckkit.FromRegistryAll(t.Context(), setRef)
+	require.NoError(t, err)
+	require.Len(t, artifacts, 2)
+	var first string
+	for _, artifact := range artifacts {
+		raw := artifact.Annotations()[spec.AnnotationDescriptor]
+		if first == "" {
+			first = raw
+		}
+		require.Equal(t, first, raw, "both platform manifests publish the same descriptor")
+		d, err := spec.Decode([]byte(raw))
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{"e2e-platform@1.0.0", "deb/common@1.0"}, d.Provides)
+		report, err := tckkit.Run(t.Context(), artifact)
+		require.NoError(t, err)
+		require.NoError(t, report.Err(), "the published set conforms:\n%s", report)
+	}
+
+	// The workload publisher already takes this same intersection when
+	// both platforms are available in one build.
+	e.publish(dir, "platform", baseRef+":together", descriptor, files, "--platform=linux/amd64,linux/arm64")
+	artifacts, err = tckkit.FromRegistryAll(t.Context(), baseRef+":together")
+	require.NoError(t, err)
+	require.Len(t, artifacts, 2)
+	for _, artifact := range artifacts {
+		d, err := spec.Decode([]byte(artifact.Annotations()[spec.AnnotationDescriptor]))
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{"e2e-platform@1.0.0", "deb/common@1.0"}, d.Provides)
+	}
+
+	e.publish(dir, "platform-set", registry+"/sbx-kit-platform-set:single", setDescriptor, nil, "--platform=linux/arm64")
+	d, err := spec.Decode([]byte(e.manifest(registry, "sbx-kit-platform-set", "single").Annotations[spec.AnnotationDescriptor]))
+	require.NoError(t, err)
+	require.Contains(t, d.Provides, "deb/arm64-only@1.0", "a single-platform set keeps its platform's inventory")
+
+	// An optional integration on a dropped package remains external,
+	// rather than being satisfied on just the platform that carries it.
+	e.publish(dir, "platform-extra", registry+"/sbx-kit-platform-extra:1.0.0", `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: mixin
+integrates: ["deb/arm64-only >= 1.0"]
+`, nil)
+	setDescriptor += "  - ref: " + registry + "/sbx-kit-platform-extra:1.0.0\n"
+	e.publish(dir, "platform-set", registry+"/sbx-kit-platform-set:integration", setDescriptor, nil, "--platform=linux/amd64,linux/arm64")
+	artifacts, err = tckkit.FromRegistryAll(t.Context(), registry+"/sbx-kit-platform-set:integration")
+	require.NoError(t, err)
+	require.Len(t, artifacts, 2)
+	for _, artifact := range artifacts {
+		d, err := spec.Decode([]byte(artifact.Annotations()[spec.AnnotationDescriptor]))
+		require.NoError(t, err)
+		require.Equal(t, []string{"deb/arm64-only >= 1.0"}, d.Integrates)
+		report, err := tckkit.Run(t.Context(), artifact)
+		require.NoError(t, err)
+		require.NoError(t, report.Err(), "the retained integration conforms:\n%s", report)
 	}
 }
 

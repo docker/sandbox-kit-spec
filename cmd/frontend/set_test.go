@@ -131,6 +131,81 @@ func TestSameDeclarations(t *testing.T) {
 	require.Error(t, sameDeclarations(a, b))
 }
 
+func TestSetIntersectsDerivedProvidesBeforeResolution(t *testing.T) {
+	amd64 := &spec.Descriptor{
+		SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
+		Provides: []string{"claude@2.1.296", "deb/bash@5.2.37", "deb/gcc-x86-64-linux-gnu@14.2.0", "deb/libquadmath0@14.2.0", "deb/moved@1.0", "apk/zlib@1.3.1"},
+	}
+	arm64 := &spec.Descriptor{
+		SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
+		Provides: []string{"apk/zlib@1.3.1", "deb/gcc-aarch64-linux-gnu@14.2.0", "deb/moved@2.0", "claude@2.1.296", "deb/bash@5.2.37"},
+	}
+	kits := [][]resolvedKit{
+		{{reference: "claude", descriptor: amd64}},
+		{{reference: "claude", descriptor: arm64}},
+	}
+	intersectDerivedProvides(kits)
+	for _, platform := range kits {
+		require.Equal(t, []string{"claude@2.1.296", "apk/zlib@1.3.1", "deb/bash@5.2.37"}, platform[0].descriptor.Provides)
+	}
+	require.NoError(t, sameDeclarations(kits[0][0].descriptor, kits[1][0].descriptor))
+	require.Contains(t, amd64.Provides, "deb/libquadmath0@14.2.0", "the published source descriptor stays intact")
+	require.Contains(t, arm64.Provides, "deb/gcc-aarch64-linux-gnu@14.2.0")
+
+	// Dropping after the merge would let these requirements disappear as
+	// satisfied on one platform, leaving a set that promises too little.
+	for _, platform := range kits {
+		consumer := resolved("consumer", spec.KindMixin, ocispecs.ImageConfig{})
+		consumer.descriptor.Requires = []string{"deb/libquadmath0 >= 14.0"}
+		_, err := orderKits(append(platform, consumer), &spec.Descriptor{})
+		require.Error(t, err, "an architecture-only package cannot satisfy a set member")
+		consumer.descriptor.Requires = []string{"deb/bash >= 5.0"}
+		_, err = orderKits(append(platform, consumer), &spec.Descriptor{})
+		require.NoError(t, err, "common packages still satisfy dependencies")
+	}
+}
+
+func TestSetDerivedIntersectionUsesEveryPlatformAndEachKit(t *testing.T) {
+	var kits [][]resolvedKit
+	for range 3 {
+		kits = append(kits, []resolvedKit{
+			{descriptor: &spec.Descriptor{Provides: []string{"deb/common@1.0", "deb/partial@1.0"}}},
+			{descriptor: &spec.Descriptor{Provides: []string{"apk/other@1.0"}}},
+		})
+	}
+	kits[2][0].descriptor.Provides = []string{"deb/common@1.0"}
+	// A different kit providing the missing entry does not establish
+	// agreement for the kit whose inventory is being intersected.
+	kits[2][1].descriptor.Provides = append(kits[2][1].descriptor.Provides, "deb/partial@1.0")
+	intersectDerivedProvides(kits)
+	for _, platform := range kits {
+		require.Equal(t, []string{"deb/common@1.0"}, platform[0].descriptor.Provides)
+		require.Equal(t, []string{"apk/other@1.0"}, platform[1].descriptor.Provides)
+	}
+}
+
+func TestSetDerivedIntersectionPreservesOtherDifferences(t *testing.T) {
+	a := &spec.Descriptor{Provides: []string{"claude@1.0", "deb/bash@5.2"}, Licenses: []string{"MIT"}}
+	b := &spec.Descriptor{Provides: []string{"claude@2.0"}, Licenses: []string{"Apache-2.0"}}
+	kits := [][]resolvedKit{{{descriptor: a}}, {{descriptor: b}}}
+	intersectDerivedProvides(kits)
+	require.Equal(t, []string{"claude@1.0"}, kits[0][0].descriptor.Provides)
+	require.Equal(t, []string{"claude@2.0"}, kits[1][0].descriptor.Provides)
+	require.Error(t, sameDeclarations(kits[0][0].descriptor, kits[1][0].descriptor))
+	// Even when authored provides agree, other declarations cannot vary.
+	kits[1][0].descriptor.Provides = []string{"claude@1.0"}
+	require.Error(t, sameDeclarations(kits[0][0].descriptor, kits[1][0].descriptor))
+}
+
+func TestSetSinglePlatformRetainsDerivedProvides(t *testing.T) {
+	d := &spec.Descriptor{Provides: []string{"deb/only-here@1.0", "claude@1.0"}}
+	kits := [][]resolvedKit{{{descriptor: d}}}
+	intersectDerivedProvides(kits)
+	require.Same(t, d, kits[0][0].descriptor)
+	require.Equal(t, []string{"deb/only-here@1.0", "claude@1.0"}, d.Provides)
+	intersectDerivedProvides(nil)
+}
+
 // The merged descriptor stages as YAML like any other kit's sources, and
 // carries only the fields the merge actually set.
 func TestMarshalDescriptorYAML(t *testing.T) {

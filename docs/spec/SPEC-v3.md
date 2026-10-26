@@ -1067,7 +1067,13 @@ one entry per installed package:
   section exists to stop.
 - A set does not re-derive. Its merged descriptor carries its Kits'
   entries through the `provides` union, and the workload among them
-  already read its own filesystem.
+  already read its own filesystem. When listed Kits were published per
+  platform and combined into an index, apply the same intersection to
+  each Kit's derived entries across the set's target platforms before
+  dependency resolution and merging. Keep an entry only when both its
+  package name and published version agree; other declarations still
+  agree across platforms. A single-platform build retains that
+  platform's entries.
 
 Derived entries do not vote on
 `org.opencontainers.image.version` ([§9.3](#93-annotations)): a Debian
