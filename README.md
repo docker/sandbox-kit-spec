@@ -410,6 +410,19 @@ written in. See [§3.4](docs/spec/SPEC-v3.md#34-kit-set) for the
 grammar and [§9.5](docs/spec/SPEC-v3.md#95-merging-a-set) for what the
 merge does with each declaration.
 
+A listed image can carry several staged descriptors: a workload may
+inherit sources through `FROM`, and a merged set carries its members'
+sources. The frontend selects the descriptor matching the published
+annotation, read at the same digest and platform as the image being
+composed. It keeps the inherited sources in the result.
+
+This extra manifest lookup is anonymous. The gateway does not expose
+manifest annotations or pass the builder's registry credentials, mirrors,
+or custom certificate configuration to the frontend's registry client.
+Images with several staged descriptors therefore need metadata reachable
+without those settings. Images with one staged descriptor keep using
+their staged copy without an extra registry request.
+
 Multi-platform builds produce an image index with the descriptor annotation
 on every platform manifest:
 

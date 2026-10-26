@@ -729,7 +729,7 @@ func resolveKit(ctx context.Context, c gwclient.Client, k spec.Kit, p ocispecs.P
 	}
 
 	state := llb.Image(pinned, llb.Platform(p), llb.WithCustomName("[kit] "+k.Ref))
-	published, stem, err := readKitDescriptor(ctx, c, state, p)
+	published, stem, err := readKitDescriptor(ctx, c, state, p, pinned)
 	if err != nil {
 		return nil, err
 	}
@@ -762,23 +762,12 @@ func resolveKit(ctx context.Context, c gwclient.Client, k spec.Kit, p ocispecs.P
 // readKitDescriptor reads one listed kit's published descriptor out of
 // the sources every kit stages into its own filesystem.
 //
-// The staged copy is the only place a frontend can read it: BuildKit
-// resolves an image's config, never its manifest annotations. It is the
-// same document — the staged-sources conformance check asserts the two
-// agree — so a kit that went through any conforming publisher carries
-// it, and one that does not is not a kit this set can compose.
-//
-// Several staged roots mean the kit was itself built from kits, and
-// only one of them describes what this reference names. Nothing in the
-// filesystem says which: a merged set's own root is the one carrying
-// kits:, but a kit built FROM a merged set has exactly the same shape
-// with the answer being the other root. Telling them apart needs the
-// artifact's own identity, which lives in the manifest annotation a
-// frontend cannot read. So the ambiguity is refused rather than
-// guessed — merging against the wrong kit's declarations would publish
-// policy nobody wrote, and the remedy (list the underlying kits) is
-// one the author can act on.
-func readKitDescriptor(ctx context.Context, c gwclient.Client, state llb.State, p ocispecs.Platform) (*spec.Descriptor, string, error) {
+// A single staged root needs no extra registry access. Several roots
+// occur in merged sets and in workloads built FROM another kit; the
+// published annotation identifies which descriptor this reference names.
+// Matching that document, rather than a directory name or the presence
+// of kits:, keeps an inherited base's policy out of the contribution.
+func readKitDescriptor(ctx context.Context, c gwclient.Client, state llb.State, p ocispecs.Platform, pinned string) (*spec.Descriptor, string, error) {
 	def, err := state.Marshal(ctx, llb.Platform(p))
 	if err != nil {
 		return nil, "", err
@@ -820,8 +809,12 @@ func readKitDescriptor(ctx context.Context, c gwclient.Client, state llb.State, 
 	}
 
 	if len(found) > 1 {
-		return nil, "", fmt.Errorf("carries staged sources for %d kits (%s), so which of them this reference names cannot be read from the image — list those kits directly instead of the kit that merged them",
-			len(found), strings.Join(found, ", "))
+		published, err := resolvePublishedDescriptor(ctx, c, pinned, p)
+		if err != nil {
+			return nil, "", fmt.Errorf("identify the published descriptor among %d staged kits (%s): %w",
+				len(found), strings.Join(found, ", "), err)
+		}
+		return matchStagedDescriptor(published, staged)
 	}
 
 	stem := found[0]
