@@ -3,7 +3,11 @@
 # and the hardened catalog carries no nix toolchain, so this build stage
 # stays on the upstream image. Nothing from it reaches the overlay: the
 # final stage is scratch and copies only the closure nix produced.
-FROM nixos/nix:2.35.2 AS build
+# Nix crashes under amd64 emulation on arm64 builders. Evaluate natively
+# and select the target package explicitly; its cached closure carries
+# the target architecture without running target binaries here.
+FROM --platform=$BUILDPLATFORM nixos/nix:2.35.2 AS build
+ARG TARGETARCH
 WORKDIR /src
 # The pinned commit in the input URL is the version authority, and the
 # descriptor's `provides` reports what it resolves to. Pin a full commit
@@ -21,7 +25,19 @@ COPY <<'EOF' flake.nix
     };
 }
 EOF
-RUN nix --extra-experimental-features 'nix-command flakes' build .
+# A builder behind a TLS proxy can supply its CA as the optional nix-ca
+# secret. It stays in this step and out of the published closure.
+RUN --mount=type=secret,id=nix-ca \
+    if [ -f /run/secrets/nix-ca ]; then \
+      export NIX_SSL_CERT_FILE=/run/secrets/nix-ca; \
+    fi \
+ && case "$TARGETARCH" in \
+      amd64) system=x86_64-linux ;; \
+      arm64) system=aarch64-linux ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+ && nix --extra-experimental-features 'nix-command flakes' build \
+      ".#packages.${system}.default"
 RUN mkdir -p /out/nix/store /out/usr/local/bin \
  && cp -a $(nix-store --query --requisites result) /out/nix/store/ \
  && ln -s "$(readlink -f result)/bin/gh" /out/usr/local/bin/gh
