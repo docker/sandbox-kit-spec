@@ -20,27 +20,11 @@ import (
 )
 
 func main() {
-	supportedTypes := flag.String("supported-types", strings.Join(spec.KnownCapabilities(), ","), "comma-separated capability types to accept in this preview")
+	supportedTypes := flag.String("supported-types", "", "comma-separated capability types to accept (default: library selection policy)")
 	allowVolumes := flag.Bool("allow-volumes", true, "simulate host policy allowing persistent volumes")
 	flag.Parse()
 
-	claimed := strings.Split(*supportedTypes, ",")
-	for i := range claimed {
-		claimed[i] = strings.TrimSpace(claimed[i])
-	}
-	supported := spec.Supported(claimed...)
-	selectCapability := func(ctx context.Context, target spec.SelectionTarget, kit spec.Descriptor, capability spec.Capability) spec.CapabilityDecision {
-		if decision := supported(ctx, target, kit, capability); !decision.Accepted {
-			return decision
-		}
-		// A real runtime uses host availability and policy here. The full
-		// entry includes expanded config and kit.DisplayName labels the owning
-		// Kit; deciding must not apply effects.
-		if capability.Type == spec.CapabilityVolume && !*allowVolumes {
-			return spec.CapabilityDecision{Message: "persistent volumes disabled by host policy"}
-		}
-		return spec.CapabilityDecision{Accepted: true}
-	}
+	selectCapability := capabilitySelector(*supportedTypes, *allowVolumes)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -50,6 +34,28 @@ func main() {
 		// Validation errors already include source excerpts and locations.
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func capabilitySelector(supportedTypes string, allowVolumes bool) spec.SelectCapability {
+	supported := fetch.DefaultCapabilitySelector
+	if supportedTypes != "" {
+		claimed := strings.Split(supportedTypes, ",")
+		for i := range claimed {
+			claimed[i] = strings.TrimSpace(claimed[i])
+		}
+		supported = spec.Supported(claimed...)
+	}
+	return func(ctx context.Context, target spec.SelectionTarget, kit spec.Descriptor, capability spec.Capability) spec.CapabilityDecision {
+		if decision := supported(ctx, target, kit, capability); !decision.Accepted {
+			return decision
+		}
+		// A real runtime uses host availability and policy here. Deciding must
+		// not apply effects: an enclosing optional group may still be skipped.
+		if capability.Type == spec.CapabilityVolume && !allowVolumes {
+			return spec.CapabilityDecision{Message: "persistent volumes disabled by host policy"}
+		}
+		return spec.CapabilityDecision{Accepted: true}
 	}
 }
 

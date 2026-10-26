@@ -354,7 +354,7 @@ func Units(kits []*Kit) ([]*resolve.Unit, error) {
 }
 
 func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, partial bool, opts ...ResolveOption) (*Resolved, error) {
-	options := resolveOptions{selector: spec.Supported(spec.KnownCapabilities()...)}
+	options := resolveOptions{selector: DefaultCapabilitySelector}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)

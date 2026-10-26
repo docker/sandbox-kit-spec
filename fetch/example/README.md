@@ -21,13 +21,17 @@ go run ./fetch/example <<'JSON'
 JSON
 ```
 
-The preview accepts library-known types by default. Use
+The preview uses `fetch.DefaultCapabilitySelector`: it accepts library-known
+types and prefers `agent-context@2` when a Kit offers both optional
+versions. Legacy-only Kits and required `@1` requests retain `@1`. Use
 `-supported-types=type1,type2` to supply a runtime's actual supported
 types. Add `-allow-volumes=false` to simulate a host rejecting persistent
 storage: an optional cache group then contributes neither its volume nor
 its lifecycle configuration file. A required rejected entry or group
-fails resolution. These flags control the preview; it does not inspect
-the host or apply capabilities.
+fails resolution. An explicit type list replaces the default policy;
+claim one context version to avoid selecting incompatible versions.
+These flags control the preview; it does not inspect the host or apply
+capabilities.
 
 ## One-call API
 
@@ -51,10 +55,15 @@ if err != nil {
 }
 ```
 
-`fetch.Options{}` loads registry metadata and accepts all capability
-types the library knows, without reading or validating layers. That
-default is not a claim that a runtime implements every type: supply its
-actual supported types or a policy callback. A callback has signature
+`fetch.Options{}` loads registry metadata and uses
+`fetch.DefaultCapabilitySelector`, without reading or validating layers.
+The same selector is the default for `Client.Resolve` and
+`Client.ResolvePartial`. It chooses one context version within each Kit;
+incompatible context versions from different Kits still fail composition.
+This default is not a claim that a runtime implements every type: supply
+its actual supported types or a policy callback that selects one context
+version across the set. Custom callbacks replace the default. A callback
+has signature
 `func(context.Context, spec.SelectionTarget, spec.Descriptor, spec.Capability) spec.CapabilityDecision`.
 It receives the operation context, a target, and the owning Kit's expanded
 descriptor, including `DisplayName` and all declarations before
