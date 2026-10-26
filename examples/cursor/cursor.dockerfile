@@ -9,11 +9,19 @@
 # version: together.
 FROM dhi.io/sbx-templates:cursor-agent-docker@sha256:6e72111ba6e9d44f02c2a29f479a8b7f1e6f4b3a50bf5e94ff7e06b0cbdc3ae8
 ARG CURSOR_AGENT_BUILD=2026.10.22-27dcf5f
-# A scratch HOME, so asking for the version leaves no state in the image.
-RUN scratch=$(mktemp -d) \
- && got=$(HOME="$scratch" cursor-agent --version) \
- && rm -rf "$scratch" \
- && { [ "$got" = "${CURSOR_AGENT_BUILD}" ] || { echo "cursor-agent is $got, expected ${CURSOR_AGENT_BUILD}" >&2; exit 1; }; }
+ARG BUILDARCH
+ARG TARGETARCH
+# Check the installed release on every target. QEMU cannot map the amd64
+# SQLite addon on 16 KiB arm64 hosts, so execute the CLI only on native
+# builds. A scratch HOME keeps the version check out of the agent's state.
+RUN test "$(readlink -f "$(command -v cursor-agent)")" = \
+      "/home/agent/.local/share/cursor-agent/versions/${CURSOR_AGENT_BUILD}/cursor-agent" \
+ && if [ "$BUILDARCH" = "$TARGETARCH" ]; then \
+      scratch=$(mktemp -d) \
+      && got=$(HOME="$scratch" cursor-agent --version) \
+      && rm -rf "$scratch" \
+      && { [ "$got" = "${CURSOR_AGENT_BUILD}" ] || { echo "cursor-agent is $got, expected ${CURSOR_AGENT_BUILD}" >&2; exit 1; }; }; \
+    fi
 # v2's environment.variables. AGENT_CLI_CREDENTIAL_STORE=memory keeps
 # cursor from validating a file-backed sentinel and re-prompting login;
 # auth bootstraps through the environment when host OAuth creds exist.
