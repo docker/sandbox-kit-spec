@@ -567,7 +567,7 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 				if err := storage.add(reference, item); err != nil {
 					return nil, err
 				}
-				key, err := storage.instanceKey(reference, item)
+				key, err := mergeInstanceKey(reference, item)
 				if err != nil {
 					return nil, err
 				}

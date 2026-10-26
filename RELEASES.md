@@ -97,6 +97,13 @@ that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new
 capability version, and the old contract remains published.
 
+The §7.1 instance key is part of that capability contract. The Go
+`spec.InstanceKey` API exports its key space and ordered parts for
+integrations that retain entry identities. Changing a shipped type's key
+space, part order, or normalization is a breaking capability change,
+subject to the same versioning rule and draft-stage exception. Its
+encoding stays stable for that version of the type.
+
 Adding a whole new capability type is additive and moves nothing.
 
 ## Frontend image
