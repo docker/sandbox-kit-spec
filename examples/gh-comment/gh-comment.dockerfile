@@ -51,8 +51,10 @@
 #             - {domain: uploads.github.com, header: Authorization, format: "Bearer %s"}
 #             - {domain: github.com, header: Authorization, format: "Bearer %s"}
 #
-#     - type: com.docker.sandbox/agent-context@2
-#       config:
+#     # Offer both versions during the runtime rollout; select one.
+#     - type: com.docker.sandbox/agent-context@1
+#       optional: true
+#       config: &agent-context
 #         content: |
 #           # GitHub CLI
 #
@@ -66,6 +68,10 @@
 #           - Prefer `gh` over raw git for GitHub operations: `gh pr create`,
 #             `gh issue list`, `gh run watch`, `gh api` for anything without a
 #             dedicated subcommand.
+#
+#     - type: com.docker.sandbox/agent-context@2
+#       optional: true
+#       config: *agent-context
 
 # The second stanza names the content's own frontend; everything from it
 # down is what the kit frontend hands on as the recipe.

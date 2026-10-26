@@ -40,8 +40,48 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 			require.NoError(t, err)
 			d, err := Decode(raw)
 			require.NoError(t, err)
-			_, err = ValidateRaw(raw, d)
+			_, err = ValidateDeclarations(raw, d)
 			require.NoError(t, err)
+			contexts := map[string]Capability{}
+			for _, c := range DeclaredCapabilities(d.Capabilities) {
+				if c.Type == CapabilityAgentContext || c.Type == CapabilityAgentContextV2 {
+					require.True(t, c.Optional, "context versions must remain optional during rollout")
+					contexts[c.Type] = c
+				}
+			}
+			if len(contexts) > 0 {
+				require.Len(t, contexts, 2, "offer legacy and modern context")
+				require.Equal(t, contexts[CapabilityAgentContext].Config, contexts[CapabilityAgentContextV2].Config)
+				values, err := ResolveArgs(d.Args, nil)
+				require.NoError(t, err)
+				expanded, err := ExpandBuildArgs(raw, d.Args, values)
+				require.NoError(t, err)
+				expanded, err = ExpandCreateArgs(expanded, d.Args, values)
+				require.NoError(t, err)
+				d, err = Decode(expanded)
+				require.NoError(t, err)
+				for _, version := range []string{CapabilityAgentContext, CapabilityAgentContextV2} {
+					selected := selectExampleContext(t, d, version)
+					require.True(t, HasCapability(selected.Capabilities, version))
+				}
+			}
 		})
 	}
+}
+
+// Model a runtime that supports one context version and the other example
+// capabilities. Selection must precede composition, even for a single Kit.
+func selectExampleContext(t *testing.T, d *Descriptor, version string) *Descriptor {
+	t.Helper()
+	var supported []string
+	for _, typ := range KnownCapabilities() {
+		if typ != CapabilityAgentContext && typ != CapabilityAgentContextV2 || typ == version {
+			supported = append(supported, typ)
+		}
+	}
+	selection, err := SelectCapabilities(t.Context(), "example", d, Supported(supported...))
+	require.NoError(t, err)
+	selected := *d
+	selected.Capabilities = selection.Capabilities
+	return &selected
 }

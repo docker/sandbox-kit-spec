@@ -88,6 +88,13 @@ func TestExampleSetsResolveAndMerge(t *testing.T) {
 			_, err = spec.ValidatePublished(raw, merged)
 			require.NoError(t, err, "the merged descriptor is not a valid published kit")
 
+			for _, version := range []string{spec.CapabilityAgentContext, spec.CapabilityAgentContextV2} {
+				selected := selectExampleContext(t, merged, version)
+				effective, err := spec.Compose([]spec.Contribution{{Reference: descriptor, Descriptor: selected}})
+				require.NoError(t, err, "published set must compose after selecting %s", version)
+				require.True(t, spec.HasCapability(effective.Capabilities, version))
+			}
+
 			require.Empty(t, merged.Requires,
 				"a set example should answer its own requirements; %s leaves %v open", descriptor, merged.Requires)
 		})
@@ -183,18 +190,37 @@ func exampleFor(t *testing.T, ref string) string {
 func TestShellComposesWithBundledSkills(t *testing.T) {
 	shell := publishedForm(t, filepath.Join("..", "..", "examples", "shell", "shell.yaml"))
 	skills := publishedForm(t, filepath.Join("..", "..", "skills", "skills.yaml"))
-	composed, err := spec.Compose([]spec.Contribution{
-		{Reference: "shell", Descriptor: shell},
-		{Reference: "skills", Descriptor: skills},
-	})
-	require.NoError(t, err)
-	profiles, err := spec.AgentContextsV2Of(composed.Capabilities)
-	require.NoError(t, err)
-	require.Len(t, profiles, 1)
-	require.Equal(t, "AGENTS.md", profiles[0].Filename)
-	require.Contains(t, profiles[0].Content, "Kit authoring skills")
-	require.Contains(t, profiles[0].Content, "/usr/share/kit-skills/create-kit-v3/SKILL.md")
-	shellProfiles, err := spec.AgentContextsV2Of(shell.Capabilities)
-	require.NoError(t, err)
-	require.Contains(t, profiles[0].Content, shellProfiles[0].Content)
+	for _, version := range []string{spec.CapabilityAgentContext, spec.CapabilityAgentContextV2} {
+		t.Run(version, func(t *testing.T) {
+			selectedShell := selectExampleContext(t, shell, version)
+			selectedSkills := selectExampleContext(t, skills, version)
+			contributions := []spec.Contribution{
+				{Reference: "shell", Descriptor: selectedShell},
+				{Reference: "skills", Descriptor: selectedSkills},
+			}
+			composed, err := spec.Compose(contributions)
+			require.NoError(t, err)
+			if version == spec.CapabilityAgentContext {
+				profiles, err := spec.AgentContextsOf(composed.Capabilities)
+				require.NoError(t, err)
+				require.Len(t, profiles, 1)
+				require.Equal(t, "AGENTS.md", profiles[0].Filename)
+				merged, err := spec.Merge(contributions, spec.MergeOptions{ContextPath: "/kit/context.md"})
+				require.NoError(t, err)
+				require.Len(t, merged.ContextSources, 2)
+				require.Contains(t, merged.ContextSources[1].Content, "Kit authoring skills")
+				require.Contains(t, merged.ContextSources[1].Content, "/usr/share/kit-skills/create-kit-v3/SKILL.md")
+				return
+			}
+			profiles, err := spec.AgentContextsV2Of(composed.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, profiles, 1)
+			require.Equal(t, "AGENTS.md", profiles[0].Filename)
+			require.Contains(t, profiles[0].Content, "Kit authoring skills")
+			require.Contains(t, profiles[0].Content, "/usr/share/kit-skills/create-kit-v3/SKILL.md")
+			shellProfiles, err := spec.AgentContextsV2Of(selectedShell.Capabilities)
+			require.NoError(t, err)
+			require.Contains(t, profiles[0].Content, shellProfiles[0].Content)
+		})
+	}
 }

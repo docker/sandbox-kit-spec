@@ -42,8 +42,10 @@ kits:
 
 # Explain the resolved composition and the two ways to invoke Codex.
 capabilities:
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: AGENTS.md
       directory: /home/agent/.codex
       content: |
@@ -65,3 +67,7 @@ capabilities:
         The adapter opens no sockets of its own. Its egress and OpenAI credential
         are the ones Codex already has, so the merged policy does not need a
         second copy of either declaration.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

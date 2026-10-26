@@ -292,20 +292,39 @@ func TestExampleAgentMixinsComposeOnOneShell(t *testing.T) {
 		require.NoError(t, err)
 		return Contribution{Reference: name, Descriptor: d}
 	}
-	composed, err := Compose([]Contribution{load("shell"), load("claude-mixin"), load("codex-mixin")})
-	require.NoError(t, err)
-	profiles, err := AgentContextsV2Of(composed.Capabilities)
-	require.NoError(t, err)
-	require.Len(t, profiles, 2)
-	require.NotEmpty(t, profiles[0].Content)
-	require.Equal(t, profiles[0].Content, profiles[1].Content)
-	for i := range profiles {
-		profiles[i].Content = ""
+	for _, version := range []string{CapabilityAgentContext, CapabilityAgentContextV2} {
+		t.Run(version, func(t *testing.T) {
+			var contributions []Contribution
+			for _, name := range []string{"shell", "claude-mixin", "codex-mixin"} {
+				c := load(name)
+				c.Descriptor = selectExampleContext(t, c.Descriptor, version)
+				contributions = append(contributions, c)
+			}
+			composed, err := Compose(contributions)
+			require.NoError(t, err)
+			var profiles []AgentContextV2
+			if version == CapabilityAgentContextV2 {
+				profiles, err = AgentContextsV2Of(composed.Capabilities)
+				require.NoError(t, err)
+				require.Len(t, profiles, 2)
+				require.NotEmpty(t, profiles[0].Content)
+				require.Equal(t, profiles[0].Content, profiles[1].Content)
+			} else {
+				legacy, err := AgentContextsOf(composed.Capabilities)
+				require.NoError(t, err)
+				for _, profile := range legacy {
+					profiles = append(profiles, AgentContextV2{Filename: profile.Filename, Directory: profile.Directory})
+				}
+			}
+			for i := range profiles {
+				profiles[i].Content = ""
+			}
+			require.Equal(t, []AgentContextV2{
+				{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"},
+				{Filename: "AGENTS.md", Directory: "/home/agent/.codex"},
+			}, profiles)
+		})
 	}
-	require.Equal(t, []AgentContextV2{
-		{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"},
-		{Filename: "AGENTS.md", Directory: "/home/agent/.codex"},
-	}, profiles)
 }
 
 func TestAgentContextArity(t *testing.T) {

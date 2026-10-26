@@ -81,8 +81,10 @@ capabilities:
             done < /home/agent/.ssh/github-ssh-known-hosts
           description: Merge GitHub host keys while preserving existing entries
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       content: |
         # GitHub over SSH
 
@@ -99,3 +101,7 @@ capabilities:
           host key checking.
         - The key belongs to the user. Push only what the user asked for, and say
           which commits you made.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

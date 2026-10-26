@@ -155,8 +155,10 @@ capabilities:
         inject:
           - {domain: api.x.ai, header: Authorization, format: "Bearer %s"}
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: AGENTS.md
       directory: /home/agent
       content: |
@@ -165,3 +167,7 @@ capabilities:
         This sandbox runs Docker Agent, a multi-provider coding agent. Every
         provider key is proxy-managed: the values in the environment are
         sentinels the egress proxy swaps at each provider's endpoints.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

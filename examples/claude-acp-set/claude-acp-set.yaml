@@ -54,8 +54,10 @@ kits:
 # the kits can say on its own, because none of them knows it was
 # composed with the others.
 capabilities:
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       filename: CLAUDE.md
       directory: /home/agent/.claude
       content: |
@@ -78,3 +80,7 @@ capabilities:
         The adapter opens no sockets of its own. Its egress and its Anthropic
         credential are the ones Claude Code already has, which is why the merged
         network policy names `api.anthropic.com` once rather than twice.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

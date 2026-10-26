@@ -39,8 +39,10 @@ capabilities:
     config:
       path: /usr/share/kit-skills/migrate-kit-to-v3
 
-  - type: com.docker.sandbox/agent-context@2
-    config:
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
       content: |
         ## Kit authoring skills
 
@@ -109,6 +111,10 @@ capabilities:
           entries override the base's. `/home` owned by uid 1000 hands away a
           directory the kit does not own; `/home/agent` owned by root takes `$HOME`
           from the agent user. `kit-tck validate` fails either.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
 
   # The skills link out to the spec, the capability pages and the example
   # kits, and none of that is on disk here — so without this the agent is
