@@ -3,7 +3,10 @@ package spec
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -17,10 +20,25 @@ import (
 
 // DecodeCapabilityConfig decodes one entry's config into a well-known type's
 // config struct, rejecting unknown fields.
+//
+// A field is known only by its exact name, as the capability schemas
+// state. encoding/json matches names case-insensitively, so without the
+// exact walk `Path` would decode as volume@1's path, while the validation
+// checks that read raw keys by exact name would see no path at all.
 func DecodeCapabilityConfig(n Capability, out any) error {
 	data, err := json.Marshal(n.Config)
 	if err != nil {
 		return fmt.Errorf("capability %s: encode config: %w", n.Type, err)
+	}
+	// Walk the JSON form rather than n.Config: a synthesized config can
+	// hold typed Go values ([]string, structs), which the walk would not
+	// recognize as the lists and objects they encode to.
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("capability %s: %w", n.Type, err)
+	}
+	if err := exactConfigFields(raw, reflect.TypeOf(out), ""); err != nil {
+		return fmt.Errorf("capability %s: %w", n.Type, err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -28,6 +46,136 @@ func DecodeCapabilityConfig(n Capability, out any) error {
 		return fmt.Errorf("capability %s: %w", n.Type, err)
 	}
 	return nil
+}
+
+// exactConfigFields refuses an object key, at any depth, that is not
+// exactly the JSON name of a field of the struct it decodes into. Map
+// keys are data, so only map values are walked, and a value of the wrong
+// shape is left for the decoder to report. Walking by shape also holds
+// for NetworkEntry, whose UnmarshalJSON decodes an object into its own
+// fields.
+func exactConfigFields(v any, t reflect.Type, at string) error {
+	if t == nil {
+		return nil // A nil target is the decoder's to refuse.
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		obj, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		fields, err := configFields(t)
+		if err != nil {
+			return err
+		}
+		for _, key := range slices.Sorted(maps.Keys(obj)) {
+			field, known := fields[key]
+			if !known {
+				return unknownConfigField(at, key, fields)
+			}
+			if err := exactConfigFields(obj[key], field, configPath(at, key)); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		obj, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		for _, key := range slices.Sorted(maps.Keys(obj)) {
+			if err := exactConfigFields(obj[key], t.Elem(), configPath(at, key)); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		list, ok := v.([]any)
+		if !ok {
+			return nil
+		}
+		for i, item := range list {
+			if err := exactConfigFields(item, t.Elem(), fmt.Sprintf("%s[%d]", at, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// configFields maps the JSON name of each field of struct t to the
+// field's type, named as encoding/json names it: by its tag, or by its Go
+// name when untagged; a field tagged "-" or unexported has none. An
+// embedded field is refused rather than modeled; no config type has one.
+func configFields(t reflect.Type) (map[string]reflect.Type, error) {
+	fields := map[string]reflect.Type{}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if f.Anonymous {
+			return nil, fmt.Errorf("config type %s embeds %s, which exact field checking does not model", t, f.Type)
+		}
+		tag := f.Tag.Get("json")
+		if !f.IsExported() || tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if name == "" {
+			name = f.Name
+		}
+		fields[name] = f.Type
+	}
+	return fields, nil
+}
+
+// unknownConfigFieldError is a config key that names no field. path is
+// the key's path within the config in the dotted form Positions uses, so
+// a diagnostic can point at the key rather than at the whole config.
+type unknownConfigFieldError struct {
+	path    string
+	suggest string
+}
+
+func (e *unknownConfigFieldError) Error() string {
+	if e.suggest != "" {
+		return fmt.Sprintf("unknown field %q: config field names are case-sensitive; did you mean %q?", e.path, e.suggest)
+	}
+	return fmt.Sprintf("unknown field %q", e.path)
+}
+
+// unknownConfigField names the refused key by its path in the config,
+// and the field it misspells when the two differ only in case.
+func unknownConfigField(at, key string, fields map[string]reflect.Type) error {
+	refused := &unknownConfigFieldError{path: configPath(at, key)}
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		if strings.EqualFold(name, key) {
+			refused.suggest = configPath(at, name)
+			break
+		}
+	}
+	return refused
+}
+
+// configErrorPath is the path a config decoding failure of the entry at
+// field belongs to: the key it refuses, when it refuses one, and the
+// config otherwise.
+func configErrorPath(field string, err error) string {
+	field += ".config"
+	if key, ok := errors.AsType[*unknownConfigFieldError](err); ok {
+		field += "." + key.path
+	}
+	return field
+}
+
+func configErrorf(field string, i int, err error) error {
+	return fieldErrorf(configErrorPath(field, err), "capabilities[%d]: %v", i, err)
+}
+
+func configPath(at, key string) string {
+	if at == "" {
+		return key
+	}
+	return at + "." + key
 }
 
 // toConfigMap is DecodeCapabilityConfig's inverse: it renders a

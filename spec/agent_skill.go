@@ -54,7 +54,7 @@ func validateParameterizedSkillSource(field string, n Capability) error {
 func validateBundledSkill(field string, n Capability) error {
 	var s AgentSkill
 	if err := DecodeCapabilityConfig(n, &s); err != nil {
-		return fieldErrorf(field+".config", "%v", err)
+		return fieldErrorf(configErrorPath(field, err), "%v", err)
 	}
 	source, name := s.Path, AgentSkillName(s)
 	if _, present := n.Config["name"]; present && s.Name == "" {

@@ -98,7 +98,7 @@ func validateACP(path string, i int, n Capability) error {
 	errs.add(validateACPAuthored(path, i, n))
 	var a ACP
 	if err := DecodeCapabilityConfig(n, &a); err != nil {
-		errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+		errs.add(configErrorf(path, i, err))
 		return errs.err()
 	}
 	if err := capabilityNameError(a.Agent); err != nil {
