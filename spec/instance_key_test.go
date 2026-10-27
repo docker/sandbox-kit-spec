@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math/rand"
@@ -332,6 +333,43 @@ func TestLeftoverArgReferencesSpelledWithWhitespaceAreRefused(t *testing.T) {
 			require.NotContains(t, ReferencedArgs(raw), "port", "the raw bytes hide the reference")
 			d, err := Decode(raw)
 			require.NoError(t, err)
+
+			_, err = ValidateRaw(raw, d)
+			require.NoError(t, err, "declared create references may remain before expansion")
+			_, err = ValidatePublished(raw, d)
+			require.NoError(t, err)
+
+			delete(d.Args, "port")
+			undeclared := []byte(strings.ReplaceAll(string(raw), "args:\n  port:\n    default: \"8080\"\n", ""))
+			_, err = ValidateRaw(undeclared, d)
+			require.ErrorContains(t, err, `declares no arg "port"`)
+			path := "capabilities[0].config.container"
+			if name == "group member" {
+				path = "capabilities[0].group.capabilities[0].config.container"
+			}
+			require.Contains(t, err.Error(), path)
+
+			d.Args["port"] = Arg{BuildArg: "PORT"}
+			published := []byte(strings.ReplaceAll(string(raw), `default: "8080"`, "buildArg: PORT"))
+			_, err = ValidateRaw(published, d)
+			require.NoError(t, err, "declared build references may remain in authored configs")
+			_, err = ValidatePublished(published, d)
+			require.ErrorContains(t, err, "which resolves at build; expansion did not reach it")
+			require.Contains(t, err.Error(), path)
+
+			jsonRaw, err := json.Marshal(d)
+			require.NoError(t, err)
+			jsonDescriptor, err := Decode(jsonRaw)
+			require.NoError(t, err)
+			_, err = ValidatePublished(jsonRaw, jsonDescriptor)
+			require.ErrorContains(t, err, "which resolves at build; expansion did not reach it")
+			require.Contains(t, err.Error(), path)
+			delete(jsonDescriptor.Args, "port")
+			jsonRaw, err = json.Marshal(jsonDescriptor)
+			require.NoError(t, err)
+			_, err = ValidateRaw(jsonRaw, jsonDescriptor)
+			require.ErrorContains(t, err, `declares no arg "port"`)
+			require.Contains(t, err.Error(), path)
 
 			_, err = ValidateEffective(raw, d)
 			require.ErrorContains(t, err, "still references kit args [port]")

@@ -241,7 +241,7 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 	errs.add(sizeErr)
 
 	var references map[string][]string
-	for _, name := range ReferencedArgs(raw) {
+	for _, name := range descriptorArgRefs(raw, d) {
 		if _, ok := d.Args[name]; !ok {
 			if references == nil {
 				references = argReferencePaths(raw)
@@ -362,7 +362,7 @@ func ValidatePublished(raw []byte, d *Descriptor) (warnings []string, err error)
 	// contents, and only the arg's own declaration says which kind a
 	// reference is.
 	var references map[string][]string
-	for _, name := range ReferencedArgs(raw) {
+	for _, name := range descriptorArgRefs(raw, d) {
 		if decl, declared := d.Args[name]; declared && decl.BuildArg != "" {
 			if references == nil {
 				references = argReferencePaths(raw)
