@@ -3,6 +3,7 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -434,6 +435,46 @@ func TestNULValidationUsesJSONConfigStrings(t *testing.T) {
 			require.Contains(t, nulPaths(t, err), tc.path)
 		})
 	}
+}
+
+func TestNULValidationRejectsUnencodableDescriptors(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{name: "NaN", value: math.NaN()},
+		{name: "infinity", value: math.Inf(1)},
+		{name: "unsupported value", value: func() {}},
+		{name: "invalid JSON", value: json.RawMessage(`{"private-config-value":`)},
+		{name: "marshaler failure", value: nulFailingMarshaler{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, command := range []string{`["adapter"]`, `["adapter","\u0000"]`} {
+				d := &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
+					{Type: CapabilityACP, Config: map[string]any{"agent": "adapter", "command": json.RawMessage(command)}},
+					{Type: "com.example/opaque@1", Config: map[string]any{"value": tc.value}},
+				}}
+				_, err := Validate(d)
+				require.ErrorContains(t, err, "cannot validate descriptor strings: descriptor is not JSON-encodable")
+				require.NotContains(t, err.Error(), "private-config-value")
+				require.NotContains(t, err.Error(), "\x00")
+
+				// The opaque value cannot disable validation of a command
+				// that consumers successfully decode, including its NUL.
+				var acp ACP
+				require.NoError(t, DecodeCapabilityConfig(d.Capabilities[0], &acp))
+				if strings.Contains(command, `\u0000`) {
+					require.Equal(t, CommandLine{"adapter", "\x00"}, acp.Command)
+				}
+			}
+		})
+	}
+}
+
+type nulFailingMarshaler struct{}
+
+func (nulFailingMarshaler) MarshalJSON() ([]byte, error) {
+	return nil, fmt.Errorf("private-config-value")
 }
 
 func TestNULWalkDistinguishesPointerTypes(t *testing.T) {

@@ -29,6 +29,7 @@ func validateNoNUL(d *Descriptor) error {
 	// Go-built values. RawMessage and custom marshalers can introduce
 	// strings that a reflection walk of their Go storage cannot see.
 	value := reflect.ValueOf(d).Elem()
+	decodedJSON := false
 	if raw, err := json.Marshal(d); err == nil {
 		var decoded any
 		dec := json.NewDecoder(bytes.NewReader(raw))
@@ -37,7 +38,14 @@ func validateNoNUL(d *Descriptor) error {
 		dec.UseNumber()
 		if dec.Decode(&decoded) == nil {
 			value = reflect.ValueOf(decoded)
+			decodedJSON = true
 		}
+	}
+	if !decodedJSON {
+		// Reflection cannot inspect JSON-backed strings. An unrelated
+		// encoding failure must not let those strings bypass this gate.
+		// Omit the encoder error, which may include config values.
+		w.errs.add(fieldErrorf("", "cannot validate descriptor strings: descriptor is not JSON-encodable"))
 	}
 	// Fall back to the original graph when it cannot be serialized, so
 	// cycles still receive a field diagnostic without following forever.
