@@ -1,0 +1,19 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: mixin
+displayName: Python (python-build-standalone) and uv
+description: A relocatable CPython plus uv for workloads that ship no Python toolchain
+sourceUrl: https://github.com/astral-sh/python-build-standalone
+licenses: [PSF-2.0, MIT, Apache-2.0]
+
+# The pins in the companion Dockerfile are the version authority. Its build
+# fails unless the copied interpreter and uv report exactly these versions.
+provides: ["python@3.14.10", "uv@0.13.6"]
+
+capabilities:
+  # Package installs: the index and the CDN it redirects downloads to.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow: [pypi.org, files.pythonhosted.org]
