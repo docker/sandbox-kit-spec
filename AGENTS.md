@@ -39,6 +39,13 @@ others back in line, not to special-case the reader.
   over the underlying `go`/`docker` invocation: the targets carry guards
   and pinned versions that a hand-typed command does not.
 
+The public library and `cmd/kit-tck` live in the root Go module; the
+BuildKit frontend lives in `cmd/frontend/go.mod`. Task checks both
+modules with `GOWORK=off`. A root `go test ./...` does not include the
+frontend; run Task to cover both. See
+[CONTRIBUTING.md](.github/CONTRIBUTING.md#building-and-testing) for local
+workspace setup.
+
 Toolchain the tasks assume: Go at the version in `go.mod`,
 [Task](https://taskfile.dev), `golangci-lint` v2, Docker with buildx (for
 `lint:md`, `kit:dev`, `test:e2e`), and the `sbx` CLI only for
@@ -47,16 +54,18 @@ Toolchain the tasks assume: Go at the version in `go.mod`,
 ## Verifying a change
 
 Run what CI runs, from the fast signal outward. CI runs `validate`,
-`lint`, `test:unit`, and `test:tck` on every pull request, so a clean
-local run is the same verdict rather than a different one.
+`lint`, `test:unit`, `test:consumer`, and `test:tck` on every pull
+request, so a clean local run is the same verdict rather than a
+different one.
 
 | Task | What it does | When |
 |---|---|---|
-| `task validate` | `gofmt -l` + `go vet` | Every Go change. Seconds |
+| `task validate` | `gofmt -l`, `go vet` in both modules, and the library module graph guard | Every Go change. Seconds |
 | `task lint` | `golangci-lint` and `markdownlint` with the repo configs (`lint:go`, `lint:md`) | Every change. `lint:md` needs Docker; it runs a digest-pinned image over every `**/*.md` |
-| `task test:unit` | Every Go test except the sandbox conformance suite. Includes decoding and validating every descriptor under `examples/` and the schema-to-spec pins | Every change. Under a minute |
+| `task test:unit` | Both modules' Go tests except the sandbox conformance suite. Includes decoding and validating every descriptor under `examples/` and the schema-to-spec pins | Every change. Under a minute |
+| `task test:consumer` | Builds the containerd 2.3 client with public assemble/fetch APIs and checks its selected versions | Every module dependency or layout change; CI runs it |
 | `task test:tck` | The sandbox conformance suite against the fake adapter, including every fake-adapter mutation | Any change under `tck/`, `docs/spec/`, or to a capability page. Minutes |
-| `task test` | `test:unit` and `test:tck` together, as one `go test ./...`. It does not run `validate` or `lint`; those are separate | Before opening a pull request, alongside `validate` and `lint` |
+| `task test` | `test:unit` and `test:tck` together, across both modules, plus the containerd consumer check. It does not run `validate` or `lint`; those are separate | Before opening a pull request, alongside `validate` and `lint` |
 | `task kit:dev KIT=hello` | Builds the frontend from the current source under a unique tag and builds one example Kit against it | Any change under `cmd/frontend/`. Needs Docker with buildx |
 | `task kits:dev` | The same for every Kit in `KITS` | A frontend change that touches what every descriptor goes through (decoding, staging, export) |
 | `task test:e2e` | Publishes two Kits to a throwaway registry and builds a set over them | A change to set building, `fetch/`, or `assemble/`. Needs Docker; CI does not run it |

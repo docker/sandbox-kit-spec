@@ -22,3 +22,7 @@ node_modules
 *.pem
 secrets/
 *.log
+
+# Optional local workspace; published builds use independent modules.
+/go.work
+/go.work.sum

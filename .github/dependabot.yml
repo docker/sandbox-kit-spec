@@ -1,12 +1,11 @@
-# Keeps the Go module and the workflows' pinned actions current. The
+# Keeps both Go modules and the workflows' pinned actions current. The
 # Dockerfile is deliberately absent: it pulls from dhi.io, which needs
 # registry credentials Dependabot does not have here, so a docker
 # ecosystem entry would only produce failures.
 version: 2
 
 updates:
-  # One module lives here, at the repository root, with the /v3 major
-  # suffix in its path.
+  # The library module has no BuildKit or containerd runtime requirement.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -20,18 +19,27 @@ updates:
     commit-message:
       prefix: chore(deps)
 
-    # Minor and patch bumps arrive as one pull request. Two reasons: the
-    # conformance suite is the expensive part of CI and runs per pull
-    # request, and buildkit brings a large indirect tree whose bumps are
-    # individually unreviewable — a single diff of go.mod and go.sum is
-    # what a reviewer can actually read.
-    #
-    # A major is deliberately left out of the group, so it arrives alone.
-    # Those are the ones that change behavior this repository depends on:
-    # the frontend is built against buildkit's gateway API, and the kit
-    # suite reads registries through oras.
+    # Keep minor and patch updates together, leaving major changes alone.
     groups:
       go-modules:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # BuildKit and its security updates belong only to this module. Its
+  # library replacement points at the same checkout, including PR builds.
+  - package-ecosystem: gomod
+    directory: /cmd/frontend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      frontend-go-modules:
         patterns:
           - "*"
         update-types:

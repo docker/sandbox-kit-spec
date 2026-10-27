@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOWORK: "off"
+
 jobs:
   validate:
     name: gofmt and vet
@@ -20,6 +23,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
       - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
           version: 3.53.1
@@ -27,8 +31,15 @@ jobs:
       - run: task validate
 
   lint:
-    name: golangci-lint and markdownlint
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - module: .
+            name: golangci-lint and markdownlint
+          - module: cmd/frontend
+            name: frontend golangci-lint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,6 +47,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
       - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
           version: 3.53.1
@@ -46,6 +58,8 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.10.1
+          working-directory: ${{ matrix.module }}
+          args: --config=${{ github.workspace }}/.golangci.yml
       # Markdown goes through the Task target rather than the upstream
       # action: the action's globs default to the repository root, so it
       # would have skipped docs/, examples/ and tck/ entirely. The target
@@ -58,12 +72,13 @@ jobs:
       # get no Actions secrets, so they skip the login and pull anonymously
       # rather than fail on an empty password.
       - name: Log in to Docker Hub (read-only)
-        if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')
+        if: matrix.module == '.' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'))
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
           password: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
-      - run: task lint:md
+      - if: matrix.module == '.'
+        run: task lint:md
 
   test:
     name: unit and example validation
@@ -75,6 +90,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
       - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
           version: 3.53.1
@@ -83,6 +99,23 @@ jobs:
       # validates every descriptor under examples/ plus the root-level
       # skills/ kit (see spec/examples_test.go).
       - run: task test:unit
+
+  library-consumer:
+    name: containerd 2.3 consumer compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+      - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          version: 3.53.1
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: task validate:library-deps test:consumer
 
   conformance:
     name: sandbox conformance suite
@@ -94,6 +127,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
       - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
           version: 3.53.1

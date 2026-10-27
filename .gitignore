@@ -13,3 +13,7 @@
 .claude/skills
 .claude/settings.local.json
 .DS_Store
+
+# Optional local workspace; published builds use independent modules.
+/go.work
+/go.work.sum

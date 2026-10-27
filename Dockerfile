@@ -1,7 +1,9 @@
 FROM dhi.io/golang:1.27-dev AS build
 WORKDIR /src
+ENV GOWORK=off
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd/frontend/go.mod cmd/frontend/go.sum ./cmd/frontend/
+RUN --mount=type=cache,target=/go/pkg/mod go -C cmd/frontend mod download
 COPY . .
 # The build stamp has to be handed down: .dockerignore excludes .git, so
 # neither the linker flags nor Go's own VCS stamping can read it here. An
@@ -11,10 +13,10 @@ ARG VERSION=""
 ARG REVISION=""
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w \
+    CGO_ENABLED=0 go -C cmd/frontend build -ldflags "-s -w \
       -X github.com/docker/sandbox-kit-spec/v3/internal/version.Version=${VERSION} \
       -X github.com/docker/sandbox-kit-spec/v3/internal/version.Revision=${REVISION}" \
-      -o /frontend ./cmd/frontend
+      -o /frontend .
 
 FROM scratch
 COPY --from=build /frontend /bin/frontend

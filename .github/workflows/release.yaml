@@ -16,6 +16,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOWORK: "off"
+
 jobs:
   release:
     name: release kit-tck and frontend
@@ -32,6 +35,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
 
       - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
@@ -47,6 +51,12 @@ jobs:
         with:
           version: v2.10.1
 
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.10.1
+          working-directory: cmd/frontend
+          args: --config=../../.golangci.yml
+
       # The markdownlint image comes from Docker Hub, whose anonymous pull
       # limit is shared by every job on a runner's IP. The read-only org
       # bot lifts it; the OIDC login below replaces it for the push.
@@ -60,7 +70,7 @@ jobs:
         run: task lint:md
 
       - name: Unit tests
-        run: task test:unit
+        run: task test:unit test:consumer
 
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
