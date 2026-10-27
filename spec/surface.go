@@ -295,8 +295,11 @@ type Widening struct {
 	Detail string `json:"detail"`
 }
 
+// String renders the widening for a person to read. Characters that do not
+// print as themselves appear as visible escapes, so the text shown is the
+// grant requested; the fields keep the exact values.
 func (w Widening) String() string {
-	return w.Category + ": " + w.Detail
+	return displayText(w.Category) + ": " + displayText(w.Detail)
 }
 
 // DiffWidenings reports every way candidate exceeds granted. Removals and
@@ -568,7 +571,9 @@ func missingFrom(granted, candidate []string) []string {
 	return out
 }
 
-// FormatWidenings renders a widening list for an approval prompt.
+// FormatWidenings renders a widening list for an approval prompt, one line
+// per widening. Each line is the widening's String, so no field can start a
+// new line or change how another line displays.
 func FormatWidenings(ws []Widening) string {
 	lines := make([]string, len(ws))
 	for i, w := range ws {
