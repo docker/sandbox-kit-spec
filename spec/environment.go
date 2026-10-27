@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -155,13 +156,17 @@ func environmentReferences(config map[string]any) (values, keys bool) {
 
 // configReferences reports whether any decoded string in config, among
 // the values and among the mapping keys, holds a reference contains finds.
+// A config whose strings cannot be read back counts as holding one in a
+// value: its typed checks wait for the effective gate, which refuses an
+// environment reference, and Validate refuses its descriptor as not
+// JSON-encodable.
 func configReferences(config map[string]any, contains func(string) bool) (values, keys bool) {
-	configStrings(config, func(s string, key bool) {
+	unread := configStrings(config, func(s string, key bool) {
 		if contains(s) {
 			keys, values = keys || key, values || !key
 		}
 	})
-	return values, keys
+	return values || unread, keys
 }
 
 // capabilityArgRefs returns the arg names that capability configs still
@@ -185,15 +190,20 @@ func capabilityArgRefs(items []Capability) []string {
 }
 
 // configStrings visits every decoded string in config, mapping keys
-// included.
-func configStrings(config map[string]any, visit func(s string, key bool)) {
+// included. Numbers stay text, since a caller-built config may hold one
+// outside float64's range. It reports unread when config encodes but its
+// JSON does not decode back, so configReferences can count such a config
+// as holding a reference.
+func configStrings(config map[string]any, visit func(s string, key bool)) (unread bool) {
 	raw, err := json.Marshal(config)
 	if err != nil {
-		return // Configuration validation owns unrepresentable values.
+		return false // Configuration validation owns unrepresentable values.
 	}
 	var root any
-	if json.Unmarshal(raw, &root) != nil {
-		return
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if decoder.Decode(&root) != nil {
+		return true
 	}
 	var walk func(any)
 	walk = func(value any) {
@@ -212,4 +222,5 @@ func configStrings(config map[string]any, visit func(s string, key bool)) {
 		}
 	}
 	walk(root)
+	return false
 }

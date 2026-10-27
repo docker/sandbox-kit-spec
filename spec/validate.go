@@ -241,12 +241,9 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 	warnings = append(warnings, sizeWarnings...)
 	errs.add(sizeErr)
 
-	var references map[string][]string
-	for _, name := range descriptorArgRefs(raw, d) {
+	names, references := argReferences(raw, d)
+	for _, name := range names {
 		if _, ok := d.Args[name]; !ok {
-			if references == nil {
-				references = argReferencePaths(raw)
-			}
 			paths := references[name]
 			if len(paths) == 0 {
 				paths = []string{""}
@@ -362,12 +359,9 @@ func ValidatePublished(raw []byte, d *Descriptor) (warnings []string, err error)
 	// create-phase references legitimately remain in hooks and file
 	// contents, and only the arg's own declaration says which kind a
 	// reference is.
-	var references map[string][]string
-	for _, name := range descriptorArgRefs(raw, d) {
+	names, references := argReferences(raw, d)
+	for _, name := range names {
 		if decl, declared := d.Args[name]; declared && decl.BuildArg != "" {
-			if references == nil {
-				references = argReferencePaths(raw)
-			}
 			paths := references[name]
 			if len(paths) == 0 {
 				paths = []string{""}

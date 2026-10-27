@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -378,6 +379,100 @@ func TestLeftoverArgReferencesSpelledWithWhitespaceAreRefused(t *testing.T) {
 			require.ErrorContains(t, err, "still contains unresolved arguments")
 		})
 	}
+}
+
+// A reference in a top-level field expands at create like one in a
+// config, so the gates read the document's decoded strings wherever they
+// stand: escaped whitespace inside the braces hides a reference from the
+// bytes in quoted YAML and in the JSON the published and effective forms
+// take. The bytes are still searched, which reach comments and the
+// documents after the first, and the decoded descriptor, which holds what
+// a !!binary scalar decodes to and stands in for a form YAML cannot
+// parse; a reference found there has no field path.
+func TestArgReferencesOutsideConfigsReachEveryGate(t *testing.T) {
+	const header = "schemaVersion: \"3\"\nkind: mixin\nversion: \"1.0.0\"\n"
+	const create, build = "args:\n  x:\n    default: v\n", "args:\n  x:\n    default: b\n    buildArg: X\n"
+	const undeclared = `descriptor references ${{ kit.args.x }} but declares no arg "x"`
+	const unexpanded = "published descriptor still references ${{ kit.args.x }}, which resolves at build"
+	for _, tc := range []struct {
+		name, body, field string
+	}{
+		{name: "description", body: `description: "${{\tkit.args.x\t}}"`, field: "description"},
+		{name: "display name", body: `displayName: "${{\nkit.args.x\n}}"`, field: "displayName"},
+		{name: "author", body: `author: "${{ kit.args.x\t}}"`, field: "author"},
+		{name: "comment", body: "# ${{ kit.args.x }}\ndescription: plain"},
+		{name: "comment on the document end", body: "description: plain\n... # ${{ kit.args.x }}"},
+		{name: "later document", body: "description: plain\n---\nnote: \"${{ kit.args.x }}\""},
+		{name: "later document that does not parse", body: "description: plain\n---\nnote: [${{ kit.args.x }}"},
+		{name: "binary scalar", body: "description: !!binary " + base64.StdEncoding.EncodeToString([]byte("${{ kit.args.x }}"))},
+		{name: "binary capability description", body: "capabilities:\n  - type: com.example/thing@1\n    optional: true\n    description: !!binary " +
+			base64.StdEncoding.EncodeToString([]byte("${{\tkit.args.x\t}}"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refused := func(err error, want string) {
+				t.Helper()
+				if tc.field == "" {
+					require.ErrorContains(t, err, want)
+					require.NotContains(t, err.Error(), ": "+want, "a reference outside the document's fields has no path")
+					return
+				}
+				require.ErrorContains(t, err, tc.field+": "+want)
+			}
+			// encode judges the JSON the published and effective forms take.
+			gate := func(args string, encode bool, check func([]byte, *Descriptor) ([]string, error)) error {
+				raw := []byte(header + args + tc.body + "\n")
+				d, err := Decode(raw)
+				require.NoError(t, err)
+				if encode {
+					raw, err = json.Marshal(d)
+					require.NoError(t, err)
+					require.NotContains(t, ReferencedArgs(raw), "x", "the encoded bytes hide the reference")
+				}
+				_, err = check(raw, d)
+				return err
+			}
+			require.NoError(t, gate(create, false, ValidateRaw), "a declared create reference may remain")
+			refused(gate("", false, ValidateRaw), undeclared)
+			refused(gate(build, false, ValidatePublished), unexpanded)
+			if tc.field == "" {
+				return
+			}
+			refused(gate("", true, ValidatePublished), undeclared)
+			refused(gate(build, true, ValidatePublished), unexpanded)
+			require.ErrorContains(t, gate(create, true, ValidateEffective), "still references kit args [x]")
+		})
+	}
+
+	// JSON leaves U+007F unescaped, which YAML refuses, so a value an
+	// installer supplies can leave the effective form unparseable.
+	t.Run("effective form YAML cannot parse", func(t *testing.T) {
+		d, err := Decode([]byte(header + create + `description: "${{\tkit.args.x\t}}"` + "\n"))
+		require.NoError(t, err)
+		d.Author = "\x7f"
+		encoded, err := json.Marshal(d)
+		require.NoError(t, err)
+		_, err = Decode(encoded)
+		require.Error(t, err)
+		_, err = ValidateEffective(encoded, d)
+		require.ErrorContains(t, err, "still references kit args [x]")
+	})
+
+	// A caller-built config can hold a JSON number outside float64's range,
+	// which must not end the scan before a later capability's description.
+	t.Run("number outside float64's range", func(t *testing.T) {
+		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Version: "1.0.0", Author: "\x7f", Capabilities: []Capability{
+			{Type: "com.example/thing@1", Optional: true, Config: map[string]any{"n": json.RawMessage("1e1000")}},
+			{Type: "com.example/other@1", Optional: true, Description: "${{\tkit.args.x\t}}"},
+		}}
+		encoded, err := json.Marshal(d)
+		require.NoError(t, err)
+		_, err = Decode(encoded)
+		require.Error(t, err, "U+007F keeps the raw walk from reading the description")
+		_, err = ValidateRaw(encoded, d)
+		require.ErrorContains(t, err, undeclared)
+		_, err = ValidateEffective(encoded, d)
+		require.ErrorContains(t, err, "still references kit args [x]")
+	})
 }
 
 // What validation keys an authored entry on where a block cannot show it,

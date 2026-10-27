@@ -1,7 +1,11 @@
 package spec
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -108,15 +112,27 @@ func fieldErrorf(path, format string, args ...any) error {
 	return &FieldError{Path: path, err: fmt.Errorf(format, args...)}
 }
 
-// argReferencePaths attributes raw-reference checks to the fields using
-// an arg, rather than its declaration. Comments have no field path and
-// remain document-level diagnostics, as do unparseable raw bytes.
-func argReferencePaths(raw []byte) map[string][]string {
-	var root yaml.Node
-	if err := yaml.Unmarshal(raw, &root); err != nil {
-		return nil
+// argReferences returns the args raw and d reference and attributes each
+// to the fields using it rather than its declaration. It reads the
+// document's decoded strings wherever they stand, top-level fields
+// included, which the escapes of JSON and quoted YAML cannot hide a
+// reference from, and d's own strings, which hold what a !!binary scalar
+// decodes to, stand in for raw that does not parse, and may be built
+// apart from raw. It also searches the bytes, which reach comments and
+// the documents after the first. References found only in d or in the
+// bytes have no field path and remain document-level diagnostics.
+func argReferences(raw []byte, d *Descriptor) (names []string, paths map[string][]string) {
+	seen := map[string]bool{}
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
 	}
-	paths := map[string][]string{}
+	for _, name := range ReferencedArgs(raw) {
+		add(name)
+	}
+	paths = map[string][]string{}
 	var visit func(*yaml.Node, string)
 	visit = func(n *yaml.Node, path string) {
 		switch n.Kind {
@@ -140,10 +156,49 @@ func argReferencePaths(raw []byte) map[string][]string {
 			}
 		case yaml.ScalarNode:
 			for _, name := range ReferencedArgs([]byte(n.Value)) {
+				add(name)
 				paths[name] = append(paths[name], path)
 			}
 		}
 	}
-	visit(&root, "")
-	return paths
+	var root yaml.Node
+	if yaml.Unmarshal(raw, &root) == nil {
+		visit(&root, "")
+	}
+	// The whole descriptor reaches every capability string. Numbers stay
+	// text, since a caller-built config may hold one outside float64's
+	// range. A descriptor whose JSON does not encode or decode is refused
+	// by Validate, which every caller runs, so the scan then still reads
+	// the top-level fields, and capabilityArgRefs each config it can.
+	scan := func(v any) error {
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		tokens := json.NewDecoder(bytes.NewReader(encoded))
+		tokens.UseNumber()
+		for {
+			token, err := tokens.Token()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if s, ok := token.(string); ok {
+				for _, name := range ReferencedArgs([]byte(s)) {
+					add(name)
+				}
+			}
+		}
+	}
+	if scan(d) != nil {
+		top := *d
+		top.Capabilities = nil
+		_ = scan(&top) // Typed fields only, which always encode and decode.
+	}
+	for _, name := range capabilityArgRefs(d.Capabilities) {
+		add(name)
+	}
+	return names, paths
 }

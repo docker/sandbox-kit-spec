@@ -172,6 +172,33 @@ func TestEnvironmentReferencesWithEscapedWhitespace(t *testing.T) {
 	require.False(t, HasEnvReferences(out.Capabilities))
 }
 
+// A caller-built config can hold a JSON number outside float64's range,
+// which must not hide the env and arg references beside it.
+func TestConfigReferencesReadPastNumbersOutsideFloat64(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config map[string]any
+	}{
+		{name: "beside the references", config: map[string]any{"n": json.RawMessage("1e1000"), "env": "${{ kit.env.E }}", "arg": "${{\tkit.args.x\t}}"}},
+		{name: "inside raw JSON", config: map[string]any{"raw": json.RawMessage(`{"n":1e1000,"env":"${{ kit.env.E }}","arg":"${{\tkit.args.x\t}}"}`)}},
+		{name: "in a list", config: map[string]any{"list": []any{json.RawMessage("1e1000"), "${{ kit.env.E }}", "${{\tkit.args.x\t}}"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Capability{Type: "com.example/custom@1", Config: tc.config}
+			require.True(t, HasEnvReferences([]Capability{c}))
+			require.True(t, capabilityIsParameterized(c))
+			require.Equal(t, []string{"x"}, capabilityArgRefs([]Capability{c}))
+
+			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{c}}
+			raw, err := json.Marshal(d)
+			require.NoError(t, err)
+			_, err = ValidateEffective(raw, d)
+			require.ErrorContains(t, err, "still contains kit.env references")
+			require.ErrorContains(t, err, "still references kit args [x]")
+		})
+	}
+}
+
 func TestEnvironmentMappingKeysFailAtPublication(t *testing.T) {
 	for i, config := range []map[string]any{
 		{"${{ kit.env.KEY }}": "literal"},
