@@ -388,6 +388,54 @@ func joinFieldPath(parent, name string) string {
 	return parent + "." + name
 }
 
+func TestNULValidationUsesJSONConfigStrings(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		typ    string
+		config map[string]any
+		path   string
+	}{
+		{
+			name:   "ACP command",
+			typ:    CapabilityACP,
+			config: map[string]any{"agent": "adapter", "command": json.RawMessage(`["adapter","\u0000"]`)},
+			path:   "capabilities[0].config.command[1]",
+		},
+		{
+			name:   "unknown nested value",
+			typ:    "com.example/thing@1",
+			config: map[string]any{"nested": json.RawMessage(`{"value":"\u0000"}`)},
+			path:   "capabilities[0].config.nested.value",
+		},
+		{
+			name:   "unknown large number beside NUL",
+			typ:    "com.example/thing@1",
+			config: map[string]any{"nested": json.RawMessage(`{"number":1e1000,"value":"\u0000"}`)},
+			path:   "capabilities[0].config.nested.value",
+		},
+		{
+			name:   "unknown nested key",
+			typ:    "com.example/thing@1",
+			config: map[string]any{"nested": json.RawMessage(`{"\u0000":"clean"}`)},
+			path:   "capabilities[0].config.nested",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{{Type: tc.typ, Config: tc.config}}}
+			_, err := Validate(d)
+			require.Contains(t, nulPaths(t, err), tc.path)
+			// The source representation and a consumer's decoded config
+			// must receive the same verdict.
+			raw, err := json.Marshal(d)
+			require.NoError(t, err)
+			decoded, err := Decode(raw)
+			require.NoError(t, err)
+			_, err = Validate(decoded)
+			require.Contains(t, nulPaths(t, err), tc.path)
+		})
+	}
+}
+
 func TestNULWalkDistinguishesPointerTypes(t *testing.T) {
 	p := &struct {
 		Value string

@@ -1,7 +1,9 @@
 package spec
 
 import (
+	"bytes"
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -23,7 +25,23 @@ import (
 // cannot remove it. Errors name the field and never print the value.
 func validateNoNUL(d *Descriptor) error {
 	w := nulWalk{active: map[nulVisit]bool{}}
-	w.walk(reflect.ValueOf(d).Elem(), nil)
+	// Config decoding and reference detection consume the JSON form of
+	// Go-built values. RawMessage and custom marshalers can introduce
+	// strings that a reflection walk of their Go storage cannot see.
+	value := reflect.ValueOf(d).Elem()
+	if raw, err := json.Marshal(d); err == nil {
+		var decoded any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		// An opaque config may carry numbers outside float64's range;
+		// string validation has no reason to interpret them.
+		dec.UseNumber()
+		if dec.Decode(&decoded) == nil {
+			value = reflect.ValueOf(decoded)
+		}
+	}
+	// Fall back to the original graph when it cannot be serialized, so
+	// cycles still receive a field diagnostic without following forever.
+	w.walk(value, nil)
 	return w.errs.err()
 }
 
