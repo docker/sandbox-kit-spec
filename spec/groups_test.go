@@ -795,3 +795,46 @@ func TestBlockErrorsReportedOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestRemapCostGrowsWithErrors(t *testing.T) {
+	// Every repeat of a singleton in one block is an error naming two
+	// entries, so remapping touches each error and each path once.
+	allocs := func(entries int) float64 {
+		d := &Descriptor{Kind: KindMixin}
+		for range entries {
+			d.Capabilities = append(d.Capabilities, Capability{Type: CapabilityPrivileged, DeclarationBlocks: []string{"b"}})
+		}
+		_, err := Validate(d)
+		require.ErrorContains(t, err, "already declared")
+		return testing.AllocsPerRun(3, func() { _, _ = Validate(d) })
+	}
+	small, large := allocs(64), allocs(512)
+	require.LessOrEqual(t, large, 12*small, "512 entries: %.0f allocations, 64: %.0f", large, small)
+}
+
+func TestCapabilityIndex(t *testing.T) {
+	for _, tt := range []struct {
+		path string
+		i    int
+		rest string
+		ok   bool
+	}{
+		{"capabilities[0]", 0, "", true},
+		{"capabilities[12].config.path", 12, ".config.path", true},
+		{"capabilities[1]x", 0, "", false},
+		{"capabilities[01]", 0, "", false},
+		{"capabilities[]", 0, "", false},
+		{"capabilities[-1]", 0, "", false},
+		{"capabilities[1", 0, "", false},
+		{"kits[0]", 0, "", false},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			i, rest, ok := capabilityIndex(tt.path)
+			require.Equal(t, tt.ok, ok)
+			if ok {
+				require.Equal(t, tt.i, i)
+				require.Equal(t, tt.rest, rest)
+			}
+		})
+	}
+}

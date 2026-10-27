@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -351,28 +352,47 @@ func remapCapabilityErrors(err error, paths []string) error {
 	if err == nil {
 		return nil
 	}
+	// One replacer serves every error from the block, so remapping costs
+	// the errors plus the paths, not their product.
+	replacements := make([]string, 0, 2*len(paths))
+	for i, to := range paths {
+		replacements = append(replacements, fmt.Sprintf("capabilities[%d]", i), to)
+	}
+	return remapWith(err, paths, strings.NewReplacer(replacements...))
+}
+
+func remapWith(err error, paths []string, replacer *strings.Replacer) error {
 	if all, ok := err.(ValidationErrors); ok {
 		out := make(ValidationErrors, len(all))
 		for i, e := range all {
-			out[i] = remapCapabilityErrors(e, paths)
+			out[i] = remapWith(e, paths, replacer)
 		}
 		return out
 	}
 	if field, ok := err.(*FieldError); ok {
-		replacements := make([]string, 0, 2*len(paths))
-		for i, to := range paths {
-			replacements = append(replacements, fmt.Sprintf("capabilities[%d]", i), to)
-		}
-		for i, to := range paths {
-			from := fmt.Sprintf("capabilities[%d]", i)
-			if field.Path == from || strings.HasPrefix(field.Path, from+".") {
-				return &FieldError{Path: to + strings.TrimPrefix(field.Path, from), err: &capabilityPathError{
-					cause: field.err, paths: strings.NewReplacer(replacements...),
-				}}
-			}
+		if i, rest, ok := capabilityIndex(field.Path); ok && i < len(paths) {
+			return &FieldError{Path: paths[i] + rest, err: &capabilityPathError{cause: field.err, paths: replacer}}
 		}
 	}
 	return err
+}
+
+// capabilityIndex reads the entry index a block-local path starts with,
+// "capabilities[i]" alone or followed by a field.
+func capabilityIndex(path string) (int, string, bool) {
+	rest, ok := strings.CutPrefix(path, "capabilities[")
+	if !ok {
+		return 0, "", false
+	}
+	digits, rest, ok := strings.Cut(rest, "]")
+	if !ok || digits == "" || (rest != "" && !strings.HasPrefix(rest, ".")) {
+		return 0, "", false
+	}
+	i, err := strconv.Atoi(digits)
+	if err != nil || i < 0 || strconv.Itoa(i) != digits {
+		return 0, "", false
+	}
+	return i, rest, true
 }
 
 // Remap every referenced index in one pass, including the other side of a
