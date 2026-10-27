@@ -40,6 +40,7 @@ func TestDescriptorStringsRefuseNUL(t *testing.T) {
 		body      string // YAML after schemaVersion and kind; \0 is a YAML escape
 		kind      string // kind, default mixin
 		dir       string // value supplied for the dir create argument
+		refused   bool   // resolving the create argument refuses its NUL
 		authoring string // path authoring validation reports NUL at
 		effective string // path the effective gate reports NUL at
 	}{
@@ -97,7 +98,7 @@ func TestDescriptorStringsRefuseNUL(t *testing.T) {
 		{name: "NUL from a create argument", body: `capabilities:
   - type: com.docker.sandbox/volume@1
     config: {path: "/data/${{ kit.args.dir }}"}
-`, dir: "cache\x00", effective: "capabilities[0].config.path"},
+`, dir: "cache\x00", refused: true, effective: "capabilities[0].config.path"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			kind := tc.kind
@@ -130,7 +131,15 @@ func TestDescriptorStringsRefuseNUL(t *testing.T) {
 				supplied["dir"] = tc.dir
 			}
 			values, err := KitArgValues(d.Args, supplied)
-			require.NoError(t, err)
+			if tc.refused {
+				require.ErrorContains(t, err, `kit arg "dir": value contains NUL (U+0000)`)
+				require.NotContains(t, err.Error(), "\x00", "a NUL report must not print the value")
+				// The effective gate still refuses it for a caller that
+				// expands the value without resolving it.
+				values = supplied
+			} else {
+				require.NoError(t, err)
+			}
 			expanded, err := ExpandCreateArgs([]byte(raw), d.Args, values)
 			require.NoError(t, err)
 			effective, err := Decode(expanded)
@@ -141,6 +150,34 @@ func TestDescriptorStringsRefuseNUL(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+// A value supplied at create is held to the rule every descriptor string
+// is, whether a reference carries it into the descriptor or an env export
+// carries it into the container environment as it is, and the refusal
+// does not print it.
+func TestCreateArgValuesRefuseNUL(t *testing.T) {
+	text := "a\x00b"
+	for _, tc := range []struct {
+		name     string
+		decl     Arg
+		supplied map[string]string
+	}{
+		{"plain", Arg{}, map[string]string{"value": text}},
+		{"environment export", Arg{Env: "VALUE"}, map[string]string{"value": text}},
+		{"enum", Arg{Enum: []string{"a", text}}, map[string]string{"value": text}},
+		{"pattern", Arg{Pattern: ".*"}, map[string]string{"value": text}},
+		{"default", Arg{Default: &text}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decls := map[string]Arg{"value": tc.decl}
+			_, err := ResolveArgs(decls, tc.supplied)
+			require.EqualError(t, err, `kit arg "value": value contains NUL (U+0000), which no descriptor string may hold`)
+			values, err := ResolveArgs(decls, map[string]string{"value": "a"})
+			require.NoError(t, err)
+			require.Equal(t, "a", values["value"])
 		})
 	}
 }

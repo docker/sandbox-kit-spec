@@ -31,9 +31,10 @@ func IsWholeArgRef(s string) bool { return wholeArgRef.MatchString(s) }
 
 // ResolveArgs validates supplied values against the declarations and returns
 // the effective value map: supplied values first, defaults for the rest. A
-// required arg with no supplied value is an error; a supplied value failing
-// its enum or pattern is an error; a supplied name the kit never declared is
-// an error, because a silently ignored input is a misspelling in disguise.
+// required arg with no supplied value is an error; a supplied value holding
+// NUL or failing its enum or pattern is an error; a supplied name the kit
+// never declared is an error, because a silently ignored input is a
+// misspelling in disguise.
 func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]string, error) {
 	for name := range supplied {
 		if _, ok := decls[name]; !ok {
@@ -62,6 +63,13 @@ func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]s
 }
 
 func checkArgValue(name string, decl Arg, v string) error {
+	// A value supplied at create lands in descriptor strings, or, exported
+	// through env with no reference, in the container environment as it
+	// is, so it is held to the rule every descriptor string is. Checked
+	// first, since the refusals below print the value.
+	if strings.ContainsRune(v, 0) {
+		return fmt.Errorf("kit arg %q: value contains NUL (U+0000), which no descriptor string may hold", name)
+	}
 	if len(decl.Enum) > 0 {
 		for _, e := range decl.Enum {
 			if v == e {
