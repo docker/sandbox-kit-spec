@@ -707,3 +707,91 @@ func TestEffectiveCapabilitiesOmitDeclarationBlocks(t *testing.T) {
 	_, err = ValidateEffective(raw, d)
 	require.NoError(t, err)
 }
+
+// inBlocks declares each entry in the same blocks declaration blocks.
+func inBlocks(blocks int, entries ...Capability) *Descriptor {
+	ids := make([]string, blocks)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("b%d", i)
+	}
+	d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin}
+	for _, c := range entries {
+		c.DeclarationBlocks = ids
+		d.Capabilities = append(d.Capabilities, c)
+	}
+	return d
+}
+
+func acpWithEnv(vars int) Capability {
+	env := make(map[string]any, vars)
+	for i := range vars {
+		env[fmt.Sprintf("K%d", i)] = strings.Repeat("v", 40)
+	}
+	return Capability{Type: CapabilityACP, Config: map[string]any{"agent": "codex", "command": []any{"codex-acp"}, "env": env}}
+}
+
+func TestEntryConfigReadOnceAcrossBlocks(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		validate func(raw []byte, d *Descriptor) ([]string, error)
+	}{
+		{"validate", func(_ []byte, d *Descriptor) ([]string, error) { return Validate(d) }},
+		{"published", ValidatePublished},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// What a config's size costs is paid once per entry, not once
+			// per block the entry joins.
+			allocs := func(blocks, vars int) float64 {
+				d := inBlocks(blocks, acpWithEnv(vars))
+				raw, err := json.Marshal(d)
+				require.NoError(t, err)
+				_, err = tt.validate(raw, d)
+				require.NoError(t, err)
+				return testing.AllocsPerRun(3, func() { _, _ = tt.validate(raw, d) })
+			}
+			one := allocs(1, 500) - allocs(1, 1)
+			many := allocs(256, 500) - allocs(256, 1)
+			require.Positive(t, one)
+			require.LessOrEqual(t, many, 2*one, "config cost in 256 blocks: %.0f allocations, in one: %.0f", many, one)
+		})
+	}
+}
+
+func TestBlockErrorsReportedOnce(t *testing.T) {
+	volume := func(path, size string) Capability {
+		config := map[string]any{"path": path}
+		if size != "" {
+			config["size"] = size
+		}
+		return Capability{Type: CapabilityVolume, Config: config}
+	}
+	bogus := acpWithEnv(1)
+	bogus.Config["bogus"] = true
+	oneMember := func(c Capability) Capability {
+		return Capability{DeclarationBlocks: []string{"b0", "b1", "b2"}, Group: &CapabilityGroup{Capabilities: []Capability{c}}}
+	}
+	for _, tt := range []struct {
+		name string
+		d    *Descriptor
+		// want counts each message's occurrences.
+		want map[string]int
+	}{
+		{"own error in every block", inBlocks(8, bogus), map[string]int{`capabilities[0].config.bogus: capabilities[0]:`: 1}},
+		{"own error of a one-member group", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{oneMember(volume("relative", ""))}},
+			map[string]int{"capabilities[0].group.capabilities[0]: volume path": 1}},
+		{"identical entries in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "")), map[string]int{"identical to capabilities[0]": 8}},
+		{"repeated key in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "1G")), map[string]int{"already declared at capabilities[0]": 8}},
+		{"identical invalid entries", inBlocks(4, volume("relative", ""), volume("relative", "")),
+			map[string]int{"capabilities[0]: volume path": 1, "capabilities[1]: volume path": 1, "identical to capabilities[0]": 4}},
+		{"undeclared blocks", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{bogus, bogus}},
+			map[string]int{`capabilities[0].config.bogus`: 1, `capabilities[1].config.bogus`: 1, "identical to capabilities[0]": 1}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Validate(tt.d)
+			require.Error(t, err)
+			for message, count := range tt.want {
+				require.Equal(t, count, strings.Count(err.Error(), message), "%q in:\n%v", message, err)
+			}
+		})
+	}
+}

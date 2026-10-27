@@ -240,18 +240,24 @@ func validateCapabilityEntries(d *Descriptor) error {
 		return validateCapabilityBlock(d)
 	}
 	var errs ValidationErrors
+	// Each entry is judged once, however many blocks it joins: its group
+	// and its blocks compare only what that judgment found, so a large
+	// config costs the same in one block as in many.
+	ids := newIdentities()
 	type block struct {
 		members []Capability
+		checks  []*entryCheck
 		paths   []string
 	}
 	blocks := map[string]*block{}
 	var blockOrder []string
-	addBlock := func(id string, member Capability, path string) {
+	addBlock := func(id string, member Capability, check *entryCheck, path string) {
 		if blocks[id] == nil {
 			blocks[id] = &block{}
 			blockOrder = append(blockOrder, id)
 		}
 		blocks[id].members = append(blocks[id].members, member)
+		blocks[id].checks = append(blocks[id].checks, check)
 		blocks[id].paths = append(blocks[id].paths, path)
 	}
 	for i, c := range d.Capabilities {
@@ -259,6 +265,20 @@ func validateCapabilityEntries(d *Descriptor) error {
 		if c.Source != nil && c.Source.Path == "" {
 			errs.add(fieldErrorf(at+".source", "path is required"))
 		}
+		var memberChecks []*entryCheck
+		var memberPaths []string
+		if c.Group != nil {
+			memberChecks = make([]*entryCheck, len(c.Group.Capabilities))
+			memberPaths = make([]string, len(c.Group.Capabilities))
+			for j, member := range c.Group.Capabilities {
+				// Judged as a block's first entry, then remapped to its
+				// own path alone.
+				check := checkEntry(d.Kind, 0, member, ids)
+				memberChecks[j] = &check
+				memberPaths[j] = fmt.Sprintf("%s.group.capabilities[%d]", at, j)
+			}
+		}
+		var joined []string
 		seenBlocks := map[string]bool{}
 		for j, id := range c.DeclarationBlocks {
 			if id == "" || seenBlocks[id] {
@@ -266,24 +286,32 @@ func validateCapabilityEntries(d *Descriptor) error {
 				continue
 			}
 			seenBlocks[id] = true
-			member, path := c, at
 			if c.Group != nil {
 				if len(c.Group.Capabilities) != 1 {
 					errs.add(fieldErrorf(at+".declarationBlocks", "only ordinary entries and one-member groups may carry declaration blocks"))
 					continue
 				}
-				member, path = c.Group.Capabilities[0], at+".group.capabilities[0]"
+				addBlock(id, c.Group.Capabilities[0], memberChecks[0], memberPaths[0])
+				continue
 			}
-			addBlock(id, member, path)
-		}
-		if c.Group == nil && !c.groupSet {
-			if len(c.DeclarationBlocks) == 0 {
-				addBlock("", c, at)
-			}
-			continue
+			joined = append(joined, id)
 		}
 		if c.Group == nil {
-			errs.add(fieldErrorf(at+".group", "group must be an object"))
+			if !c.groupSet && len(c.DeclarationBlocks) == 0 {
+				joined = append(joined, "")
+			}
+			// An entry in no block, such as one whose every block id is
+			// refused, is not judged, as before.
+			if len(joined) > 0 {
+				check := checkEntry(d.Kind, i, c, ids)
+				errs.add(check.errs.err())
+				for _, id := range joined {
+					addBlock(id, c, &check, at)
+				}
+			}
+			if c.groupSet {
+				errs.add(fieldErrorf(at+".group", "group must be an object"))
+			}
 			continue
 		}
 		if c.Type != "" || c.Name != "" || c.Description != "" || c.Optional || c.optionalSet || c.ConfigStated() {
@@ -295,9 +323,7 @@ func validateCapabilityEntries(d *Descriptor) error {
 		cp := *d
 		cp.declarationsOnly = true
 		cp.Capabilities = c.Group.Capabilities
-		memberPaths := make([]string, len(cp.Capabilities))
 		for j, member := range cp.Capabilities {
-			memberPaths[j] = fmt.Sprintf("%s.group.capabilities[%d]", at, j)
 			if member.Group != nil || member.groupSet {
 				errs.add(fieldErrorf(memberPaths[j], "nested groups are not permitted"))
 			}
@@ -308,13 +334,16 @@ func validateCapabilityEntries(d *Descriptor) error {
 				errs.add(fieldErrorf(memberPaths[j]+".optional", "group members must not state optional"))
 			}
 		}
-		errs.add(remapCapabilityErrors(validateCapabilityBlock(&cp), memberPaths))
+		for j, check := range memberChecks {
+			errs.add(remapCapabilityErrors(check.errs.err(), memberPaths[j:j+1]))
+		}
+		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, memberChecks), memberPaths))
 	}
 	for _, id := range blockOrder {
 		cp := *d
 		cp.Capabilities = blocks[id].members
 		cp.declarationsOnly = true
-		errs.add(remapCapabilityErrors(validateCapabilityBlock(&cp), blocks[id].paths))
+		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, blocks[id].checks), blocks[id].paths))
 	}
 	return errs.err()
 }

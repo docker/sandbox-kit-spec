@@ -53,7 +53,8 @@ args:
   - type: com.docker.sandbox/port@1
     config: {container: 0}
 `,
-			paths: []string{"capabilities[0].config.path", "capabilities[1].config.phase", "capabilities[3].config.phase", "capabilities[4].config.container"},
+			// Each entry's own errors come before the repeats between entries.
+			paths: []string{"capabilities[0].config.path", "capabilities[1].config.phase", "capabilities[4].config.container", "capabilities[3].config.phase"},
 		},
 		{
 			name: "fields within and across capabilities",
@@ -122,7 +123,7 @@ args:
   - type: com.docker.sandbox/credential@1
     config: {service: broken, phase: runtime, apiKey: wrong}
 `,
-			paths: []string{"capabilities[0].config", "capabilities[1]"},
+			paths: []string{"capabilities[0].config", "capabilities[1].config", "capabilities[1]"},
 		},
 		{
 			name: "invalid policy does not invent missing allow entries",
