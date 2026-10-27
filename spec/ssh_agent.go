@@ -28,7 +28,7 @@ func validateSSHAgentNeed(path string, i int, n Capability) (*SSHAgent, error) {
 	}
 	var a SSHAgent
 	if err := DecodeCapabilityConfig(n, &a); err != nil {
-		return nil, fieldErrorf(path+".config", "capabilities[%d]: %v", i, err)
+		return nil, configErrorf(path, i, err)
 	}
 	if err := validatePhases(path, i, a.Phase); err != nil {
 		return nil, err

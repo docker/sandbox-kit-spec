@@ -768,14 +768,14 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityNetworkPolicy:
 			var p PhasedNetwork
 			if err := DecodeCapabilityConfig(n, &p); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				deferCrossChecks = true
 				continue
 			}
 		case CapabilityNetworkPolicyV2:
 			var p PhasedNetworkV2
 			if err := DecodeCapabilityConfig(n, &p); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				deferCrossChecks = true
 				continue
 			}
@@ -800,7 +800,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityVolume:
 			var v Volume
 			if err := DecodeCapabilityConfig(n, &v); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			if !strings.HasPrefix(v.Path, "/") {
@@ -815,7 +815,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityHostMount:
 			var mount HostMount
 			if err := DecodeCapabilityConfig(n, &mount); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			if mount.Path == "/" || !canonicalAbsPath(mount.Path) || strings.ContainsRune(mount.Path, '\x00') {
@@ -838,7 +838,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityAgentSkills:
 			var s AgentSkills
 			if err := DecodeCapabilityConfig(n, &s); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			// Canonical form is required, not normalized in: /x/../skills
@@ -865,7 +865,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityPort:
 			var p Port
 			if err := DecodeCapabilityConfig(n, &p); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			if p.Container < 1 || p.Container > 65535 {
@@ -889,7 +889,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityUSBDevice:
 			var u USBDevice
 			if err := DecodeCapabilityConfig(n, &u); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			hasID := u.VendorID != "" || u.ProductID != ""
@@ -902,7 +902,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityResources:
 			var r Resources
 			if err := DecodeCapabilityConfig(n, &r); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			if r.CPU < 0 {
@@ -916,7 +916,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityAgentSessions:
 			var a AgentSessions
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			if len(a.Prompt) == 0 && len(a.Resume) == 0 && len(a.Continue) == 0 && len(a.List) == 0 {
@@ -936,7 +936,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityAgentInteractiveSessions:
 			var a AgentInteractiveSessions
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			errs.add(validateInteractiveSessionsAuthored(path, i, n))
@@ -960,7 +960,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityLifecycle:
 			var l Lifecycle
 			if err := DecodeCapabilityConfig(n, &l); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			interactive, interactiveAt = l.Interactive, i
@@ -971,7 +971,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityAgentContext:
 			var a AgentContext
 			if err := DecodeCapabilityConfig(n, &a); err != nil {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+				errs.add(configErrorf(path, i, err))
 				continue
 			}
 			if a.ContentFile != "" && a.Content != "" {
@@ -1367,7 +1367,7 @@ func validateCredentialNeed(path string, i int, n Capability) (*Credential, erro
 	var errs ValidationErrors
 	var c Credential
 	if err := DecodeCapabilityConfig(n, &c); err != nil {
-		errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
+		errs.add(configErrorf(path, i, err))
 		return nil, errs.err()
 	}
 	if c.Service == "" {
