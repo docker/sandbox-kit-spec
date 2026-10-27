@@ -35,6 +35,33 @@ Pre-release suffixes (`v3.0.0-m.2`, `v3.0.0-rc.1`) are valid module
 versions and trigger the release workflow without moving floating Hub
 `:3`.
 
+## Frontend Go module
+
+`cmd/frontend/go.mod` isolates BuildKit and its containerd dependencies
+from the public library. Its module path is
+`github.com/docker/sandbox-kit-spec/v3/cmd/frontend`, preserving the
+frontend's import path and access to the shared `internal/version`
+package. `cmd/kit-tck` remains in the root library module and GoReleaser
+continues building it there.
+
+The frontend is distributed as an image, not as a separately tagged Go
+module. Keep using root `v3.X.Y` tags to release the library, `kit-tck`,
+and the frontend image together. Do not create `cmd/frontend/vX.Y.Z`
+tags: the nested module is a repository build boundary, not a new release
+axis. Installing `cmd/frontend` with `go install ...@version` from the
+root module is no longer supported; build the image or build from a
+repository checkout instead. The public library package paths and APIs,
+including `assemble` and `fetch`, are unchanged.
+
+The frontend's library requirement records a published baseline, while
+`replace github.com/docker/sandbox-kit-spec/v3 => ../..` makes every
+repository build use that checkout's library. Leave the replacement in
+place for releases: it ensures a tag builds against its own library
+without needing to publish or resolve the new library tag first. No
+per-release dependency update or `go.work` is required. Optional local
+workspace setup is documented in
+[CONTRIBUTING.md](.github/CONTRIBUTING.md#building-and-testing).
+
 ## Schema version
 
 `schemaVersion: "3"` names the generation of the descriptor grammar.

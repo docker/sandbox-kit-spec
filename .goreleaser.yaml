@@ -3,6 +3,11 @@ version: 2
 
 project_name: kit-tck
 
+# kit-tck stays in the library module; a local workspace must not add the
+# frontend graph to its build. The frontend image is built by Dockerfile.
+env:
+  - GOWORK=off
+
 builds:
   - id: kit-tck
     main: ./cmd/kit-tck

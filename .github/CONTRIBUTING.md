@@ -21,13 +21,39 @@ The repository uses [Task](https://taskfile.dev). `task --list` shows
 everything; the three you need for a change are:
 
 ```sh
-task validate   # gofmt + go vet across the module
+task validate   # gofmt + go vet in both modules, library dependency guard
 task lint       # golangci-lint + markdownlint, the same configs CI uses
-task test       # all Go tests
+task test       # both modules and the containerd 2.3 consumer check
 ```
 
 CI runs these on every pull request, so a clean local run is the same
 verdict rather than a different one.
+
+The root module contains the public library and `cmd/kit-tck`.
+`cmd/frontend` is a separate module so consumers of `assemble`, `fetch`,
+and the other library packages do not inherit BuildKit's containerd
+requirements. Package paths and public APIs stay the same. Task runs
+checks in both modules with `GOWORK=off`; `go test ./...` from the root
+only tests the library module.
+
+The frontend replaces its library requirement with `../..`, so builds
+and releases use the library in the same checkout. No workspace file is
+needed. For editor support across both modules, optionally run:
+
+```sh
+go work init . ./cmd/frontend
+```
+
+`go.work` and `go.work.sum` stay local and are excluded from Docker
+contexts. A workspace combines both dependency graphs, so inspect the
+library on its own with `GOWORK=off go list -m all`. Run `go mod tidy`
+in each module separately with `GOWORK=off`; do not use `go work sync`
+to copy frontend requirements into the library.
+
+`task test:consumer` builds the containerd 2.3 client alongside the
+public assemble/fetch APIs in a temporary consumer module, checks that
+containerd and its API keep their selected versions, and exercises
+assembly and metadata publication without a containerd daemon.
 
 To exercise a change to the BuildKit frontend, build it under a throwaway
 tag and point an example at it — BuildKit caches frontend resolution per

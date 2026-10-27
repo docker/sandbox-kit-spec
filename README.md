@@ -182,7 +182,8 @@ see [docs/kit-intro.md](docs/kit-intro.md).
   `kit-registry@1`) reject every config value. A host-specific type's
   author publishes the equivalent under their own namespace.
 - `cmd/frontend/` — the BuildKit gateway frontend dispatched by the
-  descriptor's first line, `# syntax=docker/sandbox-kit:3`.
+  descriptor's first line, `# syntax=docker/sandbox-kit:3`. It has its own
+  Go module so library consumers do not inherit BuildKit dependencies.
 - `skills/` — tool-agnostic agent skills for authoring a v3 Kit and
   migrating a v2 one; [skills/README.md](skills/README.md) says how to
   wire them into an agent.
@@ -511,7 +512,7 @@ kit-tck inspect docker.io/me/sbx-kit-gh:1.0.0 --format json
 
 ```sh
 task validate   # gofmt + go vet
-task test       # all Go tests
+task test       # both modules and the containerd 2.3 consumer check
 ```
 
 See [CONTRIBUTING.md](.github/CONTRIBUTING.md) — in particular the note on changing

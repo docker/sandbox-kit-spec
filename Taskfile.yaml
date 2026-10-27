@@ -63,9 +63,11 @@ tasks:
       - task --list
 
   test:
-    desc: Run all Go tests
+    desc: Run all Go tests in both modules and the consumer compatibility check
     cmds:
-      - go test ./...
+      - task: test:consumer
+      - GOWORK=off go test ./...
+      - GOWORK=off go -C cmd/frontend test ./...
 
   test:unit:
     desc: >-
@@ -79,20 +81,21 @@ tasks:
       # broken listing must fail the run, not narrow it.
       - |
         set -e
-        packages=$(go list ./...)
-        go test $(printf '%s\n' "$packages" | grep -v /tck/sandbox)
+        packages=$(GOWORK=off go list ./...)
+        GOWORK=off go test $(printf '%s\n' "$packages" | grep -v /tck/sandbox)
+      - GOWORK=off go -C cmd/frontend test ./...
 
   test:tck:
     desc: The sandbox conformance suite, judged against the fake adapter
     cmds:
-      - go test ./tck/sandbox/...
+      - GOWORK=off go test ./tck/sandbox/...
 
   test:e2e:
     desc: >-
       Run end-to-end guidance, set, and cache builds against a throwaway registry.
       Needs Docker with buildx; `task test` skips them.
     cmds:
-      - KIT_E2E=1 go test ./cmd/frontend/ -run 'Test(Guidance|Set|Cache)BuildsEndToEnd' -v -count=1 -timeout 15m
+      - KIT_E2E=1 GOWORK=off go -C cmd/frontend test . -run 'Test(Guidance|Set|Cache)BuildsEndToEnd' -v -count=1 -timeout 15m
 
   lint:
     desc: golangci-lint and markdownlint, as CI runs them
@@ -103,7 +106,8 @@ tasks:
   lint:go:
     desc: golangci-lint with the repository's .golangci.yml
     cmds:
-      - golangci-lint run
+      - GOWORK=off golangci-lint run
+      - cd cmd/frontend && GOWORK=off golangci-lint run --config ../../.golangci.yml
 
   lint:md:
     desc: >-
@@ -115,10 +119,22 @@ tasks:
       - docker run --rm -v "$(pwd)":/workdir davidanson/markdownlint-cli2@sha256:839558fd0d36c46da0e01ea84fd1d20a2822b5a8a60c16dc9708f0bb7c9e903b
 
   validate:
-    desc: gofmt + go vet across the module
+    desc: gofmt, go vet in both modules, and library dependency isolation
     cmds:
       - test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt failures above"; exit 1; }
-      - go vet ./...
+      - task: validate:library-deps
+      - GOWORK=off go vet ./...
+      - GOWORK=off go -C cmd/frontend vet ./...
+
+  validate:library-deps:
+    desc: Reject frontend dependencies anywhere in the library module graph
+    cmds:
+      - sh scripts/check-library-deps.sh
+
+  test:consumer:
+    desc: Test assemble and fetch from a consumer pinned to containerd 2.3
+    cmds:
+      - sh scripts/test-library-consumer.sh
 
   tck:kit:
     desc: >-
@@ -129,7 +145,7 @@ tasks:
     requires:
       vars: [REF]
     cmds:
-      - go run ./cmd/kit-tck validate {{.REF}}
+      - GOWORK=off go run ./cmd/kit-tck validate {{.REF}}
 
   tck:kit:layout:
     desc: >-
@@ -138,7 +154,7 @@ tasks:
     requires:
       vars: [DIR, TAG]
     cmds:
-      - go run ./cmd/kit-tck validate --layout {{.DIR}} {{.TAG}}
+      - GOWORK=off go run ./cmd/kit-tck validate --layout {{.DIR}} {{.TAG}}
 
   tck:runtime:
     desc: >-
@@ -148,7 +164,7 @@ tasks:
     requires:
       vars: [ADAPTER]
     cmds:
-      - go run ./cmd/kit-tck runtime --adapter {{.ADAPTER}}
+      - GOWORK=off go run ./cmd/kit-tck runtime --adapter {{.ADAPTER}}
 
   tck:runtime:sbx:
     desc: >-
@@ -161,7 +177,7 @@ tasks:
     vars:
       TIMEOUT: '{{.TIMEOUT | default "2h"}}'
     cmds:
-      - go run ./cmd/kit-tck runtime --adapter {{.ROOT_DIR}}/tck/adapters/sbx --timeout {{.TIMEOUT}} {{.CLI_ARGS}}
+      - GOWORK=off go run ./cmd/kit-tck runtime --adapter {{.ROOT_DIR}}/tck/adapters/sbx --timeout {{.TIMEOUT}} {{.CLI_ARGS}}
 
   frontend:build:
     desc: >-

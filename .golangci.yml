@@ -1,6 +1,7 @@
 # The default linters, which is what `task validate` already implies
 # (gofmt, vet) plus the correctness checks that catch what review does
 # not: ignored errors, dead code, and staticcheck's bug patterns.
+# Shared by both modules; Task and CI run it once per module.
 version: "2"
 
 linters:
