@@ -372,6 +372,11 @@ func TestLiteralInstanceKeys(t *testing.T) {
 		{name: "volume path reference spelled with whitespace", entry: instance(CapabilityVolume, map[string]any{"path": "/data/${{\tkit.args.dir\n}}/.."})},
 		{name: "agent-context with an empty directory names no profile", entry: instance(CapabilityAgentContextV2, map[string]any{"directory": "", "filename": "AGENTS.md"}),
 			want: []InstanceKey{{Space: CapabilityAgentContextV2}}},
+		{name: "port transport spelled in another case", entry: instance(CapabilityPort, map[string]any{"container": 8080, "Transport": "udp"})},
+		{name: "port transport a referenced key may name", entry: instance(CapabilityPort, map[string]any{"container": 8080, "${{ kit.args.field }}": "udp"})},
+		{name: "agent-skill with a null name reads its default", entry: instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review", "name": nil}),
+			want: []InstanceKey{{Space: CapabilityAgentSkill, Parts: []string{"review"}}}},
+		{name: "agent-skill name spelled in another case", entry: instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/lint", "Name": "review"})},
 		{name: "singleton", entry: instance(CapabilityResources, map[string]any{"cpu": 2})},
 		{name: "unknown type", entry: instance("example.com/thing@1", map[string]any{"path": "/data"})},
 		{name: "group", entry: Capability{Group: &CapabilityGroup{Capabilities: []Capability{instance(CapabilityVolume, map[string]any{"path": "/data/cache"})}}}},
@@ -387,7 +392,8 @@ func TestLiteralInstanceKeys(t *testing.T) {
 // whole entry, and nothing in its other fields moves it. Each type's entry
 // fills every field its config has, key fields with values no default
 // would give, so a key reading a field it does not name shows; then each
-// other field is garbled in turn.
+// other field is garbled in turn. A field the type defaults, left out or
+// stated null, reads its default as decoding does.
 func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
 	// Each type's entry, and the fields its key does not read.
 	entries := map[string]struct {
@@ -432,6 +438,16 @@ func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
 					require.Equal(t, []InstanceKey{want}, literalInstanceKeys(instance(typ, garbled)), "%s: %v", field, value)
 				}
 			}
+			for _, field := range instanceKeys[typ].defaulted {
+				omitted, null := maps.Clone(e.config), maps.Clone(e.config)
+				delete(omitted, field)
+				null[field] = nil
+				for _, config := range []map[string]any{omitted, null} {
+					want, _, err := InstanceKeyOf(instance(typ, config))
+					require.NoError(t, err)
+					require.Equal(t, []InstanceKey{want}, literalInstanceKeys(instance(typ, config)), "%v", config)
+				}
+			}
 		})
 	}
 }
@@ -474,14 +490,25 @@ func TestValidationAgreesWithInstanceKeys(t *testing.T) {
 		instance(CapabilityHostMount, map[string]any{"path": "/data/shared", "mode": "${{ kit.args.mode }}"}),
 		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.claude/skills"}),
 		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.claude/skills", "mode": SkillsReadWrite}),
+		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.claude/skills", "mode": "${{ kit.args.mode }}"}),
 		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/.codex/skills"}),
+		instance(CapabilityAgentSkills, map[string]any{"Path": "/home/agent/.codex/skills", "mode": SkillsReadWrite}),
+		instance(CapabilityAgentSkills, map[string]any{"path": "/home/agent/${{ kit.args.agent }}/skills"}),
 		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review"}),
 		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review-v2", "name": "review"}),
+		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review", "name": "${{ kit.args.name }}"}),
+		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/${{ kit.env.SKILL }}"}),
 		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/lint"}),
+		instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/lint-v2", "Name": "lint"}),
 		instance(CapabilityPort, map[string]any{"container": 8080}),
 		instance(CapabilityPort, map[string]any{"container": 8080, "transport": "tcp", "name": "api"}),
+		instance(CapabilityPort, map[string]any{"container": 8080, "name": "${{ kit.args.name }}"}),
+		instance(CapabilityPort, map[string]any{"container": 8080, "transport": nil}),
 		instance(CapabilityPort, map[string]any{"container": 8080, "transport": "udp"}),
+		instance(CapabilityPort, map[string]any{"container": 8080, "Transport": "udp"}),
+		instance(CapabilityPort, map[string]any{"container": 8080, "transport": "${{ kit.args.transport }}"}),
 		instance(CapabilityPort, map[string]any{"container": 9090}),
+		instance(CapabilityPort, map[string]any{"Container": 9090, "name": "metrics"}),
 		// One @1 version only: @1 and @2 cannot be declared together
 		// whatever their keys, and one body only, since a Kit contributes
 		// one. Entries without a directory have no profile to key on and

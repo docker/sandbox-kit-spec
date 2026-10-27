@@ -1796,19 +1796,52 @@ func TestExpandCreateArgsSubstitutesWithinAString(t *testing.T) {
 }
 
 // An omitted transport IS tcp, so declaring both spellings of one port is
-// the duplicate the check exists to catch.
-func TestValidateRejectsDuplicateDefaultTransportPorts(t *testing.T) {
-	d := &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
-		{Type: CapabilityPort, Config: map[string]any{"container": 18993}},
-		{Type: CapabilityPort, Config: map[string]any{"container": 18993, "transport": "tcp"}},
-	}}
-	_, err := Validate(d)
-	require.ErrorContains(t, err, "port 18993 already declared")
-
-	// Different transports on one port stay legal.
-	d.Capabilities[1].Config = map[string]any{"container": 18993, "transport": "udp"}
-	_, err = Validate(d)
-	require.NoError(t, err)
+// the duplicate the check exists to catch. The key reads only the
+// container and transport, as decoded when the entry decodes and
+// literally otherwise, so a reference or an error elsewhere in an entry
+// does not put the check off until expansion, when a merge may already
+// have folded the two.
+func TestValidateRejectsDuplicatePorts(t *testing.T) {
+	const repeated = "capabilities[1]: port 18993 already declared at capabilities[0]"
+	for _, tc := range []struct {
+		name   string
+		second map[string]any
+		err    string
+	}{
+		{"explicit tcp", map[string]any{"container": 18993, "transport": "tcp"}, repeated},
+		{"null transport", map[string]any{"container": 18993, "transport": nil}, repeated},
+		// Not identical to the first entry, which the exact-duplicate rule
+		// would report instead.
+		{"container as a JSON number", map[string]any{"container": 18993.0, "name": "api"}, repeated},
+		{"container spelled in another case", map[string]any{"Container": 18993, "name": "api"}, repeated},
+		{"transport spelled twice, decoding to tcp", map[string]any{"container": 18993, "transport": "udp", "tranſport": "tcp"}, repeated},
+		{"name reference", map[string]any{"container": 18993, "name": "${{ kit.args.name }}"}, repeated},
+		{"null transport beside a name reference", map[string]any{"container": 18993, "transport": nil, "name": "${{ kit.args.name }}"}, repeated},
+		{"environment reference", map[string]any{"container": 18993, "name": "${{ kit.env.NAME }}"}, repeated},
+		{"invalid name", map[string]any{"container": 18993, "name": 5}, repeated},
+		{"udp", map[string]any{"container": 18993, "transport": "udp"}, ""},
+		{"udp spelled in another case", map[string]any{"container": 18993, "Transport": "udp"}, ""},
+		{"udp spelled in another case beside a name reference", map[string]any{"container": 18993, "Transport": "udp", "name": "${{ kit.args.name }}"}, ""},
+		{"transport spelled twice, decoding to udp", map[string]any{"container": 18993, "transport": "tcp", "tranſport": "udp"}, ""},
+		{"transport reference", map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}"}, ""},
+		{"key reference that may name the transport", map[string]any{"container": 18993, "${{ kit.args.field }}": "udp"}, ""},
+		{"container reference", map[string]any{"container": "${{ kit.args.port }}"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Descriptor{SchemaVersion: "3", Kind: KindMixin,
+				Args: map[string]Arg{"name": {}, "transport": {}, "port": {}, "field": {}},
+				Capabilities: []Capability{
+					{Type: CapabilityPort, Config: map[string]any{"container": 18993}},
+					{Type: CapabilityPort, Config: tc.second},
+				}}
+			_, err := Validate(d)
+			if tc.err == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.err)
+		})
+	}
 }
 
 // A key names something the author chose, so references reach map keys

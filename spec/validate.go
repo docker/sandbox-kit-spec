@@ -668,8 +668,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		// or gets wrong: a merge can otherwise union overlapping entries,
 		// or publication separate them, and erase the error. One phase
 		// listed twice in an entry is refused as such, not as a repeat.
-		// Agent-context profiles are held below, and ports and skills
-		// once their entry decodes.
+		// Agent-context profiles are held below.
 		switch n.Type {
 		case CapabilitySSHAgent:
 			for _, key := range literalInstanceKeys(n) {
@@ -703,6 +702,29 @@ func validateCapabilityBlock(d *Descriptor) error {
 				}
 				if prev, dup := declared.at(other, key); dup {
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, destination, otherLabel, prev))
+				}
+			}
+		case CapabilityAgentSkill:
+			for _, key := range blockKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config", "%s %q already declared at capabilities[%d]", n.Type, key.Parts[0], prev))
+				}
+			}
+		case CapabilityAgentSkills:
+			// A path is one mount whatever mode each entry asks for, and
+			// two modes contradict each other, so a block states one.
+			for _, key := range blockKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, key.Parts[0], prev))
+				}
+			}
+		case CapabilityPort:
+			for _, key := range blockKeys(n) {
+				if prev, dup := declared.add(n.Type, key, i); dup {
+					// The key's container is the decoded one, whatever
+					// number type or spelling the config holds it as.
+					container, _, _ := strings.Cut(key.Parts[0], "/")
+					errs.add(fieldErrorf(path+".config.container", "capabilities[%d]: port %s already declared at capabilities[%d]", i, container, prev))
 				}
 			}
 		}
@@ -794,15 +816,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
 			}
 		case CapabilityAgentSkill:
-			if err := validateBundledSkill(path, n); err != nil {
-				errs.add(err)
-				continue
-			}
-			if key, _, err := InstanceKeyOf(n); err == nil {
-				if prev, dup := declared.add(n.Type, key, i); dup {
-					errs.add(fieldErrorf(path+".config", "%s %q already declared at capabilities[%d]", n.Type, key.Parts[0], prev))
-				}
-			}
+			errs.add(validateBundledSkill(path, n))
 		case CapabilityAgentSkills:
 			var s AgentSkills
 			if err := DecodeCapabilityConfig(n, &s); err != nil {
@@ -811,7 +825,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 			}
 			// Canonical form is required, not normalized in: /x/../skills
 			// and /skills are different keys for one mount destination, so
-			// an alias would slip past the duplicate check below and could
+			// an alias would slip past the duplicate check above and could
 			// declare a second mode for the same path.
 			if s.Path == "/" || !canonicalAbsPath(s.Path) {
 				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills path %q must be absolute and canonical (no . or .. segments, no trailing slash, not the root)", i, s.Path))
@@ -820,16 +834,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 			case "", SkillsReadOnly, SkillsReadWrite:
 			default:
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: mode must be %q or %q, got %q", i, SkillsReadOnly, SkillsReadWrite, s.Mode))
-			}
-			// No dedup by path here: two entries naming one path with the
-			// same mode are identical requests, which the exact-duplicate
-			// rule above already rejects; naming one path with different
-			// modes is contradictory, so the narrower one is the request
-			// and stating both is an error.
-			if key, _, err := InstanceKeyOf(n); err == nil {
-				if prev, dup := declared.add(n.Type, key, i); dup {
-					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, s.Path, prev))
-				}
 			}
 		case CapabilityPort:
 			var p Port
@@ -844,11 +848,6 @@ func validateCapabilityBlock(d *Descriptor) error {
 			case "", "tcp", "udp":
 			default:
 				errs.add(fieldErrorf(path+".config.transport", "capabilities[%d]: transport must be tcp or udp, got %q", i, p.Transport))
-			}
-			if key, _, err := InstanceKeyOf(n); err == nil {
-				if prev, dup := declared.add(n.Type, key, i); dup {
-					errs.add(fieldErrorf(path+".config.container", "capabilities[%d]: port %d already declared at capabilities[%d]", i, p.Container, prev))
-				}
 			}
 		case CapabilityUSBDevice:
 			var u USBDevice
@@ -1039,7 +1038,7 @@ func (a *contextArity) add(field string, i int, n Capability) error {
 }
 
 // declaredKeys remembers, per type, the entry of a declaration block that
-// last asked for each literal instance key.
+// last asked for each instance key.
 type declaredKeys map[string]int
 
 // add records entry i as asking for key and reports the entry that asked
@@ -1054,6 +1053,21 @@ func (d declaredKeys) add(typ string, key InstanceKey, i int) (prev int, dup boo
 func (d declaredKeys) at(typ string, key InstanceKey) (int, bool) {
 	i, dup := d[typ+"\x00"+key.identity()]
 	return i, dup
+}
+
+// blockKeys returns the keys a declaration block holds entry n to. An
+// entry that holds no reference and decodes asks for the key InstanceKeyOf
+// gives it: decoding matches a config key to a field whatever its case, as
+// encoding/json does, so an entry spelling a key field another way (Path,
+// tranſport) asks for a key its literal fields do not show, or show
+// wrongly. Any other entry is held to its literal keys. Ports and skills
+// are keyed this way; the other types are held to their literal keys
+// alone, so such a spelling can still hide one of their repeats.
+func blockKeys(n Capability) []InstanceKey {
+	if key, _, err := InstanceKeyOf(n); err == nil {
+		return []InstanceKey{key}
+	}
+	return literalInstanceKeys(n)
 }
 
 // Validate literal destination structure even when another config field

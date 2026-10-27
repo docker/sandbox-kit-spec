@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -148,13 +149,13 @@ var instanceKeys = map[string]keyDefinition{
 	}),
 	CapabilityAgentSkill: keyOn([]string{"path", "name"}, func(s AgentSkill) ([]string, error) {
 		return []string{AgentSkillName(s)}, nil
-	}),
+	}).defaulting("name"),
 	CapabilityAgentSkills: keyOn([]string{"path"}, func(s AgentSkills) ([]string, error) {
 		return []string{s.Path}, nil
 	}),
 	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
-	}),
+	}).defaulting("transport"),
 	CapabilityAgentContext: keyOn([]string{"directory", "filename"}, func(a AgentContext) ([]string, error) {
 		return contextProfile(a.Directory, a.Filename), nil
 	}),
@@ -168,7 +169,18 @@ type keyDefinition struct {
 	// fields names every config field parts reads, which is what lets
 	// validation key an authored entry on those fields alone.
 	fields []string
-	parts  func(Capability) ([]string, error)
+	// defaulted names the fields an entry may leave out or state null and
+	// still be keyed, parts reading their default. Leaving out any other
+	// field in fields, or stating it null, leaves an entry without a key.
+	defaulted []string
+	parts     func(Capability) ([]string, error)
+}
+
+// defaulting names the fields an entry may leave out or state null,
+// parts reading their default.
+func (k keyDefinition) defaulting(fields ...string) keyDefinition {
+	k.defaulted = fields
+	return k
 }
 
 // keyOn keys an entry on fields, decoding its config strictly as T first.
@@ -191,10 +203,17 @@ func keyOn[T any](fields []string, key func(T) ([]string, error)) keyDefinition 
 // per key before expansion or a merge separates or folds the entries. It
 // reads only the fields its type's key reads, so another field that is
 // invalid or still holds a reference cannot hide a repeated key. A key
-// field that is missing, null, or still holding a reference gives no key,
-// even one the type defaults, as does one the key cannot read, such as an
-// undecodable value or an empty phase. An entry naming several phases
-// gives one key per literal phase, as composition splits it.
+// field that still holds a reference gives no key, as does one the key
+// cannot read, such as an undecodable value or an empty phase. So does
+// leaving out a field that has no default, or stating it null; a field
+// that has one reads its default either way, as decoding does, unless
+// another config key may yet be read as it. An entry naming several
+// phases gives one key per literal phase, as composition splits it.
+//
+// Fields are read by their exact names. Decoding also reads a field
+// spelled in another case, and such a spelling can override the exact
+// one, so the key of an entry that decodes is the one InstanceKeyOf gives
+// it.
 func literalInstanceKeys(n Capability) []InstanceKey {
 	definition, keyed := instanceKeys[n.Type]
 	if !keyed || n.Group != nil {
@@ -202,10 +221,17 @@ func literalInstanceKeys(n Capability) []InstanceKey {
 	}
 	fields := make(map[string]any, len(definition.fields))
 	for _, field := range definition.fields {
-		if n.Config[field] == nil {
+		value := n.Config[field]
+		if value == nil && slices.Contains(definition.defaulted, field) {
+			if mayBeReadAs(n.Config, field) {
+				return nil
+			}
+			continue
+		}
+		if value == nil {
 			return nil
 		}
-		fields[field] = n.Config[field]
+		fields[field] = value
 	}
 	configs := []map[string]any{fields}
 	if _, phased := fields["phase"]; phased {
@@ -227,6 +253,19 @@ func literalInstanceKeys(n Capability) []InstanceKey {
 		}
 	}
 	return keys
+}
+
+// mayBeReadAs reports whether a config key other than field itself may be
+// read as field: decoding matches a key spelled in another case, as
+// encoding/json does, and a key still holding a reference may expand to
+// field's name.
+func mayBeReadAs(config map[string]any, field string) bool {
+	for key := range config {
+		if key != field && (strings.EqualFold(key, field) || ContainsArgRef(key) || ContainsEnvRef(key)) {
+			return true
+		}
+	}
+	return false
 }
 
 // identity is the key as one string, for keying a map.
