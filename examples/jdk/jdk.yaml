@@ -1,0 +1,12 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: mixin
+displayName: JDK (Eclipse Temurin)
+description: A Java toolchain for workloads that ship none, copied from the official eclipse-temurin image
+sourceUrl: https://adoptium.net
+licenses: [GPL-2.0-only WITH Classpath-exception-2.0]
+
+# The image tag in the companion Dockerfile is the version authority. Its
+# build fails unless the copied JDK reports exactly this version.
+provides: ["jdk@25.0.4.1"]
