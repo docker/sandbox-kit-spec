@@ -1515,20 +1515,32 @@ kits: [{ref: "${{ kit.args.nope }}/base:1.0.0"}]
 }
 
 // A re-exported arg leaves a placeholder, which is a string. Where the
-// field holds text it rides through to create; where it holds a number
-// the merge cannot read it, and the author needs to be told that
-// rather than shown a JSON type error.
+// field holds text it rides through to create; where it holds a number or
+// a boolean of a request the merge reconciles, the merge cannot read it,
+// and the author needs to be told that rather than shown a JSON type
+// error. A key holding one is not read until create, which types it.
 func TestMergeExplainsAReExportItCannotCarry(t *testing.T) {
 	typed := contribute(t, "reg.io/tool:1", `schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/credential@1
+    config: {service: github, phase: runtime, apiKey: {name: TOKEN, proxyManaged: "${{ kit.args.managed }}"}}
+`)
+	_, err := Merge([]Contribution{typed}, MergeOptions{})
+	require.ErrorContains(t, err, "still parameterized where the merge has to read it")
+	require.ErrorContains(t, err, "pin the arg in kits[].args")
+
+	key := contribute(t, "reg.io/tool:1", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
 capabilities:
   - type: com.docker.sandbox/port@1
     config: {container: "${{ kit.args.port }}"}
 `)
-	_, err := Merge([]Contribution{typed}, MergeOptions{})
-	require.ErrorContains(t, err, "still parameterized where the merge has to read it")
-	require.ErrorContains(t, err, "pin the arg in kits[].args")
+	deferred := mergeOK(t, key)
+	require.Len(t, deferred.Descriptor.Capabilities, 1)
+	require.NotNil(t, deferred.Descriptor.Capabilities[0].Group, "kept apart for create to key")
 
 	// A text field carries one through, which is what re-export is for.
 	text := contribute(t, "reg.io/net:1", `schemaVersion: "3"

@@ -384,6 +384,33 @@ func TestLiteralInstanceKeys(t *testing.T) {
 	}
 }
 
+// Publication keeps an entry apart until create exactly when a field its
+// key reads still holds a reference, however the reference is spelled or
+// nested; a reference beside the key leaves the key known.
+func TestKeyHoldsReference(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		entry Capability
+		want  bool
+	}{
+		{"port transport", instance(CapabilityPort, map[string]any{"container": 8080, "transport": "${{ kit.args.t }}"}), true},
+		{"port name", instance(CapabilityPort, map[string]any{"container": 8080, "name": "${{ kit.args.n }}"}), false},
+		{"one phase of several", instance(CapabilityCredential, map[string]any{"service": "github", "phase": []any{"install", "${{ kit.args.p }}"}}), true},
+		{"credential secret name", instance(CapabilityCredential, map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "${{ kit.args.token }}"}}), false},
+		{"environment reference", instance(CapabilityAgentSkills, map[string]any{"path": "/home/${{ kit.env.AGENT }}/skills"}), true},
+		{"reference spelled with whitespace", instance(CapabilityACP, map[string]any{"agent": "${{\tkit.args.agent\n}}", "command": "acp"}), true},
+		{"agent-context filename", instance(CapabilityAgentContext, map[string]any{"directory": "/home/agent", "filename": "${{ kit.args.file }}"}), true},
+		{"literal key", instance(CapabilityAgentSkill, map[string]any{"path": "/opt/skills/review"}), false},
+		{"singleton", instance(CapabilityResources, map[string]any{"memory": "${{ kit.args.memory }}"}), false},
+		{"unknown type", instance("example.com/thing@1", map[string]any{"path": "${{ kit.args.path }}"}), false},
+		{"group", Capability{Group: &CapabilityGroup{Capabilities: []Capability{instance(CapabilityPort, map[string]any{"container": 8080, "transport": "${{ kit.args.t }}"})}}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, keyHoldsReference(tc.entry))
+		})
+	}
+}
+
 // A type's key reads only the fields its definition names, so an
 // authored entry keyed on those alone has the key InstanceKeyOf gives the
 // whole entry, and nothing in its other fields moves it. Each type's entry

@@ -104,11 +104,13 @@ required profile does not make another agent's optional one required.
 A merged set's concatenated body rides the first required profile, or
 the sole profile when it is optional. Skipping an optional destination
 therefore cannot discard the body needed by a surviving profile. When
-several profiles are all optional, publication preserves the original
-declarations in capability groups and stages their bodies separately,
-as for other conditional declarations. Selection then retains each
-accepted profile's body, and the runtime indexes all selected bodies in
-every effective profile.
+several profiles are all optional, or when publication leaves a set's
+requests apart until create
+([SPEC-v3 §9.5](../../SPEC-v3.md#95-merging-a-set)), publication
+preserves the original declarations in capability groups and stages
+their bodies separately, as for other conditional declarations.
+Selection then retains each accepted profile's body, and the runtime
+indexes all selected bodies in every effective profile.
 
 The optional `directory` field preserves existing descriptors and their
 workspace-sibling default. Context bodies keep their staged paths; only

@@ -100,7 +100,10 @@ func InstanceKeyOf(c Capability) (key InstanceKey, arity Arity, err error) {
 
 // keyAsWritten is InstanceKeyOf for an entry that may still hold
 // references, keying them on their text. Publication needs it: a set
-// re-exporting an arg merges entries before anything expands them.
+// re-exporting an arg merges entries before anything expands them, though
+// it reconciles only those whose key is literal: publication keeps any
+// whose key still holds a reference apart until create
+// (keyHoldsReference).
 func keyAsWritten(c Capability) (InstanceKey, Arity, error) {
 	if c.Group != nil {
 		return InstanceKey{}, "", errors.New("capability group has no instance key; select it first")
@@ -245,6 +248,32 @@ func literalInstanceKeys(n Capability) []InstanceKey {
 		}
 	}
 	return keys
+}
+
+// keyHoldsReference reports whether a field an instance-shaped entry's key
+// reads still holds an arg or environment reference, so the key is not
+// known until create expands it. Publication keeps such an entry apart
+// until then rather than reconcile it on its text: different references
+// may expand to one key, and folding two entries that spell one reference
+// alike would erase a repeat their own declaration block has to refuse.
+func keyHoldsReference(n Capability) bool {
+	if _, keyed := instanceKeys[n.Type]; !keyed || n.Group != nil {
+		return false
+	}
+	return capabilityIsParameterized(Capability{Type: n.Type, Config: keyFieldsOf(n)})
+}
+
+// keyFieldsOf projects an instance-shaped entry's config onto the fields
+// its type's key reads, as stated.
+func keyFieldsOf(n Capability) map[string]any {
+	definition := instanceKeys[n.Type]
+	fields := make(map[string]any, len(definition.fields))
+	for _, field := range definition.fields {
+		if value, stated := n.Config[field]; stated {
+			fields[field] = value
+		}
+	}
+	return fields
 }
 
 // identity is the key as one string, for keying a map.

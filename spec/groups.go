@@ -505,9 +505,69 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 					return true
 				}
 			}
+			// Any type's key is judged the same way once it holds a
+			// reference; references beside a literal key still reconcile.
+			if keyHoldsReference(item) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// refuseConcreteConflicts holds the requests a deferred publication leaves
+// apart to the rules an undeferred merge applies, where they are already
+// concrete: an unrelated deferred request cannot hide a conflict between
+// them. A required group's member, as a nested set's required requests
+// arrive, is asked for as surely as an ungrouped entry. An optional group
+// may be declined in favor of another the same kit offers for the same
+// key, so its members wait for selection, as agent-context bodies wait
+// for staging. A request holding a reference
+// waits for create, except that a credential or host mount has one owner
+// whatever its config, so a literal key alone refuses a second asker.
+func refuseConcreteConflicts(contributions []Contribution) error {
+	concrete := make([]Contribution, len(contributions))
+	for i, c := range contributions {
+		d := &Descriptor{SchemaVersion: c.Descriptor.SchemaVersion, Kind: c.Descriptor.Kind}
+		check := func(item Capability, source CapabilitySource) {
+			if item.Type == CapabilityAgentContext || item.Type == CapabilityAgentContextV2 || keyHoldsReference(item) {
+				return
+			}
+			if capabilityIsParameterized(item) {
+				if item.Type != CapabilityCredential && item.Type != CapabilityHostMount {
+					return
+				}
+				item.Config = keyFieldsOf(item)
+			}
+			if item.Source != nil {
+				source = *item.Source
+				if source.Kit == "" {
+					source.Kit = c.Reference
+				}
+			}
+			item.Source = &source
+			d.Capabilities = append(d.Capabilities, item)
+		}
+		for j, item := range c.Descriptor.Capabilities {
+			source := CapabilitySource{Kit: c.Reference, Path: fmt.Sprintf("capabilities[%d]", j)}
+			if item.Group == nil {
+				check(item, source)
+				continue
+			}
+			if item.Group.Optional {
+				continue
+			}
+			if item.Source != nil {
+				source.Path = item.Source.Path
+			}
+			for k, member := range item.Group.Capabilities {
+				check(member, CapabilitySource{Kit: c.Reference, Path: fmt.Sprintf("%s.group.capabilities[%d]", source.Path, k)})
+			}
+		}
+		concrete[i] = Contribution{Reference: c.Reference, Descriptor: d}
+	}
+	_, _, err := mergeCapabilities(concrete)
+	return err
 }
 
 // preserveGroups preserves selection boundaries and unresolved declarations.
@@ -526,6 +586,9 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 	}
 	result, err := mergeDeclarations(stripped)
 	if err != nil {
+		return nil, err
+	}
+	if err := refuseConcreteConflicts(contributions); err != nil {
 		return nil, err
 	}
 	count := 0
