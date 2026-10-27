@@ -5,7 +5,6 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"strings"
 )
 
 // ACP is CapabilityACP's config. Command is a complete ACP agent
@@ -106,16 +105,6 @@ func validateACP(path string, i int, n Capability) error {
 	}
 	if ACPProtocolVersion(a) < 1 {
 		errs.add(fieldErrorf(path+".config.protocolVersion", "capabilities[%d]: protocolVersion must be positive", i))
-	}
-	for _, arg := range a.Command {
-		if strings.ContainsRune(arg, '\x00') {
-			errs.add(fieldErrorf(path+".config.command", "capabilities[%d]: command contains NUL", i))
-		}
-	}
-	for key, value := range a.Env {
-		if strings.ContainsRune(value, '\x00') {
-			errs.add(fieldErrorf(path+".config.env", "capabilities[%d]: env value for %q contains NUL", i, key))
-		}
 	}
 	return errs.err()
 }

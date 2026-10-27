@@ -63,6 +63,11 @@ Decoding uses strict field checking (`KnownFields(true)`). **Any
 unrecognized field anywhere in the document is an error.** A misspelled key
 silently ignored would be a policy silently absent.
 
+**No string in the document, key or value, contains NUL (U+0000)**,
+including in the config of a type the reader does not know. No field has a
+use for one, and a reader that treats a string as C text would see a
+different value from the one that was validated.
+
 ### 1.3 Where behavior is specified
 
 This grammar declares; runtimes behave. Descriptor-level rules (field

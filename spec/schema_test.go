@@ -108,7 +108,8 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	var mixinRule map[string]any
 	for _, rule := range setRules {
 		r := rule.(map[string]any)
-		cond, ok := r["if"].(map[string]any)["properties"].(map[string]any)
+		ifClause, _ := r["if"].(map[string]any)
+		cond, ok := ifClause["properties"].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -272,9 +273,10 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	require.Equal(t, octalMode.String(), literalPattern(t, at(t, hostMount, "properties", "mode")))
 	assertAcceptsKitArg(t, at(t, hostMount, "properties", "mode"), "bearing")
 	assertAcceptsKitArg(t, at(t, hostMount, "properties", "path"), "bearing")
+	// NUL is the root noNul rule's to refuse, not this pattern's.
 	hostPath := regexp.MustCompile(literalPattern(t, at(t, hostMount, "properties", "path")))
 	for _, p := range []string{"/cache", "/a/.hidden", "/a/..b", "/a/ space", "/", "", "relative", "/cache/", "//cache", "/a/../cache", "/a/./cache", "/a\x00b"} {
-		require.Equal(t, p != "/" && canonicalAbsPath(p) && !strings.ContainsRune(p, '\x00'), hostPath.MatchString(p), "host mount path %q", p)
+		require.Equal(t, p != "/" && canonicalAbsPath(p), hostPath.MatchString(p), "host mount path %q", p)
 	}
 
 	resources := loadJSON(t, perTypeSchemaPath(CapabilityResources))

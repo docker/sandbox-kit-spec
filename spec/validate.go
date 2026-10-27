@@ -58,6 +58,7 @@ func Validate(d *Descriptor) (warnings []string, err error) {
 		errs.add(fieldErrorf("kind", "kind must be %q, %q, or %q, got %q", KindWorkload, KindMixin, KindSet, d.Kind))
 	}
 
+	errs.add(validateNoNUL(d))
 	errs.add(validateIconURL(d.IconURL))
 	errs.add(validateCapabilityNames(d))
 	errs.add(validateCapabilityEntries(d))
@@ -828,8 +829,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(configErrorf(path, i, err))
 				continue
 			}
-			if mount.Path == "/" || !canonicalAbsPath(mount.Path) || strings.ContainsRune(mount.Path, '\x00') {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q must be absolute and canonical, without NUL or root /", i, mount.Path))
+			if mount.Path == "/" || !canonicalAbsPath(mount.Path) {
+				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q must be absolute and canonical, not root /", i, mount.Path))
 			}
 			if _, stated := n.Config["mode"]; stated && !octalMode.MatchString(mount.Mode) {
 				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
@@ -1094,7 +1095,7 @@ func validateContextDirectory(field string, i int, kind string, n Capability) er
 	if !isString {
 		errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context directory must be a string", i))
 	} else if !ContainsArgRef(directory) && !ContainsEnvRef(directory) {
-		if !canonicalAbsPath(directory) || strings.ContainsAny(directory, "\\\x00") {
+		if !canonicalAbsPath(directory) || strings.ContainsRune(directory, '\\') {
 			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context directory must be an absolute, canonical path", i))
 		}
 	}
@@ -1102,7 +1103,7 @@ func validateContextDirectory(field string, i int, kind string, n Capability) er
 	if !ok || filename == "" {
 		errs.add(fieldErrorf(field+".config.filename", "capabilities[%d]: agent-context directory requires filename in the same entry", i))
 	} else if !ContainsArgRef(filename) && !ContainsEnvRef(filename) {
-		if filename == "." || filename == ".." || strings.ContainsAny(filename, "/\\\x00") {
+		if filename == "." || filename == ".." || strings.ContainsAny(filename, "/\\") {
 			errs.add(fieldErrorf(field+".config.filename", "capabilities[%d]: agent-context filename must be a single filename when directory is stated", i))
 		}
 	}

@@ -29,10 +29,7 @@
       "oneOf": [
         {
           "type": "string",
-          "pattern": "\\S",
-          "not": {
-            "pattern": "\u0000"
-          }
+          "pattern": "\\S"
         },
         {
           "type": "array",
@@ -40,17 +37,11 @@
           "items": [
             {
               "type": "string",
-              "pattern": "\\S",
-              "not": {
-                "pattern": "\u0000"
-              }
+              "pattern": "\\S"
             }
           ],
           "additionalItems": {
-            "type": "string",
-            "not": {
-              "pattern": "\u0000"
-            }
+            "type": "string"
           }
         }
       ]
@@ -61,10 +52,7 @@
         "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
       },
       "additionalProperties": {
-        "type": "string",
-        "not": {
-          "pattern": "\u0000"
-        }
+        "type": "string"
       },
       "description": "Extra environment for this process, overlaid on the agent session environment."
     },

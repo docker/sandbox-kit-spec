@@ -12,7 +12,7 @@
       "type": "string",
       "anyOf": [
         {
-          "pattern": "^(/([^./\\x00][^/\\x00]*|\\.[^./\\x00][^/\\x00]*|\\.\\.[^/\\x00]+))+$"
+          "pattern": "^(/([^./][^/]*|\\.[^./][^/]*|\\.\\.[^/]+))+$"
         },
         {
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
