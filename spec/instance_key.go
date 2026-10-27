@@ -130,13 +130,13 @@ var instanceKeys = map[string]keyDefinition{
 	CapabilityCredential: keyOn([]string{"service", "phase"}, func(c Credential) ([]string, error) {
 		phase, err := onlyPhase(c.Phase)
 		return []string{c.Service, phase}, err
-	}),
+	}).readingAsWritten("service", "phase"),
 	// One socket per phase, whichever kits asked: the bounds are what that
 	// socket signs, not which socket it is.
 	CapabilitySSHAgent: keyOn([]string{"phase"}, func(a SSHAgent) ([]string, error) {
 		phase, err := onlyPhase(a.Phase)
 		return []string{phase}, err
-	}),
+	}).readingAsWritten("phase"),
 	// The destination, not the spelling: validation asks only that a
 	// volume path be absolute, so /data/cache and /data/./cache are one
 	// mount written two ways, and keying on the text would emit both and
@@ -152,10 +152,10 @@ var instanceKeys = map[string]keyDefinition{
 	}).defaulting("name"),
 	CapabilityAgentSkills: keyOn([]string{"path"}, func(s AgentSkills) ([]string, error) {
 		return []string{s.Path}, nil
-	}),
+	}).readingAsWritten("path"),
 	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
-	}).defaulting("transport"),
+	}).defaulting("transport").readingAsWritten("transport"),
 	CapabilityAgentContext: keyOn([]string{"directory", "filename"}, func(a AgentContext) ([]string, error) {
 		return contextProfile(a.Directory, a.Filename), nil
 	}),
@@ -173,6 +173,14 @@ type keyDefinition struct {
 	// still be keyed, parts reading their default. Leaving out any other
 	// field in fields, or stating it null, leaves an entry without a key.
 	defaulted []string
+	// asWritten names the fields parts reads as written, each apart from
+	// the others, so a reference in one stands in the key for whatever
+	// value it expands to: entries spelling it alike share a key however
+	// it expands. A field the key reworks cannot be keyed on its text.
+	// path.Clean folds /data/${{ kit.args.d }}/.. to /data, which d=a/b
+	// does not expand to, and a skill whose name expands empty is named
+	// for its path.
+	asWritten []string
 	parts     func(Capability) ([]string, error)
 }
 
@@ -180,6 +188,13 @@ type keyDefinition struct {
 // parts reading their default.
 func (k keyDefinition) defaulting(fields ...string) keyDefinition {
 	k.defaulted = fields
+	return k
+}
+
+// readingAsWritten names the fields parts reads as written, apart from
+// the others.
+func (k keyDefinition) readingAsWritten(fields ...string) keyDefinition {
+	k.asWritten = fields
 	return k
 }
 
@@ -198,17 +213,21 @@ func keyOn[T any](fields []string, key func(T) ([]string, error)) keyDefinition 
 	}}
 }
 
-// literalInstanceKeys returns the keys an authored entry's literal fields
-// already settle, so validation can hold a declaration block to one entry
-// per key before expansion or a merge separates or folds the entries. It
-// reads only the fields its type's key reads, so another field that is
-// invalid or still holds a reference cannot hide a repeated key. A key
-// field that still holds a reference gives no key, as does one the key
-// cannot read, such as an undecodable value or an empty phase. So does
-// leaving out a field that has no default, or stating it null; a field
-// that has one reads its default either way, as decoding does, unless
-// another config key may yet be read as it. An entry naming several
-// phases gives one key per literal phase, as composition splits it.
+// literalInstanceKeys returns the keys an authored entry already settles,
+// so validation can hold a declaration block to one entry per key before
+// expansion or a merge separates or folds the entries. It reads only the
+// fields its type's key reads, so another field that is invalid or still
+// holds a reference cannot hide a repeated key. A reference expands to
+// one value throughout a block, so a key field the key reads as written
+// is keyed on its text when it holds one, respelled as expansion reads
+// it. Any other key field still holding a reference gives no key, as
+// does one the key cannot read, such as an undecodable value or an empty
+// phase. So does leaving out a field that has no default, or stating it
+// null; a field that has one reads its default either way, as decoding
+// does. Neither a default nor a reference's text is the key's when
+// another config key may yet be read as the field, so such an entry gets
+// no key either. An entry naming several phases gives one key per phase,
+// as composition splits it.
 //
 // Fields are read by their exact names. Decoding also reads a field
 // spelled in another case, and such a spelling can override the exact
@@ -231,11 +250,17 @@ func literalInstanceKeys(n Capability) []InstanceKey {
 		if value == nil {
 			return nil
 		}
+		if capabilityIsParameterized(Capability{Config: map[string]any{field: value}}) {
+			if !slices.Contains(definition.asWritten, field) || mayBeReadAs(n.Config, field) {
+				return nil
+			}
+			value = respellReferences(value)
+		}
 		fields[field] = value
 	}
 	configs := []map[string]any{fields}
 	if _, phased := fields["phase"]; phased {
-		phases, err := phasesOf(n)
+		phases, err := phasesOf(Capability{Type: n.Type, Config: fields})
 		if err != nil {
 			return nil
 		}
@@ -248,11 +273,30 @@ func literalInstanceKeys(n Capability) []InstanceKey {
 	}
 	var keys []InstanceKey
 	for _, config := range configs {
-		if key, _, err := InstanceKeyOf(Capability{Type: n.Type, Config: config}); err == nil {
+		if key, _, err := keyAsWritten(Capability{Type: n.Type, Config: config}); err == nil {
 			keys = append(keys, key)
 		}
 	}
 	return keys
+}
+
+// respellReferences writes every reference in a string, or in a list's
+// strings, the one way: ${{ kit.args.name }} or ${{ kit.env.NAME }}.
+// Expansion reads only a reference's name, whatever whitespace its
+// braces hold, so the spellings it merges here expand alike.
+func respellReferences(value any) any {
+	switch v := value.(type) {
+	case string:
+		v = argRef.ReplaceAllString(v, "$${{ kit.args.${1} }}")
+		return envRef.ReplaceAllString(v, "$${{ kit.env.${1} }}")
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = respellReferences(item)
+		}
+		return out
+	}
+	return value
 }
 
 // mayBeReadAs reports whether a config key other than field itself may be

@@ -1800,38 +1800,59 @@ func TestExpandCreateArgsSubstitutesWithinAString(t *testing.T) {
 // container and transport, as decoded when the entry decodes and
 // literally otherwise, so a reference or an error elsewhere in an entry
 // does not put the check off until expansion, when a merge may already
-// have folded the two.
+// have folded the two. The key reads a transport as written, so one
+// reference spelled in both, whatever whitespace its braces hold,
+// expands alike in both and makes them one port however it expands.
 func TestValidateRejectsDuplicatePorts(t *testing.T) {
 	const repeated = "capabilities[1]: port 18993 already declared at capabilities[0]"
+	literal := map[string]any{"container": 18993}
+	transport := map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}", "name": "api"}
 	for _, tc := range []struct {
-		name   string
-		second map[string]any
-		err    string
+		name          string
+		first, second map[string]any
+		err           string
 	}{
-		{"explicit tcp", map[string]any{"container": 18993, "transport": "tcp"}, repeated},
-		{"null transport", map[string]any{"container": 18993, "transport": nil}, repeated},
+		{"explicit tcp", literal, map[string]any{"container": 18993, "transport": "tcp"}, repeated},
+		{"null transport", literal, map[string]any{"container": 18993, "transport": nil}, repeated},
 		// Not identical to the first entry, which the exact-duplicate rule
 		// would report instead.
-		{"container as a JSON number", map[string]any{"container": 18993.0, "name": "api"}, repeated},
-		{"container spelled in another case", map[string]any{"Container": 18993, "name": "api"}, repeated},
-		{"transport spelled twice, decoding to tcp", map[string]any{"container": 18993, "transport": "udp", "tranſport": "tcp"}, repeated},
-		{"name reference", map[string]any{"container": 18993, "name": "${{ kit.args.name }}"}, repeated},
-		{"null transport beside a name reference", map[string]any{"container": 18993, "transport": nil, "name": "${{ kit.args.name }}"}, repeated},
-		{"environment reference", map[string]any{"container": 18993, "name": "${{ kit.env.NAME }}"}, repeated},
-		{"invalid name", map[string]any{"container": 18993, "name": 5}, repeated},
-		{"udp", map[string]any{"container": 18993, "transport": "udp"}, ""},
-		{"udp spelled in another case", map[string]any{"container": 18993, "Transport": "udp"}, ""},
-		{"udp spelled in another case beside a name reference", map[string]any{"container": 18993, "Transport": "udp", "name": "${{ kit.args.name }}"}, ""},
-		{"transport spelled twice, decoding to udp", map[string]any{"container": 18993, "transport": "tcp", "tranſport": "udp"}, ""},
-		{"transport reference", map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}"}, ""},
-		{"key reference that may name the transport", map[string]any{"container": 18993, "${{ kit.args.field }}": "udp"}, ""},
-		{"container reference", map[string]any{"container": "${{ kit.args.port }}"}, ""},
+		{"container as a JSON number", literal, map[string]any{"container": 18993.0, "name": "api"}, repeated},
+		{"container spelled in another case", literal, map[string]any{"Container": 18993, "name": "api"}, repeated},
+		{"transport spelled twice, decoding to tcp", literal, map[string]any{"container": 18993, "transport": "udp", "tranſport": "tcp"}, repeated},
+		{"name reference", literal, map[string]any{"container": 18993, "name": "${{ kit.args.name }}"}, repeated},
+		{"null transport beside a name reference", literal, map[string]any{"container": 18993, "transport": nil, "name": "${{ kit.args.name }}"}, repeated},
+		{"environment reference", literal, map[string]any{"container": 18993, "name": "${{ kit.env.NAME }}"}, repeated},
+		{"invalid name", literal, map[string]any{"container": 18993, "name": 5}, repeated},
+		{"udp", literal, map[string]any{"container": 18993, "transport": "udp"}, ""},
+		{"udp spelled in another case", literal, map[string]any{"container": 18993, "Transport": "udp"}, ""},
+		{"udp spelled in another case beside a name reference", literal, map[string]any{"container": 18993, "Transport": "udp", "name": "${{ kit.args.name }}"}, ""},
+		{"transport spelled twice, decoding to udp", literal, map[string]any{"container": 18993, "transport": "tcp", "tranſport": "udp"}, ""},
+		{"transport reference", literal, map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}"}, ""},
+		{"key reference that may name the transport", literal, map[string]any{"container": 18993, "${{ kit.args.field }}": "udp"}, ""},
+		{"container reference", literal, map[string]any{"container": "${{ kit.args.port }}"}, ""},
+		{"transport reference spelled alike", transport, map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}", "name": "admin"}, repeated},
+		{"transport reference spelled with other whitespace", transport, map[string]any{"container": 18993, "transport": "${{kit.args.transport\t}}", "name": "admin"}, repeated},
+		{"transport environment reference spelled alike",
+			map[string]any{"container": 18993, "transport": "${{ kit.env.TRANSPORT }}"},
+			map[string]any{"container": 18993, "transport": "${{ kit.env.TRANSPORT }}", "name": "admin"}, repeated},
+		{"transport references to different args", transport, map[string]any{"container": 18993, "transport": "${{ kit.args.name }}"}, ""},
+		{"transport reference within other text", transport, map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}6"}, ""},
+		// Decoding reads the long s over the reference, so the second entry
+		// may be 18993/udp.
+		{"transport reference spelled alike beside a case variant", transport, map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}", "tranſport": "udp"}, ""},
+		{"transport reference spelled alike beside a key reference", transport, map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}", "${{ kit.args.field }}": "udp"}, ""},
+		// The key reads a container as a number, so a reference in it waits
+		// for expansion; a merge refuses an entry it cannot decode rather
+		// than folding it.
+		{"container reference spelled alike",
+			map[string]any{"container": "${{ kit.args.port }}", "name": "api"},
+			map[string]any{"container": "${{ kit.args.port }}", "name": "admin"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &Descriptor{SchemaVersion: "3", Kind: KindMixin,
 				Args: map[string]Arg{"name": {}, "transport": {}, "port": {}, "field": {}},
 				Capabilities: []Capability{
-					{Type: CapabilityPort, Config: map[string]any{"container": 18993}},
+					{Type: CapabilityPort, Config: tc.first},
 					{Type: CapabilityPort, Config: tc.second},
 				}}
 			_, err := Validate(d)

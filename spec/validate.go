@@ -663,11 +663,14 @@ func validateCapabilityBlock(d *Descriptor) error {
 			errs.add(fieldErrorf(path+".config", "capabilities[%d]: %s takes no config", i, n.Type))
 		}
 
-		// A literal key holds the block to one entry per key before
+		// A settled key holds the block to one entry per key before
 		// parameterized values defer, whatever another setting waits for
 		// or gets wrong: a merge can otherwise union overlapping entries,
-		// or publication separate them, and erase the error. One phase
-		// listed twice in an entry is refused as such, not as a repeat.
+		// or publication separate them, and erase the error. A key is
+		// settled when each of its fields is literal or, where the key
+		// reads the field as written, spells a reference, which expands
+		// alike in every entry that spells it alike. One phase listed
+		// twice in an entry is refused as such, not as a repeat.
 		// Agent-context profiles are held below.
 		switch n.Type {
 		case CapabilitySSHAgent:
