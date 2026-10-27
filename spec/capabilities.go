@@ -26,7 +26,7 @@ import (
 // exact walk `Path` would decode as volume@1's path, while the validation
 // checks that read raw keys by exact name would see no path at all.
 func DecodeCapabilityConfig(n Capability, out any) error {
-	data, err := checkConfigFields(n, reflect.TypeOf(out), false)
+	data, err := checkConfigFields(n, reflect.TypeOf(out))
 	if err != nil {
 		return err
 	}
@@ -63,18 +63,17 @@ var configTypes = map[string]reflect.Type{
 }
 
 // parameterizedConfigFields refuses a key of a parameterized entry that
-// names no field of its type, before expansion lets the entry decode. No
-// value changes which field a key names, so create would refuse it
-// whatever the args are, and until then the checks that read raw keys by
-// exact name would not see it. A key that itself holds a reference waits:
-// create expands map keys (SPEC-v3 §6). An unknown type's config is
-// opaque and is not walked.
+// names no field of its type, before expansion lets the entry decode.
+// Field names are literal (SPEC-v3 §6), so no arg changes which field a
+// key names, and until create the checks that read raw keys by exact
+// name would not see an unknown one. An unknown type's config is opaque
+// and is not walked.
 func parameterizedConfigFields(n Capability) error {
 	t, known := configTypes[n.Type]
 	if !known {
 		return nil
 	}
-	_, err := checkConfigFields(n, t, true)
+	_, err := checkConfigFields(n, t)
 	return err
 }
 
@@ -83,7 +82,7 @@ func parameterizedConfigFields(n Capability) error {
 // n.Config: a synthesized config can hold typed Go values ([]string,
 // structs), which it would not recognize as the lists and objects they
 // encode to.
-func checkConfigFields(n Capability, t reflect.Type, deferReferences bool) ([]byte, error) {
+func checkConfigFields(n Capability, t reflect.Type) ([]byte, error) {
 	data, err := json.Marshal(n.Config)
 	if err != nil {
 		return nil, fmt.Errorf("capability %s: encode config: %w", n.Type, err)
@@ -92,7 +91,7 @@ func checkConfigFields(n Capability, t reflect.Type, deferReferences bool) ([]by
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("capability %s: %w", n.Type, err)
 	}
-	if err := exactConfigFields(raw, t, "", deferReferences); err != nil {
+	if err := exactConfigFields(raw, t, ""); err != nil {
 		return nil, fmt.Errorf("capability %s: %w", n.Type, err)
 	}
 	return data, nil
@@ -103,10 +102,8 @@ func checkConfigFields(n Capability, t reflect.Type, deferReferences bool) ([]by
 // keys are data, so only map values are walked, and a value of the wrong
 // shape is left for the decoder to report. Walking by shape also holds
 // for NetworkEntry, whose UnmarshalJSON decodes an object into its own
-// fields. deferReferences skips a field key holding an arg or env
-// reference, and its value: expansion decides which field an arg
-// reference names, and an env reference in a key is refused on its own.
-func exactConfigFields(v any, t reflect.Type, at string, deferReferences bool) error {
+// fields.
+func exactConfigFields(v any, t reflect.Type, at string) error {
 	if t == nil {
 		return nil // A nil target is the decoder's to refuse.
 	}
@@ -124,14 +121,11 @@ func exactConfigFields(v any, t reflect.Type, at string, deferReferences bool) e
 			return err
 		}
 		for _, key := range slices.Sorted(maps.Keys(obj)) {
-			if deferReferences && (ContainsArgRef(key) || ContainsEnvRef(key)) {
-				continue
-			}
 			field, known := fields[key]
 			if !known {
 				return unknownConfigField(at, key, fields)
 			}
-			if err := exactConfigFields(obj[key], field, configPath(at, key), deferReferences); err != nil {
+			if err := exactConfigFields(obj[key], field, configPath(at, key)); err != nil {
 				return err
 			}
 		}
@@ -141,7 +135,7 @@ func exactConfigFields(v any, t reflect.Type, at string, deferReferences bool) e
 			return nil
 		}
 		for _, key := range slices.Sorted(maps.Keys(obj)) {
-			if err := exactConfigFields(obj[key], t.Elem(), configPath(at, key), deferReferences); err != nil {
+			if err := exactConfigFields(obj[key], t.Elem(), configPath(at, key)); err != nil {
 				return err
 			}
 		}
@@ -151,7 +145,7 @@ func exactConfigFields(v any, t reflect.Type, at string, deferReferences bool) e
 			return nil
 		}
 		for i, item := range list {
-			if err := exactConfigFields(item, t.Elem(), fmt.Sprintf("%s[%d]", at, i), deferReferences); err != nil {
+			if err := exactConfigFields(item, t.Elem(), fmt.Sprintf("%s[%d]", at, i)); err != nil {
 				return err
 			}
 		}
@@ -187,21 +181,27 @@ func configFields(t reflect.Type) (map[string]reflect.Type, error) {
 // the key's path within the config in the dotted form Positions uses, so
 // a diagnostic can point at the key rather than at the whole config.
 type unknownConfigFieldError struct {
-	path    string
-	suggest string
+	path      string
+	suggest   string
+	reference bool
 }
 
 func (e *unknownConfigFieldError) Error() string {
-	if e.suggest != "" {
+	switch {
+	case e.reference:
+		return fmt.Sprintf("unknown field %q: config field names are literal; a reference may stand in a value or a free-form map's key", e.path)
+	case e.suggest != "":
 		return fmt.Sprintf("unknown field %q: config field names are case-sensitive; did you mean %q?", e.path, e.suggest)
 	}
 	return fmt.Sprintf("unknown field %q", e.path)
 }
 
 // unknownConfigField names the refused key by its path in the config,
-// and the field it misspells when the two differ only in case.
+// and the field it misspells when the two differ only in case, or says
+// why a key holding an arg reference names none. An env reference is
+// refused in every key (SPEC-v3 §6.1), which another check says.
 func unknownConfigField(at, key string, fields map[string]reflect.Type) error {
-	refused := &unknownConfigFieldError{path: configPath(at, key)}
+	refused := &unknownConfigFieldError{path: configPath(at, key), reference: ContainsKitPlaceholder(key) && !ContainsEnvRef(key)}
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		if strings.EqualFold(name, key) {
 			refused.suggest = configPath(at, name)

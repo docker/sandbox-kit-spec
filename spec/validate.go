@@ -724,10 +724,11 @@ func validateCapabilityBlock(d *Descriptor) error {
 		// checked moves.
 		if capabilityIsParameterized(n) {
 			deferCrossChecks = true
-			// Except for the names of its fields, which no value changes:
-			// an unknown one fails at create whatever the args are, and
-			// until then the raw-key checks above do not see it.
-			// validateContextV2 has already decoded agent-context@2.
+			// Except for the names of its fields, which are literal
+			// (SPEC-v3 §6): an unknown one, a key holding a reference
+			// included, is refused now rather than passing the raw-key
+			// checks above unseen. validateContextV2 has already decoded
+			// agent-context@2.
 			if n.Type != CapabilityAgentContextV2 {
 				if err := parameterizedConfigFields(n); err != nil {
 					errs.add(configErrorf(path, i, err))
@@ -1288,10 +1289,9 @@ func validatePresenceRules(path string, i int, n Capability) error {
 	if n.Type == CapabilityNetworkPolicyV2 {
 		var p PhasedNetworkV2
 		if err := DecodeCapabilityConfig(n, &p); err != nil {
-			// Field names are judged before this runs. What is left is a
-			// key holding a reference, which expansion names or which is
-			// refused on its own, or a value of the wrong shape, which
-			// every type's parameterized entry defers to create.
+			// Field names are judged before this runs, so what is left is
+			// a value of the wrong shape, which every type's parameterized
+			// entry defers to create.
 			return errs.err()
 		}
 		for _, phase := range []struct {

@@ -154,13 +154,21 @@ func TestExpandBuildArgsKeepsMergeLikeKeysLiteral(t *testing.T) {
 		`!!str ${{ kit.args.key }}`,
 	} {
 		t.Run(key, func(t *testing.T) {
+			// Only a free-form map's key may hold a reference (SPEC-v3 §6).
 			raw := []byte(`schemaVersion: "3"
 kind: mixin
 args: {key: {buildArg: KEY}}
 capabilities:
-  - type: com.docker.sandbox/network-policy@1
+  - type: com.docker.sandbox/credential@1
     config:
-      ` + key + `: {runtime: {allow: ["*"]}}
+      service: example
+      phase: runtime
+      oauth:
+        tokenEndpoint: {host: auth.example.com, path: /token}
+        credentialFile:
+          path: ~/.example/token.json
+          structure:
+            ` + key + `: {token: "{{.AccessToken}}"}
 `)
 			d, err := Decode(raw)
 			require.NoError(t, err)
@@ -170,10 +178,14 @@ capabilities:
 			require.NoError(t, err)
 			published, err := Decode(out)
 			require.NoError(t, err)
-			require.Contains(t, published.Capabilities[0].Config, "<<")
-			require.NotContains(t, published.Capabilities[0].Config, "runtime")
+			credentials, err := CredentialsOf(published.Capabilities)
+			require.NoError(t, err)
+			require.Len(t, credentials, 1)
+			structure := credentials[0].OAuth.CredentialFile.Structure
+			require.Contains(t, structure, "<<", "the key stays literal")
+			require.NotContains(t, structure, "token", "rather than merging its value")
 			_, err = ValidatePublished(out, published)
-			require.ErrorContains(t, err, `unknown field "<<"`)
+			require.NoError(t, err)
 		})
 	}
 }

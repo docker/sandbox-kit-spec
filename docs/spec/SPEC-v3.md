@@ -445,7 +445,10 @@ args:
   scalar they land in. Substituting into serialized bytes is not
   conforming. Two keys in one mapping that expand onto the same key
   **MUST** be an error: dropping one silently would make the effective <!-- tck: SPEC-v3 §6/expanded-key-collision-rejected -->
-  descriptor depend on iteration order.
+  descriptor depend on iteration order. A reference stands in a map key
+  only in a free-form map, such as a credential file's `structure`; a
+  fixed-shape config's field names are literal, so a key holding a
+  reference there is an unrecognized field ([§1.2](#12-strict-decoding)).
 - **A whole-value reference adopts its type.** When a string is nothing
   but a reference, the resolved value takes the type its spelling names,
   so a numeric arg reaches a numeric field (`container: ${{ kit.args.port
@@ -460,8 +463,8 @@ args:
   still adopt their corresponding scalar types.
 - **Parameterized entries validate twice.** At build and load, a
   capability entry whose config references an arg passes leniently: type
-  grammar, arity, and its config field names hold, except a name holding
-  a reference, while typed config checks defer. At create, after
+  grammar, arity, and its config field names hold, since a reference
+  never names one, while typed config checks defer. At create, after
   expansion resolves every placeholder, the effective descriptor is
   validated strictly; nothing malformed reaches enforcement. The declared
   `enum`/`pattern` constraints ride in the signed descriptor, so the
