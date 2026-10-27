@@ -1903,6 +1903,63 @@ func TestExpandCreateArgsRejectsCollapsedMapKeys(t *testing.T) {
 	require.JSONEq(t, `{"structure":{"other":"from-arg","profile":"literal"}}`, string(out))
 }
 
+// A fixed-shape config's field names are literal (SPEC-v3 §6), so create
+// refuses a key that expansion would turn into a field, without relying on
+// the published form having been validated. A reference in the entry's
+// own keys or type does not hide the entry, and a free-form map's keys
+// still expand.
+func TestExpandCreateArgsRefusesReferencesInConfigFieldNames(t *testing.T) {
+	decls := map[string]Arg{"k": {}, "typeKey": {}, "configKey": {}, "capabilitiesKey": {}, "policy": {}}
+	values := map[string]string{"k": "allow", "typeKey": "type", "configKey": "config", "capabilitiesKey": "capabilities", "policy": CapabilityNetworkPolicyV2}
+	const policy = `{"runtime": {"${{ kit.args.k }}": ["api.example.com"]}}`
+	const entry = `{"type": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`
+	kit := func(entry string) []byte {
+		return []byte(`{"schemaVersion": "3", "kind": "mixin", "capabilities": [` + entry + `]}`)
+	}
+	refused := func(path string) string {
+		return `create-phase expansion: ` + path + `: capability com.docker.sandbox/network-policy@2: unknown field "runtime.${{ kit.args.k }}": config field names are literal; a reference may stand in a value or a free-form map's key`
+	}
+
+	// Expanded by hand, the entry is a valid grant: the refusal is all
+	// that stands between the reference and an allow rule.
+	allowed := kit(`{"type": "com.docker.sandbox/network-policy@2", "config": {"runtime": {"allow": ["api.example.com"]}}}`)
+	d, err := Decode(allowed)
+	require.NoError(t, err)
+	_, err = ValidateEffective(allowed, d)
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name string
+		raw  []byte
+		want string
+	}{
+		{"config field", kit(entry), refused("capabilities[0]")},
+		{"group member", kit(`{"group": {"capabilities": [` + entry + `]}}`), refused("capabilities[0].group.capabilities[0]")},
+		{"nested group member", kit(`{"group": {"capabilities": [{"group": {"capabilities": [` + entry + `]}}]}}`), refused("capabilities[0].group.capabilities[0].group.capabilities[0]")},
+		{"capabilities key holding a reference", []byte(`{"schemaVersion": "3", "kind": "mixin", "${{ kit.args.capabilitiesKey }}": [` + entry + `]}`), refused("capabilities[0]")},
+		{"type key holding a reference", kit(`{"${{ kit.args.typeKey }}": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`), refused("capabilities[0]")},
+		{"config key holding a reference", kit(`{"type": "com.docker.sandbox/network-policy@2", "${{ kit.args.configKey }}": ` + policy + `}`), refused("capabilities[0]")},
+		{"type holding a reference", kit(`{"type": "${{ kit.args.policy }}", "config": ` + policy + `}`), refused("capabilities[0]")},
+		// Two spellings of type collapse, whichever map order meets first.
+		{"type beside a key expanding to type", kit(`{"type": "com.docker.sandbox/network-policy@2", "${{ kit.args.typeKey }}": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`), `create-phase expansion collapses two keys onto "type"`},
+		// Any unknown field, not only a reference, is refused before
+		// expansion.
+		{"case variant", kit(`{"type": "com.docker.sandbox/network-policy@2", "config": {"runtime": {"Allow": ["api.example.com"]}}}`), `create-phase expansion: capabilities[0]: capability com.docker.sandbox/network-policy@2: unknown field "runtime.Allow": config field names are case-sensitive; did you mean "runtime.allow"?`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ExpandCreateArgs(tt.raw, decls, values)
+			require.EqualError(t, err, tt.want)
+		})
+	}
+
+	// A free-form map's keys still expand, even ones that read like an
+	// entry's.
+	out, err := ExpandCreateArgs(kit(`{"type": "com.docker.sandbox/credential@1", "config": {"service": "example", "phase": "runtime", "oauth": {"credentialFile": {"path": "~/.example/token.json", "structure": {"${{ kit.args.k }}": "{{.AccessToken}}", "entry": {"type": "com.docker.sandbox/volume@1", "config": {"${{ kit.args.k }}": "x"}}}}}}}`), decls, values)
+	require.NoError(t, err)
+	require.Contains(t, string(out), `"allow":"{{.AccessToken}}"`)
+	require.Contains(t, string(out), `"config":{"allow":"x"}`)
+}
+
 // NaN and ±Inf survive a ParseFloat/FormatFloat round trip but have no JSON
 // spelling, so adopting the type would fail serialization for a value a
 // string field would have taken.

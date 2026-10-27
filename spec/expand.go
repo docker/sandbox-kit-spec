@@ -327,13 +327,21 @@ func sameExpansionValue(a, b *yaml.Node) bool {
 // declared enum/pattern constraints, which ride in the signed
 // descriptor, bound what values can materialize. A reference with no
 // resolved value is an error: a hole in effective policy must fail
-// loudly, not enforce an empty string.
+// loudly, not enforce an empty string. So is a well-known capability
+// config key that names no field before expansion, since only a
+// free-form map's keys may expand (SPEC-v3 §6).
 func ExpandCreateArgs(raw []byte, decls map[string]Arg, values map[string]string) ([]byte, error) {
 	var doc any
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("expand create args: %w", err)
 	}
 	var expandErr error
+	if root, ok := doc.(map[string]any); ok {
+		literalConfigFields(expandedFields(root, decls, values, &expandErr, "capabilities")["capabilities"], "capabilities", decls, values, &expandErr)
+	}
+	if expandErr != nil {
+		return nil, expandErr
+	}
 	expanded := expandNode(doc, decls, values, &expandErr, false)
 	if expandErr != nil {
 		return nil, expandErr
@@ -385,6 +393,66 @@ func expandNode(n any, decls map[string]Arg, values map[string]string, expandErr
 	default:
 		return n
 	}
+}
+
+// literalConfigFields refuses, before expansion can rewrite it, a key of a
+// capability entry's config that names no field of the entry's type,
+// group members included. A fixed-shape config's field names are literal
+// (SPEC-v3 §6): expanded, `${{ kit.args.k }}` would read as whichever
+// field k names, and the effective descriptor would ask for something its
+// published form never stated. Create holds this itself rather than
+// trusting that the published form was validated. Only capability entries
+// are walked, so a free-form map that happens to hold type and config
+// keys is data. The entries' own keys and types are read expanded, so a
+// reference cannot hide an entry either.
+func literalConfigFields(capabilities any, at string, decls map[string]Arg, values map[string]string, expandErr *error) {
+	list, _ := capabilities.([]any)
+	for i, item := range list {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		path := fmt.Sprintf("%s[%d]", at, i)
+		fields := expandedFields(entry, decls, values, expandErr, "group", "type", "config")
+		if group, ok := fields["group"].(map[string]any); ok {
+			literalConfigFields(expandedFields(group, decls, values, expandErr, "capabilities")["capabilities"], path+".group.capabilities", decls, values, expandErr)
+		}
+		typ, _ := fields["type"].(string)
+		typ = expandString(typ, decls, values, "create", expandErr)
+		if *expandErr != nil {
+			return
+		}
+		t, known := configTypes[typ]
+		if !known {
+			continue
+		}
+		if err := exactConfigFields(fields["config"], t, ""); err != nil {
+			*expandErr = fmt.Errorf("create-phase expansion: %s: capability %s: %w", path, typ, err)
+			return
+		}
+	}
+}
+
+// expandedFields returns the values of m's keys that expand to names,
+// keyed by name, expanding each key once. Two keys expanding to one name
+// are the collapse expandNode refuses, reported here first so the error
+// does not depend on map order.
+func expandedFields(m map[string]any, decls map[string]Arg, values map[string]string, expandErr *error, names ...string) map[string]any {
+	out := make(map[string]any, len(names))
+	for key, child := range m {
+		name := expandString(key, decls, values, "create", expandErr)
+		if !slices.Contains(names, name) {
+			continue
+		}
+		if _, taken := out[name]; taken {
+			if *expandErr == nil {
+				*expandErr = fmt.Errorf("create-phase expansion collapses two keys onto %q", name)
+			}
+			return nil
+		}
+		out[name] = child
+	}
+	return out
 }
 
 // Volume sizes and octal modes are schema strings even when their values
