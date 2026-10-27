@@ -35,13 +35,13 @@ type nulWalk struct {
 	active map[nulVisit]bool
 }
 
-// nulVisit names one container on the descent. Length is part of it, so
-// a slice holding a shorter slice of its own array is not mistaken for
-// one that holds itself.
+// nulVisit names one container on the descent. A struct and its first
+// field may share an address, so type is part of the identity. Length
+// distinguishes a slice from a shorter slice of its own array.
 type nulVisit struct {
-	kind reflect.Kind
-	ptr  uintptr
-	len  int
+	typ reflect.Type
+	ptr uintptr
+	len int
 }
 
 // nulPath is a field path spelled only when an error reports it. Building
@@ -83,7 +83,7 @@ func (w *nulWalk) walk(v reflect.Value, at *nulPath) {
 		if v.IsNil() {
 			return
 		}
-		visit := nulVisit{kind: v.Kind(), ptr: v.Pointer(), len: -1}
+		visit := nulVisit{typ: v.Type(), ptr: v.Pointer(), len: -1}
 		if v.Kind() == reflect.Slice {
 			visit.len = v.Len()
 		}

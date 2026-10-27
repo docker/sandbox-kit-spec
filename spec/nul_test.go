@@ -1,9 +1,11 @@
 package spec
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -384,4 +386,31 @@ func joinFieldPath(parent, name string) string {
 		return name
 	}
 	return parent + "." + name
+}
+
+func TestNULWalkDistinguishesPointerTypes(t *testing.T) {
+	p := &struct {
+		Value string
+		Copy  *string
+	}{Value: "clean"}
+	p.Copy = &p.Value
+	d := &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{{Type: "com.example/thing@1", Config: map[string]any{"p": p}}}}
+	_, err := json.Marshal(d)
+	require.NoError(t, err, "sharing the first field's address is not a cycle")
+	_, err = Validate(d)
+	require.NoError(t, err)
+
+	// The fallback walk also handles Go values JSON cannot encode.
+	// Exercise its pointer identity directly, including the NUL case.
+	for _, value := range []string{"clean", "x\x00"} {
+		p.Value = value
+		w := nulWalk{active: map[nulVisit]bool{}}
+		w.walk(reflect.ValueOf(d).Elem(), nil)
+		err := w.errs.err()
+		if value == "clean" {
+			require.NoError(t, err)
+		} else {
+			require.ElementsMatch(t, []string{"capabilities[0].config.p.Value", "capabilities[0].config.p.Copy"}, nulPaths(t, err))
+		}
+	}
 }
