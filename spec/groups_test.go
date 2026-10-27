@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -793,5 +794,15 @@ func TestBlockErrorsReportedOnce(t *testing.T) {
 				require.Equal(t, count, strings.Count(err.Error(), message), "%q in:\n%v", message, err)
 			}
 		})
+	}
+}
+
+func TestArgvNumbersMatchEquality(t *testing.T) {
+	argvs := [][]string{nil, {}, {""}, {"", ""}, {"a"}, {"a", "b"}, {"ab"}, {"a", ""}, {"1:a"}, {"1:", "a"}, {"a:b"}, {"a", "b", "c"}}
+	ids := newIdentities()
+	for _, a := range argvs {
+		for _, b := range argvs {
+			require.Equal(t, slices.Equal(a, b), ids.argv(a) == ids.argv(b), "%q against %q", a, b)
+		}
 	}
 }

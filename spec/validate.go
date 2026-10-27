@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -624,12 +625,14 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string
 	newSessionAt, interactiveAt := -1, -1
+	var newSessionArgv, interactiveArgv int
 	// Both session capabilities enumerate the same sessions whichever
 	// mode opened them, so a Kit declaring list on both states one
 	// command. Compared on the decoded argv, so the string and list
 	// spellings of one command are equal.
 	var headlessList, interactiveList CommandLine
 	interactiveListAt := -1
+	var headlessListArgv, interactiveListArgv int
 	for i, c := range checks {
 		n := c.entry
 		path := fmt.Sprintf("capabilities[%d]", i)
@@ -750,12 +753,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		}
 		switch n.Type {
 		case CapabilityAgentSessions:
-			headlessList = c.headlessList
+			headlessList, headlessListArgv = c.headlessList, c.argvs.headlessList
 		case CapabilityAgentInteractiveSessions:
-			newSession, newSessionAt = c.newSession, i
-			interactiveList, interactiveListAt = c.interactiveList, i
+			newSession, newSessionAt, newSessionArgv = c.newSession, i, c.argvs.newSession
+			interactiveList, interactiveListAt, interactiveListArgv = c.interactiveList, i, c.argvs.interactiveList
 		case CapabilityLifecycle:
-			interactive, interactiveAt = c.interactive, i
+			interactive, interactiveAt, interactiveArgv = c.interactive, i, c.argvs.interactive
 		}
 	}
 
@@ -777,13 +780,13 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	// tail included: newSession: [--tui] beside interactive: [] would
 	// launch two different ways. Composition makes the same comparison
 	// (see checkInteractiveAgreement) on the decoded asks.
-	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) {
+	if newSession != nil && interactive != nil && newSessionArgv != interactiveArgv {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
 			newSessionAt, newSession, interactive, interactiveAt))
 	}
 
-	if len(headlessList) > 0 && len(interactiveList) > 0 && !slices.Equal(headlessList, interactiveList) {
+	if len(headlessList) > 0 && len(interactiveList) > 0 && headlessListArgv != interactiveListArgv {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.list", interactiveListAt),
 			"capabilities[%d]: list %q differs from agent-sessions list %q; both capabilities enumerate the same sessions, so they name one command",
 			interactiveListAt, []string(interactiveList), []string(headlessList)))
@@ -836,6 +839,8 @@ type entryCheck struct {
 	// the typed checks decoded the config.
 	newSession, interactive       []string
 	headlessList, interactiveList CommandLine
+	// argvs numbers each of them, so a block compares argvs by number.
+	argvs struct{ newSession, interactive, headlessList, interactiveList int }
 }
 
 // entryKey is an instance key numbered by identities, with the parts its
@@ -848,11 +853,23 @@ type entryKey struct {
 // identities numbers entry identities and instance keys, each computed
 // once per entry, so blocks compare small ints.
 type identities struct {
-	surfaces, keys map[string]int
+	surfaces, keys, argvs map[string]int
 }
 
 func newIdentities() *identities {
-	return &identities{surfaces: map[string]int{}, keys: map[string]int{}}
+	return &identities{surfaces: map[string]int{}, keys: map[string]int{}, argvs: map[string]int{}}
+}
+
+// argv numbers an argv by its elements, so equal argvs share a number.
+// Each element is length-prefixed, so no two argvs share an encoding.
+func (t *identities) argv(argv []string) int {
+	var b strings.Builder
+	for _, s := range argv {
+		b.WriteString(strconv.Itoa(len(s)))
+		b.WriteByte(':')
+		b.WriteString(s)
+	}
+	return intern(t.argvs, b.String())
 }
 
 func intern(ids map[string]int, s string) int {
@@ -954,6 +971,8 @@ func checkEntry(kind string, i int, n Capability, ids *identities) entryCheck {
 		return c
 	}
 	c.decodeFailed = !c.checkTyped(path, i, n)
+	c.argvs.newSession, c.argvs.interactive = ids.argv(c.newSession), ids.argv(c.interactive)
+	c.argvs.headlessList, c.argvs.interactiveList = ids.argv(c.headlessList), ids.argv(c.interactiveList)
 	return c
 }
 
