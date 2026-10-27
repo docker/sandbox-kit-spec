@@ -150,22 +150,59 @@ func HasEnvReferences(items []Capability) bool {
 // Normalize caller-created containers as well as decoded ones. Key references
 // are invalid at publication; only value references can defer typed validation.
 func environmentReferences(config map[string]any) (values, keys bool) {
+	return configReferences(config, ContainsEnvRef)
+}
+
+// configReferences reports whether any decoded string in config, among
+// the values and among the mapping keys, holds a reference contains finds.
+func configReferences(config map[string]any, contains func(string) bool) (values, keys bool) {
+	configStrings(config, func(s string, key bool) {
+		if contains(s) {
+			keys, values = keys || key, values || !key
+		}
+	})
+	return values, keys
+}
+
+// capabilityArgRefs returns the arg names that capability configs still
+// reference, group members included. Like capabilityIsParameterized it
+// reads decoded strings, which JSON and quoted YAML cannot hide a
+// reference from.
+func capabilityArgRefs(items []Capability) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, c := range DeclaredCapabilities(items) {
+		configStrings(c.Config, func(s string, _ bool) {
+			for _, m := range argRef.FindAllStringSubmatch(s, -1) {
+				if !seen[m[1]] {
+					seen[m[1]] = true
+					names = append(names, m[1])
+				}
+			}
+		})
+	}
+	return names
+}
+
+// configStrings visits every decoded string in config, mapping keys
+// included.
+func configStrings(config map[string]any, visit func(s string, key bool)) {
 	raw, err := json.Marshal(config)
 	if err != nil {
-		return false, false // Configuration validation owns unrepresentable values.
+		return // Configuration validation owns unrepresentable values.
 	}
 	var root any
 	if json.Unmarshal(raw, &root) != nil {
-		return false, false
+		return
 	}
 	var walk func(any)
 	walk = func(value any) {
 		switch v := value.(type) {
 		case string:
-			values = values || ContainsEnvRef(v)
+			visit(v, false)
 		case map[string]any:
 			for key, child := range v {
-				keys = keys || ContainsEnvRef(key)
+				visit(key, true)
 				walk(child)
 			}
 		case []any:
@@ -175,5 +212,4 @@ func environmentReferences(config map[string]any) (values, keys bool) {
 		}
 	}
 	walk(root)
-	return values, keys
 }

@@ -63,6 +63,11 @@ Decoding uses strict field checking (`KnownFields(true)`). **Any
 unrecognized field anywhere in the document is an error.** A misspelled key
 silently ignored would be a policy silently absent.
 
+**No string in the document, key or value, contains NUL (U+0000)**,
+including in the config of a type the reader does not know. No field has a
+use for one, and a reader that treats a string as C text would see a
+different value from the one that was validated.
+
 ### 1.3 Where behavior is specified
 
 This grammar declares; runtimes behave. Descriptor-level rules (field
@@ -445,7 +450,10 @@ args:
   scalar they land in. Substituting into serialized bytes is not
   conforming. Two keys in one mapping that expand onto the same key
   **MUST** be an error: dropping one silently would make the effective <!-- tck: SPEC-v3 §6/expanded-key-collision-rejected -->
-  descriptor depend on iteration order.
+  descriptor depend on iteration order. A reference stands in a map key
+  only in a free-form map, such as a credential file's `structure`; a
+  fixed-shape config's field names are literal, so a key holding a
+  reference there is an unrecognized field ([§1.2](#12-strict-decoding)).
 - **A whole-value reference adopts its type.** When a string is nothing
   but a reference, the resolved value takes the type its spelling names,
   so a numeric arg reaches a numeric field (`container: ${{ kit.args.port
@@ -459,8 +467,10 @@ args:
   `1024` or an octal mode of `755`. Numeric and boolean config fields
   still adopt their corresponding scalar types.
 - **Parameterized entries validate twice.** At build and load, a
-  capability entry whose config references an arg passes leniently — type
-  grammar and arity hold, typed config checks defer. At create, after
+  capability entry whose config references an arg passes leniently: type
+  grammar, arity over instance keys ([§7.1](#71-arity)) that are already
+  literal, and its config field names hold, since a reference never names
+  one, while typed config checks defer. At create, after
   expansion resolves every placeholder, the effective descriptor is
   validated strictly; nothing malformed reaches enforcement. The declared
   `enum`/`pattern` constraints ride in the signed descriptor, so the
@@ -941,8 +951,10 @@ A re-exported arg's declaration on the set **MUST** say at least what the Kit's 
 Without that, an installer supplying nothing to an optional re-export
 of a required arg leaves the reference unresolved, and a value the Kit
 would have refused reaches it with nothing left to refuse it. A
-reference can only survive where the config field holds text, so a set
-pins rather than re-exports an arg its Kit reads as a number.
+reference in a request the merge reconciles can only survive where the
+config field holds text, so a set pins rather than re-exports an arg its
+Kit reads there as a number. A request left apart until create, as
+described below, is read only once expansion has typed its values.
 
 **Derived kind.** `workload` when one of them is a workload, `mixin`
 when they all are mixins. Two workloads is an error.
@@ -999,13 +1011,30 @@ state. At recreation, each capability's transition policy additionally
 judges the resulting request against existing state. For `volume@1`,
 that policy refuses a change to retained storage settings.
 
-A volume request with re-exported text inputs remains a separate
-contribution until create-phase expansion and selection. Publication
-preserves its optionality and source attribution through a one-member
-group, and its original declaration boundary through `declarationBlocks`
-([§7.1.1](#711-capability-groups)); runtime composition then
-compares concrete configurations. An unresolved reference is not evidence
-of a configuration conflict.
+An instance-shaped request whose key ([§7.1](#71-arity)) still holds a
+reference remains a separate contribution until create-phase expansion
+and selection, whatever its type, and so does a volume or host-mount
+request with any re-exported text input, whose settings decide whether
+two requests at one path agree. Publication preserves its optionality
+and source attribution through a one-member group, and its original
+declaration boundary through `declarationBlocks`
+([§7.1.1](#711-capability-groups)); runtime composition then keys and
+compares concrete configurations. An unresolved reference is not
+evidence of a configuration conflict.
+
+While a set holds such a request, and likewise while it holds a
+capability group, a final-environment reference, or agent-context@2,
+publication leaves every other request apart the same way, except
+concrete storage, which it still reconciles, and stages agent-context@1
+bodies separately, as for conditional declarations. The rows above then
+describe composition at create rather than the published descriptor.
+Publication still refuses what they refuse between requests that are
+already concrete, whether ungrouped or in a required group. It also
+refuses a second owner of a credential phase or a host-mount path that
+is already literal, a volume at that path included, whatever the rest of
+either request still holds. So an unrelated deferred request cannot
+carry such a conflict to create. An optional group waits for selection,
+which may decline it in favor of an alternative its Kit offers.
 
 A merged descriptor **MUST** be identical across every platform a <!-- tck: SPEC-v3 §9.5/declarations-platform-independent -->
 multi-platform set builds for: the annotation is written once per

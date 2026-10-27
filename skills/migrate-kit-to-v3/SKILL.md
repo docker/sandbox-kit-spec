@@ -122,7 +122,9 @@ deletes all its volumes; another create with the same name starts fresh.
 Fresh storage starts empty before hooks. Host mounts still have one
 Kit owner and conflict with volumes at the same destination.
 Re-exported volume text inputs remain separate contributions in a
-published set until create expands and selects their concrete requests.
+published set until create expands and selects their concrete requests,
+and so does any entry whose key, such as a port's transport, holds a
+re-exported reference.
 Do not replace a configurable size with its default to make a set merge.
 
 Migrate faithfully: preserve every declared host, credential, hook, volume,

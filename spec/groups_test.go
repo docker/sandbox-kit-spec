@@ -281,6 +281,116 @@ func TestPublishPreservesConditionalContext(t *testing.T) {
 	require.Equal(t, "/kit/context.md", d.Capabilities[1].Group.Capabilities[1].Config["contentFile"])
 }
 
+// A request whose key still holds a reference sends the whole set down the
+// deferred path, which keeps the other kits' requests apart too, but an
+// unrelated conflict between concrete requests is still refused at
+// publication, as it would be without the reference. An optional group
+// waits for selection, which may decline it for an alternative its kit
+// offers. Identical concrete requests publish apart and reconcile at
+// create, and an agent-context body is staged for its own entry to carry
+// through selection.
+func TestDeferredPublicationRefusesConcreteConflicts(t *testing.T) {
+	deferring := Capability{Type: CapabilityPort, Config: map[string]any{"container": 9090, "transport": "${{ kit.args.transport }}"}}
+	credential := Capability{Type: CapabilityCredential, Config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "TOKEN"}}}
+	resources := func(cpu int) Capability {
+		return Capability{Type: CapabilityResources, Config: map[string]any{"cpu": cpu}}
+	}
+	acp := func(command string) Capability {
+		return Capability{Type: CapabilityACP, Config: map[string]any{"agent": "claude", "command": []any{command}}}
+	}
+	port := Capability{Type: CapabilityPort, Config: map[string]any{"container": 8080}}
+	context := Capability{Type: CapabilityAgentContext, Config: map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md", "content": "Be brief."}}
+	referencedToken := Capability{Type: CapabilityCredential, Config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "${{ kit.args.token }}"}}}
+	hostMount := Capability{Type: CapabilityHostMount, Config: map[string]any{"path": "/cache", "mode": "${{ kit.args.mode }}"}}
+	volume := Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache/"}}
+	sizedVolume := Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache/./", "size": "${{ kit.args.size }}"}}
+	phase := func(phase any) Capability {
+		return Capability{Type: CapabilityCredential, Config: map[string]any{"service": "github", "phase": phase, "apiKey": map[string]any{"name": "TOKEN"}}}
+	}
+	phasedToken := phase([]any{"install", "${{ kit.args.phase }}"})
+	group := func(optional bool, members ...Capability) Capability {
+		return Capability{Group: &CapabilityGroup{Optional: optional, Capabilities: members}}
+	}
+	for _, tc := range []struct {
+		name          string
+		first, second Capability
+		err           string
+	}{
+		{"credential twins", credential, credential, "one credential has one owner"},
+		{"credential twin with a reference beside its key", referencedToken, credential, "one credential has one owner"},
+		{"host mount with a reference beside its path", hostMount, volume, "a host mount has one owner"},
+		{"credential's literal phase beside a referenced one", phasedToken, phase("install"), "one credential has one owner"},
+		{"credential's referenced phase", phasedToken, credential, ""},
+		{"volume with a reference beside a host mount", sizedVolume, Capability{Type: CapabilityHostMount, Config: map[string]any{"path": "/cache"}}, "a host mount has one owner"},
+		{"volume with a reference beside a volume", sizedVolume, Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache", "size": "1g"}}, ""},
+		{"credential in a required group", group(false, credential, port), credential, "one credential has one owner"},
+		{"credential alone in an optional group", group(true, credential), credential, ""},
+		{"credential in an optional group", group(true, credential, port), credential, ""},
+		{"different resources", resources(1), resources(2), "it describes the whole sandbox"},
+		{"different acp", acp("claude-acp"), acp("other-acp"), "ask for different things"},
+		{"identical ports", port, port, ""},
+		{"agent-context profiles", context, context, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kit := func(c Capability) *Descriptor {
+				return &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{c}}
+			}
+			result, err := Merge([]Contribution{
+				{Reference: "deferring-kit", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
+					Args: map[string]Arg{"transport": {Required: true}}, Capabilities: []Capability{deferring}}},
+				{Reference: "first-kit", Descriptor: kit(tc.first)},
+				{Reference: "second-kit", Descriptor: kit(tc.second)},
+			}, MergeOptions{ContextPath: "/set/context.md"})
+			if tc.err != "" {
+				require.Nil(t, result)
+				require.ErrorContains(t, err, tc.err)
+				require.ErrorContains(t, err, "first-kit")
+				require.ErrorContains(t, err, "second-kit")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, result.Descriptor.Capabilities, 3)
+			for _, c := range result.Descriptor.Capabilities {
+				if c.Group == nil {
+					require.Contains(t, []string{CapabilityVolume, CapabilityHostMount}, c.Type, "only concrete storage reconciles at publication")
+				}
+			}
+			if tc.first.Type == CapabilityAgentContext {
+				require.Len(t, result.ContextSources, 2)
+				require.Equal(t, "/set/context.md.parts/0.md", result.ContextSources[0].Target)
+				require.Equal(t, "/set/context.md.parts/0.md", result.Descriptor.Capabilities[1].Group.Capabilities[0].Config["contentFile"])
+			}
+		})
+	}
+
+	// One kit may offer two optional groups as alternatives for one key;
+	// only selection can tell which it gets.
+	alternatives := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
+		group(true, credential),
+		group(true, Capability{Type: CapabilityCredential, Config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "OTHER_TOKEN"}}}),
+	}}
+	_, err := Validate(alternatives)
+	require.NoError(t, err)
+	_, err = Merge([]Contribution{{Reference: "alternatives-kit", Descriptor: alternatives}}, MergeOptions{})
+	require.NoError(t, err)
+
+	// A nested set's required requests arrive as required one-member
+	// groups, and a conflict with one of them is still a conflict.
+	inner, err := Merge([]Contribution{
+		{Reference: "deferring-kit", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
+			Args: map[string]Arg{"transport": {Required: true}}, Capabilities: []Capability{deferring}}},
+		{Reference: "credential-kit", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{credential}}},
+	}, MergeOptions{})
+	require.NoError(t, err)
+	_, err = Merge([]Contribution{
+		{Reference: "inner-set", Descriptor: inner.Descriptor},
+		{Reference: "other-kit", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{credential}}},
+	}, MergeOptions{})
+	require.ErrorContains(t, err, "one credential has one owner")
+	require.ErrorContains(t, err, "credential-kit")
+	require.ErrorContains(t, err, "other-kit")
+}
+
 func TestGroupConflictNamesOriginalSources(t *testing.T) {
 	file := Capability{Type: CapabilityLifecycle, Config: map[string]any{"files": []any{map[string]any{"path": "/same", "content": "x"}}}}
 	d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{file, {Group: &CapabilityGroup{Capabilities: []Capability{file}}}}}

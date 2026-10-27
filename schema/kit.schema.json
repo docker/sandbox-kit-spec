@@ -199,9 +199,30 @@
         }
       },
       "description": "com.docker.sandbox/sbx@1 is workload-only: a mixin's image config never becomes the composed image's, so the identity it would promise is not the one a host reads."
+    },
+    {
+      "$ref": "#/definitions/noNul"
     }
   ],
   "definitions": {
+    "noNul": {
+      "description": "No string anywhere in the descriptor, key or value, holds NUL (U+0000). Applied once at the root and recursively, so it covers every field, including the config of capability types this schema does not know.",
+      "not": {
+        "type": "string",
+        "pattern": "\u0000"
+      },
+      "propertyNames": {
+        "not": {
+          "pattern": "\u0000"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/noNul"
+      },
+      "items": {
+        "$ref": "#/definitions/noNul"
+      }
+    },
     "kit": {
       "type": "object",
       "additionalProperties": false,

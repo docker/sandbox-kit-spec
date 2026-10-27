@@ -97,6 +97,12 @@ that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new
 capability version, and the old contract remains published.
 
+A type's §7.1 instance key is part of that contract. Integrations may
+store the key `spec.InstanceKeyOf` returns to recognize an entry across
+compositions, so changing a shipped type's key space, the order of its
+parts, or how they are normalized moves the version like any other
+contract change, under the same draft-stage exception.
+
 Adding a whole new capability type is additive and moves nothing.
 
 ## Frontend image

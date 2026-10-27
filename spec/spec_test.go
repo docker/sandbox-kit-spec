@@ -1796,19 +1796,45 @@ func TestExpandCreateArgsSubstitutesWithinAString(t *testing.T) {
 }
 
 // An omitted transport IS tcp, so declaring both spellings of one port is
-// the duplicate the check exists to catch.
-func TestValidateRejectsDuplicateDefaultTransportPorts(t *testing.T) {
-	d := &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
-		{Type: CapabilityPort, Config: map[string]any{"container": 18993}},
-		{Type: CapabilityPort, Config: map[string]any{"container": 18993, "transport": "tcp"}},
-	}}
-	_, err := Validate(d)
-	require.ErrorContains(t, err, "port 18993 already declared")
-
-	// Different transports on one port stay legal.
-	d.Capabilities[1].Config = map[string]any{"container": 18993, "transport": "udp"}
-	_, err = Validate(d)
-	require.NoError(t, err)
+// the duplicate the check exists to catch. The container and transport
+// alone settle the key, so a reference or an error elsewhere in an entry
+// does not put the check off until expansion, when a merge may already
+// have folded the two.
+func TestValidateRejectsDuplicatePorts(t *testing.T) {
+	const repeated = "capabilities[1]: port 18993 already declared at capabilities[0]"
+	for _, tc := range []struct {
+		name   string
+		second map[string]any
+		err    string
+	}{
+		{"explicit tcp", map[string]any{"container": 18993, "transport": "tcp"}, repeated},
+		{"null transport", map[string]any{"container": 18993, "transport": nil}, repeated},
+		// Not identical to the first entry, which the exact-duplicate rule
+		// would report instead.
+		{"container as a JSON number", map[string]any{"container": 18993.0, "name": "api"}, repeated},
+		{"name reference", map[string]any{"container": 18993, "name": "${{ kit.args.name }}"}, repeated},
+		{"null transport beside a name reference", map[string]any{"container": 18993, "transport": nil, "name": "${{ kit.args.name }}"}, repeated},
+		{"environment reference", map[string]any{"container": 18993, "name": "${{ kit.env.NAME }}"}, repeated},
+		{"invalid name", map[string]any{"container": 18993, "name": 5}, repeated},
+		{"udp", map[string]any{"container": 18993, "transport": "udp"}, ""},
+		{"transport reference", map[string]any{"container": 18993, "transport": "${{ kit.args.transport }}"}, ""},
+		{"container reference", map[string]any{"container": "${{ kit.args.port }}"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Descriptor{SchemaVersion: "3", Kind: KindMixin,
+				Args: map[string]Arg{"name": {}, "transport": {}, "port": {}},
+				Capabilities: []Capability{
+					{Type: CapabilityPort, Config: map[string]any{"container": 18993}},
+					{Type: CapabilityPort, Config: tc.second},
+				}}
+			_, err := Validate(d)
+			if tc.err == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.err)
+		})
+	}
 }
 
 // A family describes the service rather than naming a second
@@ -1844,26 +1870,44 @@ func TestPortFamilyDefaultsToIPv4(t *testing.T) {
 	}
 }
 
-// A key names something the author chose, so references reach map keys
-// too — the credential capability's `structure` is an author-shaped
+// credentialStructure renders a descriptor whose credential file's
+// structure, a free-form map whose keys may hold references, is structure.
+func credentialStructure(structure string) []byte {
+	return []byte(`{"schemaVersion":"3","kind":"mixin","capabilities":[{"type":"com.docker.sandbox/credential@1","config":{"service":"example","phase":"runtime","oauth":{"credentialFile":{"path":"~/.example/token.json","structure":` + structure + `}}}}]}`)
+}
+
+// structureOf returns the structure of an expanded credentialStructure.
+func structureOf(t *testing.T, expanded []byte) string {
+	t.Helper()
+	d, err := Decode(expanded)
+	require.NoError(t, err)
+	credentials, err := CredentialsOf(d.Capabilities)
+	require.NoError(t, err)
+	structure, err := json.Marshal(credentials[0].OAuth.CredentialFile.Structure)
+	require.NoError(t, err)
+	return string(structure)
+}
+
+// A free-form map's keys are names the author chose, so references reach
+// them too: the credential capability's `structure` is an author-shaped
 // document, not a grammar-defined one. Textual expansion reached keys for
 // free; substituting inside the decoded document has to do it on purpose.
 func TestExpandCreateArgsExpandsMapKeys(t *testing.T) {
-	raw := []byte(`{"structure":{"${{ kit.args.name }}":{"nested":"${{ kit.args.name }} value"}}}`)
+	raw := credentialStructure(`{"${{ kit.args.name }}":{"nested":"${{ kit.args.name }} value"}}`)
 
 	out, err := ExpandCreateArgs(raw, map[string]Arg{"name": {}}, map[string]string{"name": "profile"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"structure":{"profile":{"nested":"profile value"}}}`, string(out))
+	require.JSONEq(t, `{"profile":{"nested":"profile value"}}`, structureOf(t, out))
 }
 
 // A key is text whatever the value looks like: a numeric value in key
 // position must not become a number, which is not a legal key.
 func TestExpandCreateArgsKeepsMapKeysTextual(t *testing.T) {
-	raw := []byte(`{"structure":{"${{ kit.args.port }}":"open"}}`)
+	raw := credentialStructure(`{"${{ kit.args.port }}":"open"}`)
 
 	out, err := ExpandCreateArgs(raw, map[string]Arg{"port": {}}, map[string]string{"port": "8080"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"structure":{"8080":"open"}}`, string(out))
+	require.JSONEq(t, `{"8080":"open"}`, structureOf(t, out))
 }
 
 // cpu is a float64, so integer-only typing would leave fractional CPU
@@ -1892,7 +1936,7 @@ func TestExpandCreateArgsTypesFractionalNumbers(t *testing.T) {
 // expansion used to leave the duplicate for the decoder to reject; keeping
 // the failure is the point, only the reporting moved.
 func TestExpandCreateArgsRejectsCollapsedMapKeys(t *testing.T) {
-	raw := []byte(`{"structure":{"${{ kit.args.name }}":"from-arg","profile":"literal"}}`)
+	raw := credentialStructure(`{"${{ kit.args.name }}":"from-arg","profile":"literal"}`)
 
 	_, err := ExpandCreateArgs(raw, map[string]Arg{"name": {}}, map[string]string{"name": "profile"})
 	require.ErrorContains(t, err, `collapses two keys onto "profile"`)
@@ -1900,7 +1944,46 @@ func TestExpandCreateArgsRejectsCollapsedMapKeys(t *testing.T) {
 	// A key that expands to something unused stays fine.
 	out, err := ExpandCreateArgs(raw, map[string]Arg{"name": {}}, map[string]string{"name": "other"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"structure":{"other":"from-arg","profile":"literal"}}`, string(out))
+	require.JSONEq(t, `{"other":"from-arg","profile":"literal"}`, structureOf(t, out))
+}
+
+// A reference stands in a map key only in a free-form map (SPEC-v3 §6), so
+// create refuses one anywhere else without relying on the published form
+// having been validated, while a free-form map's keys still expand.
+func TestExpandCreateArgsRefusesReferencesInFixedShapeKeys(t *testing.T) {
+	decls := map[string]Arg{"k": {}, "typeKey": {}, "policy": {}}
+	values := map[string]string{"k": "allow", "typeKey": "type", "policy": CapabilityNetworkPolicyV2}
+	const policy = `{"runtime": {"${{ kit.args.k }}": ["api.example.com"]}}`
+	kit := func(entries string) []byte {
+		return []byte(`{"schemaVersion": "3", "kind": "mixin", "capabilities": [` + entries + `]}`)
+	}
+
+	// Expanded by hand, the entry is a valid grant: the refusal is all
+	// that stands between the reference and an allow rule.
+	allowed := kit(`{"type": "com.docker.sandbox/network-policy@2", "config": {"runtime": {"allow": ["api.example.com"]}}}`)
+	d, err := Decode(allowed)
+	require.NoError(t, err)
+	_, err = ValidateEffective(allowed, d)
+	require.NoError(t, err)
+
+	for _, tt := range []struct{ name, entry, path string }{
+		{"config field", `{"type": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`, "capabilities[0].config.runtime.${{ kit.args.k }}"},
+		{"group member", `{"group": {"capabilities": [{"type": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}]}}`, "capabilities[0].group.capabilities[0].config.runtime.${{ kit.args.k }}"},
+		{"structural key", `{"${{ kit.args.typeKey }}": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`, "capabilities[0].${{ kit.args.typeKey }}"},
+		// A type not yet literal cannot make its config opaque.
+		{"type holding a reference", `{"type": "${{ kit.args.policy }}", "config": ` + policy + `}`, "capabilities[0].config.runtime.${{ kit.args.k }}"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ExpandCreateArgs(kit(tt.entry), decls, values)
+			require.EqualError(t, err, tt.path+": this key holds a reference, which may stand in a map key only in a free-form map, such as a credential file's structure")
+		})
+	}
+
+	out, err := ExpandCreateArgs(kit(`{"type": "com.docker.sandbox/credential@1", "config": {"service": "example", "phase": "runtime", "oauth": {"credentialFile": {"path": "~/.example/token.json", "structure": {"${{ kit.args.k }}": "{{.AccessToken}}", "nested": [{"${{ kit.args.k }}": "x"}]}}}}},
+		{"type": "example.com/custom@1", "config": {"${{ kit.args.k }}": "x"}}`), decls, values)
+	require.NoError(t, err, "a credential structure and an unknown type's config are free-form")
+	require.Contains(t, string(out), `"structure":{"allow":"{{.AccessToken}}","nested":[{"allow":"x"}]}`)
+	require.Contains(t, string(out), `"config":{"allow":"x"}`)
 }
 
 // NaN and ±Inf survive a ParseFloat/FormatFloat round trip but have no JSON

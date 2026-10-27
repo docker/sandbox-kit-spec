@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -1016,6 +1018,118 @@ func TestSetReExportRetainsEveryConcreteStorageBlock(t *testing.T) {
 		require.NoError(t, err)
 		merged, err = spec.Merge([]spec.Contribution{{Reference: "nested", Descriptor: d}}, spec.MergeOptions{})
 		require.NoError(t, err)
+	}
+}
+
+// A key that still holds a reference is not known until create, so
+// publication keeps its request apart and create keys it once expanded:
+// one that repeats another kit's request reconciles with it under the
+// type's contract, and one that repeats a request in its own kit's block
+// is refused there. A reference beside a literal key does not defer the
+// key, so publication still reconciles that request.
+func TestSetReExportKeepsReferenceKeysApart(t *testing.T) {
+	const value = "${{ kit.args.value }}"
+	port := func(transport, name string) spec.Capability {
+		return spec.Capability{Type: spec.CapabilityPort, Config: map[string]any{"container": 8080, "transport": transport, "name": name}}
+	}
+	credential := func(service string) spec.Capability {
+		return spec.Capability{Type: spec.CapabilityCredential, Config: map[string]any{"service": service, "phase": "runtime", "apiKey": map[string]any{"name": "TOKEN"}}}
+	}
+	acp := func(agent string) spec.Capability {
+		return spec.Capability{Type: spec.CapabilityACP, Config: map[string]any{"agent": agent, "command": []any{"claude-acp"}}}
+	}
+	skills := func(path, mode string) spec.Capability {
+		return spec.Capability{Type: spec.CapabilityAgentSkills, Config: map[string]any{"path": path, "mode": mode}}
+	}
+	skill := func(path, name string) spec.Capability {
+		return spec.Capability{Type: spec.CapabilityAgentSkill, Config: map[string]any{"path": path, "name": name}}
+	}
+	phased := func(typ string, config map[string]any) spec.Capability {
+		return spec.Capability{Type: typ, Config: config}
+	}
+	for _, tc := range []struct {
+		name     string
+		kits     [][]spec.Capability
+		value    string
+		deferred bool
+		composed int
+		err      string
+	}{
+		{"port repeating another kit's", [][]spec.Capability{{port(value, "a")}, {port("tcp", "b")}}, "tcp", true, 1, ""},
+		{"port distinct from another kit's", [][]spec.Capability{{port(value, "a")}, {port("tcp", "b")}}, "udp", true, 2, ""},
+		{"one reference in two kits", [][]spec.Capability{{port(value, "a")}, {port(value, "b")}}, "tcp", true, 1, ""},
+		{"one reference twice in one kit", [][]spec.Capability{{port(value, "a"), port(value, "b")}}, "tcp", true, 0, "port 8080 already declared"},
+		{"reference beside a literal key", [][]spec.Capability{{port("tcp", value)}, {port("tcp", "b")}}, "api", false, 1, ""},
+		{"credential repeating another kit's", [][]spec.Capability{{credential(value)}, {credential("github")}}, "github", true, 0, "one credential has one owner"},
+		{"credential distinct from another kit's", [][]spec.Capability{{credential(value)}, {credential("github")}}, "gitlab", true, 2, ""},
+		{"credential over several phases", [][]spec.Capability{{phased(spec.CapabilityCredential, map[string]any{"service": value, "phase": []any{"install", "runtime"}, "apiKey": map[string]any{"name": "TOKEN"}})}, {credential("github")}}, "gitlab", true, 3, ""},
+		{"credential over several phases repeating", [][]spec.Capability{{phased(spec.CapabilityCredential, map[string]any{"service": value, "phase": []any{"install", "runtime"}, "apiKey": map[string]any{"name": "TOKEN"}})}, {credential("github")}}, "github", true, 0, "one credential has one owner"},
+		{"ssh-agent phase among several", [][]spec.Capability{{phased(spec.CapabilitySSHAgent, map[string]any{"phase": []any{"install", value}})}, {phased(spec.CapabilitySSHAgent, map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{"git"}})}}, "runtime", true, 2, ""},
+		{"acp repeating another kit's", [][]spec.Capability{{acp(value)}, {acp("claude")}}, "claude", true, 1, ""},
+		{"skill named like another kit's", [][]spec.Capability{{skill("/opt/skills/review-v2", value)}, {skill("/opt/skills/review", "review")}}, "review", true, 0, "ask for different things"},
+		{"skill named apart from another kit's", [][]spec.Capability{{skill("/opt/skills/review-v2", value)}, {skill("/opt/skills/review", "review")}}, "lint", true, 2, ""},
+		{"skills contradicting another kit's", [][]spec.Capability{{skills(value, spec.SkillsReadOnly)}, {skills("/home/agent/.claude/skills", spec.SkillsReadWrite)}}, "/home/agent/.claude/skills", true, 0, "ask for different things"},
+		// Create types a whole-value reference, so a key a merge would
+		// otherwise have to read as a number rides through too.
+		{"port container", [][]spec.Capability{{{Type: spec.CapabilityPort, Config: map[string]any{"container": value}}}, {port("tcp", "b")}}, "8080", true, 1, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setArgs := map[string]spec.Arg{"value": {Required: true}}
+			var inputs []spec.Contribution
+			for i, capabilities := range tc.kits {
+				published := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindMixin, Capabilities: capabilities}
+				kit := spec.Kit{}
+				if strings.Contains(fmt.Sprint(capabilities), value) {
+					published.Args = map[string]spec.Arg{"value": {Required: true}}
+					kit.Args = map[string]string{"value": value}
+				}
+				raw, err := json.Marshal(published)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, published)
+				require.NoError(t, err)
+				declarations, _, err := kitDeclarations(published, kit, setArgs)
+				require.NoError(t, err)
+				inputs = append(inputs, spec.Contribution{Reference: fmt.Sprintf("kit-%d", i), Descriptor: declarations})
+			}
+			merged, err := spec.Merge(inputs, spec.MergeOptions{})
+			require.NoError(t, err, "an unresolved key is not evidence of a conflict")
+			// A nested set keeps the requests apart as the first did.
+			for depth := range 2 {
+				merged.Descriptor.Args = setArgs
+				raw, err := publishedSetDescriptor(merged.Descriptor)
+				require.NoError(t, err)
+				if tc.deferred {
+					require.Len(t, spec.DeclaredCapabilities(merged.Descriptor.Capabilities), len(slices.Concat(tc.kits...)), "depth %d", depth)
+					for _, c := range merged.Descriptor.Capabilities {
+						require.NotNil(t, c.Group, "depth %d: each request stays its own contribution", depth)
+					}
+				} else {
+					require.Len(t, merged.Descriptor.Capabilities, tc.composed, "a literal key still reconciles at publication")
+				}
+				expanded, err := spec.ExpandCreateArgs(raw, setArgs, map[string]string{"value": tc.value})
+				require.NoError(t, err)
+				d, err := spec.Decode(expanded)
+				require.NoError(t, err)
+				var composed *spec.Descriptor
+				if _, err = spec.ValidateExpandedDeclarations(expanded, d); err == nil {
+					var selected spec.Selection
+					selected, err = spec.SelectCapabilities(t.Context(), "set", d, spec.Supported(spec.CapabilityPort, spec.CapabilityCredential, spec.CapabilitySSHAgent, spec.CapabilityACP, spec.CapabilityAgentSkill, spec.CapabilityAgentSkills))
+					require.NoError(t, err)
+					d.Capabilities = selected.Capabilities
+					composed, err = spec.Compose([]spec.Contribution{{Reference: "published-set", Descriptor: d}})
+				}
+				if tc.err != "" {
+					require.ErrorContains(t, err, tc.err, "depth %d", depth)
+				} else {
+					require.NoError(t, err, "depth %d", depth)
+					require.Len(t, composed.Capabilities, tc.composed, "depth %d", depth)
+				}
+				nested, err := spec.Decode(raw)
+				require.NoError(t, err)
+				merged, err = spec.Merge([]spec.Contribution{{Reference: "nested-set", Descriptor: nested}}, spec.MergeOptions{})
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 

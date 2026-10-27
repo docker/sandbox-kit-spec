@@ -3,8 +3,10 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,9 +31,10 @@ func IsWholeArgRef(s string) bool { return wholeArgRef.MatchString(s) }
 
 // ResolveArgs validates supplied values against the declarations and returns
 // the effective value map: supplied values first, defaults for the rest. A
-// required arg with no supplied value is an error; a supplied value failing
-// its enum or pattern is an error; a supplied name the kit never declared is
-// an error, because a silently ignored input is a misspelling in disguise.
+// required arg with no supplied value is an error; a supplied value holding
+// NUL or failing its enum or pattern is an error; a supplied name the kit
+// never declared is an error, because a silently ignored input is a
+// misspelling in disguise.
 func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]string, error) {
 	for name := range supplied {
 		if _, ok := decls[name]; !ok {
@@ -60,6 +63,13 @@ func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]s
 }
 
 func checkArgValue(name string, decl Arg, v string) error {
+	// A value supplied at create lands in descriptor strings, or, exported
+	// through env with no reference, in the container environment as it
+	// is, so it is held to the rule every descriptor string is. Checked
+	// first, since the refusals below print the value.
+	if strings.ContainsRune(v, 0) {
+		return fmt.Errorf("kit arg %q: value contains NUL (U+0000), which no descriptor string may hold", name)
+	}
 	if len(decl.Enum) > 0 {
 		for _, e := range decl.Enum {
 			if v == e {
@@ -326,11 +336,16 @@ func sameExpansionValue(a, b *yaml.Node) bool {
 // declared enum/pattern constraints, which ride in the signed
 // descriptor, bound what values can materialize. A reference with no
 // resolved value is an error: a hole in effective policy must fail
-// loudly, not enforce an empty string.
+// loudly, not enforce an empty string. So is a reference in a map key
+// outside a free-form map, which no key expansion may turn into a field
+// name (SPEC-v3 §6).
 func ExpandCreateArgs(raw []byte, decls map[string]Arg, values map[string]string) ([]byte, error) {
 	var doc any
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("expand create args: %w", err)
+	}
+	if err := referenceKeys(doc, nil, inDocument, nil); err != nil {
+		return nil, err
 	}
 	var expandErr error
 	expanded := expandNode(doc, decls, values, &expandErr, false)
@@ -384,6 +399,107 @@ func expandNode(n any, decls map[string]Arg, values map[string]string, expandErr
 	default:
 		return n
 	}
+}
+
+// keyPath is a path into a decoded document as segments, map keys and list
+// indices, rendered only for a refusal: rendering at every step would copy
+// the whole path once per key.
+type keyPath []any
+
+func (p keyPath) String() string {
+	var b strings.Builder
+	for _, segment := range p {
+		if i, ok := segment.(int); ok {
+			fmt.Fprintf(&b, "[%d]", i)
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('.')
+		}
+		fmt.Fprint(&b, segment)
+	}
+	return b.String()
+}
+
+// keyScope is where in a descriptor a walk is, which decides what the keys
+// below it name.
+type keyScope uint8
+
+const (
+	inStructure keyScope = iota // anything fixed-shape not named below
+	inDocument
+	inEntries // a capabilities list, at the root or in a group
+	inEntry
+	inGroup
+)
+
+// referenceKeys refuses a map key in v, at path in scope, that holds an arg
+// reference, unless the map is free-form (SPEC-v3 §6): expansion would turn
+// such a key into a field the published form never stated. Maps at the
+// paths in free are free-form, and each capability entry's config is
+// judged by its type (configReferenceKeys). Keys are judged as written,
+// structural ones included, so a reference cannot hide an entry, and
+// entries are found by where the walk is rather than by a rendered path.
+// Publication and create share it.
+func referenceKeys(v any, path keyPath, scope keyScope, free []keyPath) error {
+	switch v := v.(type) {
+	case map[string]any:
+		if slices.ContainsFunc(free, func(f keyPath) bool { return slices.Equal(f, path) }) {
+			return nil
+		}
+		for _, key := range slices.Sorted(maps.Keys(v)) {
+			path := append(path, key)
+			if ContainsArgRef(key) {
+				return fieldErrorf(path.String(), "this key holds a reference, which may stand in a map key only in a free-form map, such as a credential file's structure")
+			}
+			var err error
+			switch {
+			case scope == inEntry && key == "config":
+				err = configReferenceKeys(v[key], path, v["type"])
+			case scope == inEntry && key == "group":
+				err = referenceKeys(v[key], path, inGroup, nil)
+			case (scope == inDocument || scope == inGroup) && key == "capabilities":
+				err = referenceKeys(v[key], path, inEntries, nil)
+			default:
+				err = referenceKeys(v[key], path, inStructure, free)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	case []any:
+		item := inStructure
+		if scope == inEntries {
+			item = inEntry
+		}
+		for i, child := range v {
+			if err := referenceKeys(child, append(path, i), item, free); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// configReferenceKeys is referenceKeys over the config at path of an entry
+// of type typ. A type this grammar does not know has an opaque, free-form
+// config; a well-known one, or a type not yet literal, is fixed-shape
+// except for its freeFormConfigMaps. A type that takes no config is left
+// to the rule that says so.
+func configReferenceKeys(config any, path keyPath, typ any) error {
+	name, _ := typ.(string)
+	if _, known := configTypes[name]; !known && name != "" && !ContainsKitPlaceholder(name) {
+		return nil
+	}
+	var free []keyPath
+	for _, field := range freeFormConfigMaps[name] {
+		at := slices.Clone(path)
+		for _, segment := range strings.Split(field, ".") {
+			at = append(at, segment)
+		}
+		free = append(free, at)
+	}
+	return referenceKeys(config, path, inStructure, free)
 }
 
 // Volume sizes and octal modes are schema strings even when their values
@@ -516,7 +632,8 @@ func ValidateEffective(raw []byte, d *Descriptor) ([]string, error) {
 			}
 		}
 	}
-	if refs := ReferencedArgs(raw); len(refs) > 0 {
+	refs := descriptorArgRefs(raw, d)
+	if len(refs) > 0 {
 		errs.add(fieldErrorf("", "effective descriptor still references kit args %v; expansion did not run or a value did not resolve", refs))
 	}
 	if HasEnvReferences(d.Capabilities) {
@@ -525,6 +642,20 @@ func ValidateEffective(raw []byte, d *Descriptor) ([]string, error) {
 	warnings, err := ValidateRaw(raw, d)
 	errs.add(err)
 	return warnings, errs.err()
+}
+
+// descriptorArgRefs includes decoded capability strings as well as raw
+// references. JSON and quoted YAML escape whitespace inside references,
+// but those references still defer config validation and must be judged
+// at every descriptor gate.
+func descriptorArgRefs(raw []byte, d *Descriptor) []string {
+	refs := ReferencedArgs(raw)
+	for _, name := range capabilityArgRefs(d.Capabilities) {
+		if !slices.Contains(refs, name) {
+			refs = append(refs, name)
+		}
+	}
+	return refs
 }
 
 // ReferencedArgs returns the set of arg names referenced anywhere in the

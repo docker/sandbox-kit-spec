@@ -2,11 +2,18 @@ package spec
 
 import (
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"maps"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/stretchr/testify/require"
 )
@@ -101,7 +108,8 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	var mixinRule map[string]any
 	for _, rule := range setRules {
 		r := rule.(map[string]any)
-		cond, ok := r["if"].(map[string]any)["properties"].(map[string]any)
+		ifClause, _ := r["if"].(map[string]any)
+		cond, ok := ifClause["properties"].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -265,9 +273,10 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	require.Equal(t, octalMode.String(), literalPattern(t, at(t, hostMount, "properties", "mode")))
 	assertAcceptsKitArg(t, at(t, hostMount, "properties", "mode"), "bearing")
 	assertAcceptsKitArg(t, at(t, hostMount, "properties", "path"), "bearing")
+	// NUL is the root noNul rule's to refuse, not this pattern's.
 	hostPath := regexp.MustCompile(literalPattern(t, at(t, hostMount, "properties", "path")))
 	for _, p := range []string{"/cache", "/a/.hidden", "/a/..b", "/a/ space", "/", "", "relative", "/cache/", "//cache", "/a/../cache", "/a/./cache", "/a\x00b"} {
-		require.Equal(t, p != "/" && canonicalAbsPath(p) && !strings.ContainsRune(p, '\x00'), hostPath.MatchString(p), "host mount path %q", p)
+		require.Equal(t, p != "/" && canonicalAbsPath(p), hostPath.MatchString(p), "host mount path %q", p)
 	}
 
 	resources := loadJSON(t, perTypeSchemaPath(CapabilityResources))
@@ -571,4 +580,158 @@ func TestAgentContextV2Schema(t *testing.T) {
 		}
 	}
 	t.Fatal("agent-context@2 schema branch is absent")
+}
+
+// TestCapabilitySchemasAgreeOnCaseVariants holds the decoder to the schema
+// on field names. At every object a config-bearing type's schema closes
+// with additionalProperties: false, the schema and the config struct name
+// the same fields, and a case variant of any of them is refused by both:
+// the schema because the variant is not a property, the decoder naming
+// it by its path. The schema's half is read from its structure, as the
+// other tests here read it, rather than from a validator run.
+func TestCapabilitySchemasAgreeOnCaseVariants(t *testing.T) {
+	var bearing []string
+	for _, typ := range allCapabilityTypes() {
+		if !configlessCapabilities[typ] {
+			bearing = append(bearing, typ)
+		}
+	}
+	require.ElementsMatch(t, bearing, slices.Collect(maps.Keys(configTypes)))
+	for _, typ := range bearing {
+		t.Run(typ, func(t *testing.T) {
+			// Seeded by type, so a failure reproduces in a run of that
+			// subtest alone; the random flips reach spellings the fixed
+			// variants do not list.
+			seed := fnv.New64a()
+			_, _ = seed.Write([]byte(typ))
+			rng := rand.New(rand.NewPCG(seed.Sum64(), 0))
+			schema := loadJSON(t, perTypeSchemaPath(typ))
+			c := caseVariantCheck{t: t, typ: typ, root: schema, rng: rng}
+			c.object(schema, configTypes[typ], "", func(obj map[string]any) map[string]any { return obj })
+		})
+	}
+}
+
+type caseVariantCheck struct {
+	t    *testing.T
+	typ  string
+	root map[string]any
+	rng  *rand.Rand
+}
+
+// object checks the closed object schema at node against struct typ.
+// place builds a config holding an object where this one sits, so a key
+// can be tried at this depth.
+func (c caseVariantCheck) object(node map[string]any, typ reflect.Type, path string, place func(map[string]any) map[string]any) {
+	where := c.typ + " " + strings.TrimSuffix("config."+path, ".")
+	schema := c.closedObject(node, where)
+	props := at(c.t, schema, "properties")
+	fields, err := configFields(typ)
+	require.NoError(c.t, err)
+	require.ElementsMatch(c.t, slices.Collect(maps.Keys(props)), slices.Collect(maps.Keys(fields)),
+		"%s: the schema and %s name the same fields", where, typ)
+	require.NotContains(c.t, schema, "patternProperties", "%s: a pattern would admit keys by shape", where)
+
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		err := DecodeCapabilityConfig(Capability{Type: c.typ, Config: place(map[string]any{name: nil})}, newConfig(c.typ))
+		if err != nil {
+			require.NotContains(c.t, err.Error(), "unknown field", "%s: %q is a field", c.typ, configPath(path, name))
+		}
+		for _, variant := range caseVariants(name, c.rng) {
+			if _, property := props[variant]; property {
+				continue // Another field's exact name, so a field to both.
+			}
+			err := DecodeCapabilityConfig(Capability{Type: c.typ, Config: place(map[string]any{variant: nil})}, newConfig(c.typ))
+			require.ErrorContains(c.t, err, fmt.Sprintf("unknown field %q", configPath(path, variant)),
+				"%s: the schema refuses %q, so the decoder must", c.typ, configPath(path, variant))
+		}
+
+		field := elemType(fields[name])
+		child := props[name].(map[string]any)
+		switch {
+		case field.Kind() == reflect.Struct:
+			c.object(child, field, configPath(path, name), func(obj map[string]any) map[string]any {
+				return place(map[string]any{name: obj})
+			})
+		case (field.Kind() == reflect.Slice || field.Kind() == reflect.Array) && elemType(field.Elem()).Kind() == reflect.Struct:
+			items, ok := c.resolve(child)["items"].(map[string]any)
+			require.True(c.t, ok, "%s.%s: a list of objects states its items", where, name)
+			c.object(items, elemType(field.Elem()), configPath(path, name)+"[0]", func(obj map[string]any) map[string]any {
+				return place(map[string]any{name: []any{obj}})
+			})
+		case field.Kind() == reflect.Map && elemType(field.Elem()).Kind() == reflect.Struct:
+			c.t.Fatalf("%s.%s: a map of objects; extend this walk to its values", where, name)
+		}
+	}
+}
+
+func elemType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+// closedObject finds the one object schema with additionalProperties:
+// false at node: node itself, or a branch of its applicators, as an
+// allowEntry's object branch beside its bare-string one.
+func (c caseVariantCheck) closedObject(node map[string]any, where string) map[string]any {
+	var find func(map[string]any) []map[string]any
+	find = func(node map[string]any) []map[string]any {
+		node = c.resolve(node)
+		if _, ok := node["properties"]; ok && node["additionalProperties"] == false {
+			return []map[string]any{node}
+		}
+		var found []map[string]any
+		for _, keyword := range []string{"oneOf", "anyOf", "allOf"} {
+			branches, _ := node[keyword].([]any)
+			for _, branch := range branches {
+				found = append(found, find(branch.(map[string]any))...)
+			}
+		}
+		return found
+	}
+	found := find(node)
+	require.Len(c.t, found, 1, "%s: one closed object schema", where)
+	return found[0]
+}
+
+// resolve follows a reference within the type's own schema file. Shared
+// definitions (kit-arg) describe strings, never objects, so they are
+// left as written.
+func (c caseVariantCheck) resolve(node map[string]any) map[string]any {
+	ref, ok := node["$ref"].(string)
+	if !ok || !strings.HasPrefix(ref, "#/") {
+		return node
+	}
+	return at(c.t, c.root, strings.Split(strings.TrimPrefix(ref, "#/"), "/")...)
+}
+
+// caseVariants spells name every way a case-insensitive match would
+// still take it: title, upper, lower, and swapped case, the long s and
+// Kelvin sign Unicode folds to s and k, and seeded random flips.
+func caseVariants(name string, rng *rand.Rand) []string {
+	swap := func(r rune) rune {
+		if unicode.IsUpper(r) {
+			return unicode.ToLower(r)
+		}
+		return unicode.ToUpper(r)
+	}
+	variants := []string{
+		strings.ToUpper(name[:1]) + name[1:],
+		strings.ToUpper(name),
+		strings.ToLower(name),
+		strings.Map(swap, name),
+		strings.NewReplacer("s", "\u017f", "k", "\u212a", "K", "\u212a").Replace(name),
+	}
+	for range 8 {
+		variants = append(variants, strings.Map(func(r rune) rune {
+			if rng.IntN(2) == 0 {
+				return swap(r)
+			}
+			return r
+		}, name))
+	}
+	slices.Sort(variants)
+	return slices.DeleteFunc(slices.Compact(variants), func(v string) bool { return v == name })
 }

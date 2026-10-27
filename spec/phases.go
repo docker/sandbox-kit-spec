@@ -1,8 +1,9 @@
 package spec
 
-// credentialPhases reads the phase independently of parameterized siblings,
-// so a deferred boolean or service cannot hide invalid literal phases.
-func credentialPhases(n Capability) (Phases, error) {
+// phasesOf reads a credential or ssh-agent entry's phase independently of
+// parameterized siblings, so a deferred boolean or service cannot hide
+// invalid literal phases.
+func phasesOf(n Capability) (Phases, error) {
 	var c struct {
 		Phase Phases `json:"phase"`
 	}
