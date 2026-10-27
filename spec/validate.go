@@ -616,27 +616,19 @@ func validateCapabilityBlock(d *Descriptor) error {
 	interactiveListAt := -1
 	for i, n := range needs {
 		path := fmt.Sprintf("capabilities[%d]", i)
-		if _, keys := environmentReferences(n.Config); keys {
-			errs.add(fieldErrorf(path+".config", "environment references are not allowed in mapping keys"))
-		}
-		if n.Source != nil && n.Source.Path == "" {
-			errs.add(fieldErrorf(path+".source.path", "source path is required"))
-		}
-		if !needType.MatchString(n.Type) {
-			errs.add(fieldErrorf(path+".type", "capabilities[%d]: type %q is not <namespace>/<name>@<version>", i, n.Type))
+		c := checkEntry(d.Kind, i, n)
+		errs.add(c.head.err())
+		if c.typeInvalid {
 			continue
 		}
-		// The rule create holds before expanding, judged the same way. The
-		// entry holds a reference, so it cannot take part in the literal
-		// cross-entry checks either.
-		plain, _ := toConfigMap(n.Config)
-		if err := configReferenceKeys(plain, keyPath{path + ".config"}, n.Type); err != nil {
-			errs.add(err)
+		// The entry holds a reference, so it cannot take part in the
+		// literal cross-entry checks either.
+		if c.referenceKeys {
 			deferCrossChecks = true
 			continue
 		}
 		duplicateSingleton := false
-		if singletonCapabilities[n.Type] {
+		if c.singleton {
 			if prev, dup := seenSingleton[n.Type]; dup {
 				duplicateSingleton = true
 				deferCrossChecks = deferCrossChecks || n.Type == CapabilityNetworkPolicy || n.Type == CapabilityNetworkPolicyV2
@@ -645,27 +637,18 @@ func validateCapabilityBlock(d *Descriptor) error {
 				seenSingleton[n.Type] = i
 			}
 		}
-		if key := capabilitySurfaceEntry(n); true {
-			if prev, dup := seenExact[key]; dup {
-				if !duplicateSingleton {
-					errs.add(fieldErrorf(path, "capabilities[%d]: identical to capabilities[%d]", i, prev))
-				}
-				// The first copy owns its value and cross-entry errors.
-				if n.Type == CapabilityCredential {
-					invalidCredentials[i] = true
-				}
-				continue
+		if prev, dup := seenExact[c.surface]; dup {
+			if !duplicateSingleton {
+				errs.add(fieldErrorf(path, "capabilities[%d]: identical to capabilities[%d]", i, prev))
 			}
-			seenExact[key] = i
+			// The first copy owns its value and cross-entry errors.
+			if n.Type == CapabilityCredential {
+				invalidCredentials[i] = true
+			}
+			continue
 		}
-		// Presence, not emptiness: `config: {}` and `config: null` are
-		// config values, which these types' schemas (`not: {}`) reject,
-		// and neither is distinguishable from an omitted key by the
-		// decoded map alone. Testing length or nil-ness would let one
-		// descriptor pass here and fail schema validation.
-		if configlessCapabilities[n.Type] && n.ConfigStated() {
-			errs.add(fieldErrorf(path+".config", "capabilities[%d]: %s takes no config", i, n.Type))
-		}
+		seenExact[c.surface] = i
+		errs.add(c.configless.err())
 
 		// A literal key holds the block to one entry per key before
 		// parameterized values defer, whatever another setting waits for
@@ -675,21 +658,21 @@ func validateCapabilityBlock(d *Descriptor) error {
 		// Agent-context profiles are held below.
 		switch n.Type {
 		case CapabilitySSHAgent:
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup && prev != i {
 					errs.add(fieldErrorf(path+".config.phase", "capabilities[%d]: ssh-agent for phase %q already declared at capabilities[%d]", i, key.Parts[0], prev))
 				}
 			}
 		case CapabilityCredential:
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup && prev != i {
 					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.Parts[0], key.Parts[1], prev))
 				}
 			}
 		case CapabilityACP:
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup {
-					errs.add(fieldErrorf(path+".config.agent", "capabilities[%d]: ACP for agent %q already declared at capabilities[%d]", i, n.Config["agent"], prev))
+					errs.add(fieldErrorf(path+".config.agent", "capabilities[%d]: ACP for agent %q already declared at capabilities[%d]", i, c.agent, prev))
 				}
 			}
 		case CapabilityVolume, CapabilityHostMount:
@@ -699,17 +682,16 @@ func validateCapabilityBlock(d *Descriptor) error {
 			if n.Type == CapabilityHostMount {
 				label, other, otherLabel = otherLabel, CapabilityVolume, label
 			}
-			destination := n.Config["path"]
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup {
-					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s for %q already declared at capabilities[%d]", i, label, destination, prev))
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s for %q already declared at capabilities[%d]", i, label, c.destination, prev))
 				}
 				if prev, dup := declared.at(other, key); dup {
-					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, destination, otherLabel, prev))
+					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, c.destination, otherLabel, prev))
 				}
 			}
 		case CapabilityAgentSkill:
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup {
 					errs.add(fieldErrorf(path+".config", "%s %q already declared at capabilities[%d]", n.Type, key.Parts[0], prev))
 				}
@@ -717,13 +699,13 @@ func validateCapabilityBlock(d *Descriptor) error {
 		case CapabilityAgentSkills:
 			// A path is one mount whatever mode each entry asks for, and
 			// two modes contradict each other, so a block states one.
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup {
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, key.Parts[0], prev))
 				}
 			}
 		case CapabilityPort:
-			for _, key := range literalInstanceKeys(n) {
+			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup {
 					// The key's container is the decoded one, whatever
 					// number type the config holds it as.
@@ -734,231 +716,32 @@ func validateCapabilityBlock(d *Descriptor) error {
 		}
 
 		if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
-			errs.add(validateContextDirectory(path, i, d.Kind, n))
-			if n.Type == CapabilityAgentContextV2 {
-				errs.add(validateContextV2(path, i, n))
-			}
-			errs.add(contexts[n.Type].add(path, i, n))
+			errs.add(c.context.err())
+			errs.add(contexts[n.Type].add(path, i, &c))
 		}
 
-		// A parameterized entry — its config references a kit arg — defers
-		// its typed validation to ValidateEffective, after expansion has
-		// resolved every placeholder: a string placeholder cannot pass a
-		// numeric field's decode, and a placeholder value cannot pass a
-		// value check. Type grammar, arity, and dedup above still hold;
-		// what the entry ASKS never goes unchecked, only WHEN it is
-		// checked moves.
-		if capabilityIsParameterized(n) {
+		errs.add(c.body.err())
+		if c.parameterized {
 			deferCrossChecks = true
-			// Except for the names of its fields, which are literal
-			// (SPEC-v3 §6): an unknown one is refused now rather than
-			// passing the raw-key checks above unseen. validateContextV2
-			// has already decoded agent-context@2.
-			if n.Type != CapabilityAgentContextV2 {
-				if err := parameterizedConfigFields(n); err != nil {
-					errs.add(configErrorf(path, i, err))
-					continue
-				}
-			}
-			// And except for the rules about which fields are present:
-			// those do not wait for values, and deferring them let a
-			// contradictory pair through to a merge that normalizes
-			// one of the two away — after which the evidence is gone
-			// and the strict pass at the end sees a valid descriptor.
-			errs.add(validatePresenceRules(path, i, n))
 			continue
 		}
-
+		if c.invalidNetwork {
+			deferCrossChecks = true
+		}
+		if c.invalidCredential {
+			invalidCredentials[i] = true
+		}
+		if c.decodeFailed {
+			continue
+		}
 		switch n.Type {
-		case CapabilityNetworkPolicy:
-			var p PhasedNetwork
-			if err := DecodeCapabilityConfig(n, &p); err != nil {
-				errs.add(configErrorf(path, i, err))
-				deferCrossChecks = true
-				continue
-			}
-		case CapabilityNetworkPolicyV2:
-			var p PhasedNetworkV2
-			if err := DecodeCapabilityConfig(n, &p); err != nil {
-				errs.add(configErrorf(path, i, err))
-				deferCrossChecks = true
-				continue
-			}
-			if err := validateNetworkEntries(path, i, &p); err != nil {
-				deferCrossChecks = true
-				errs.add(err)
-			}
-		case CapabilityCredential:
-			_, err := validateCredentialNeed(path, i, n)
-			if err != nil {
-				errs.add(err)
-				invalidCredentials[i] = true
-				continue
-			}
-		case CapabilitySSHAgent:
-			_, err := validateSSHAgentNeed(path, i, n)
-			if err != nil {
-				errs.add(err)
-				continue
-			}
-
-		case CapabilityVolume:
-			var v Volume
-			if err := DecodeCapabilityConfig(n, &v); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			if !strings.HasPrefix(v.Path, "/") {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q must be absolute", i, v.Path))
-			}
-			if v.Size != "" && !sizeBytes.MatchString(v.Size) {
-				errs.add(fieldErrorf(path+".config.size", "capabilities[%d]: invalid size %q", i, v.Size))
-			}
-			if v.Mode != "" && !octalMode.MatchString(v.Mode) {
-				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, v.Mode))
-			}
-		case CapabilityHostMount:
-			var mount HostMount
-			if err := DecodeCapabilityConfig(n, &mount); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			if mount.Path == "/" || !canonicalAbsPath(mount.Path) {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q must be absolute and canonical, not root /", i, mount.Path))
-			}
-			if _, stated := n.Config["mode"]; stated && !octalMode.MatchString(mount.Mode) {
-				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
-			}
-		case CapabilityAgentSkill:
-			errs.add(validateBundledSkill(path, n))
-		case CapabilityAgentSkills:
-			var s AgentSkills
-			if err := DecodeCapabilityConfig(n, &s); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			// Canonical form is required, not normalized in: /x/../skills
-			// and /skills are different keys for one mount destination, so
-			// an alias would slip past the duplicate check above and could
-			// declare a second mode for the same path.
-			if s.Path == "/" || !canonicalAbsPath(s.Path) {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills path %q must be absolute and canonical (no . or .. segments, no trailing slash, not the root)", i, s.Path))
-			}
-			switch s.Mode {
-			case "", SkillsReadOnly, SkillsReadWrite:
-			default:
-				errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: mode must be %q or %q, got %q", i, SkillsReadOnly, SkillsReadWrite, s.Mode))
-			}
-		case CapabilityPort:
-			var p Port
-			if err := DecodeCapabilityConfig(n, &p); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			if p.Container < 1 || p.Container > 65535 {
-				errs.add(fieldErrorf(path+".config.container", "capabilities[%d]: container port %d out of range", i, p.Container))
-			}
-			switch p.Transport {
-			case "", "tcp", "udp":
-			default:
-				errs.add(fieldErrorf(path+".config.transport", "capabilities[%d]: transport must be tcp or udp, got %q", i, p.Transport))
-			}
-			switch p.Family {
-			case "", PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual:
-			default:
-				errs.add(fieldErrorf(path+".config.family", "capabilities[%d]: family must be %s, %s, or %s, got %q", i, PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual, p.Family))
-			}
-		case CapabilityUSBDevice:
-			var u USBDevice
-			if err := DecodeCapabilityConfig(n, &u); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			hasID := u.VendorID != "" || u.ProductID != ""
-			if hasID == (u.Class != "") {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: declare either vendorId/productId or class, not both and not neither", i))
-			}
-			if (u.VendorID != "") != (u.ProductID != "") {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: vendorId and productId go together", i))
-			}
-		case CapabilityResources:
-			var r Resources
-			if err := DecodeCapabilityConfig(n, &r); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			if r.CPU < 0 {
-				errs.add(fieldErrorf(path+".config.cpu", "capabilities[%d]: cpu must be >= 0", i))
-			}
-			if r.Memory != "" && !sizeBytes.MatchString(r.Memory) {
-				errs.add(fieldErrorf(path+".config.memory", "capabilities[%d]: invalid memory %q", i, r.Memory))
-			}
-		case CapabilityACP:
-			errs.add(validateACP(path, i, n))
 		case CapabilityAgentSessions:
-			var a AgentSessions
-			if err := DecodeCapabilityConfig(n, &a); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			if len(a.Prompt) == 0 && len(a.Resume) == 0 && len(a.Continue) == 0 && len(a.List) == 0 {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: agent-sessions declares no verbs; drop the entry instead", i))
-			}
-			// The placeholder is the verb's whole point: a prompt verb
-			// that never receives the prompt (or a resume that never
-			// names the session) runs the agent with the caller's input
-			// silently discarded.
-			if len(a.Prompt) > 0 && !argvContains(a.Prompt, SessionPromptPlaceholder) {
-				errs.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
-			}
-			if len(a.Resume) > 0 && !argvContains(a.Resume, SessionIDPlaceholder) {
-				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
-			}
-			headlessList = a.List
+			headlessList = c.headlessList
 		case CapabilityAgentInteractiveSessions:
-			var a AgentInteractiveSessions
-			if err := DecodeCapabilityConfig(n, &a); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			errs.add(validateInteractiveSessionsAuthored(path, i, n))
-			// Presence, not length: an empty tail is a verb ("the launch
-			// argv alone"), so a declaration holding only newSession: []
-			// says something.
-			if a.Prompt == nil && a.Resume == nil && a.Continue == nil && a.NewSession == nil && a.SessionPicker == nil && len(a.List) == 0 {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: agent-interactive-sessions declares no verbs; drop the entry instead", i))
-			}
-			// Same reasoning as agent-sessions: a prompt verb that never
-			// receives the prompt discards the caller's input. Judged on
-			// presence here, so prompt: [] cannot carry it and is refused.
-			if a.Prompt != nil && !argvContains(a.Prompt, SessionPromptPlaceholder) {
-				errs.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
-			}
-			if a.Resume != nil && !argvContains(a.Resume, SessionIDPlaceholder) {
-				errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
-			}
-			newSession, newSessionAt = a.NewSession, i
-			interactiveList, interactiveListAt = a.List, i
+			newSession, newSessionAt = c.newSession, i
+			interactiveList, interactiveListAt = c.interactiveList, i
 		case CapabilityLifecycle:
-			var l Lifecycle
-			if err := DecodeCapabilityConfig(n, &l); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			interactive, interactiveAt = l.Interactive, i
-			if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
-			}
-			errs.add(validateLifecycle(path, i, &l))
-		case CapabilityAgentContext:
-			var a AgentContext
-			if err := DecodeCapabilityConfig(n, &a); err != nil {
-				errs.add(configErrorf(path, i, err))
-				continue
-			}
-			if a.ContentFile != "" && a.Content != "" {
-				errs.add(fieldErrorf(path+".config", "capabilities[%d]: agent-context contentFile and content are mutually exclusive", i))
-			}
+			interactive, interactiveAt = c.interactive, i
 		}
 	}
 
@@ -1004,6 +787,324 @@ func validateCapabilityBlock(d *Descriptor) error {
 	return errs.err()
 }
 
+// entryCheck is one capability entry judged alone: its own errors and the
+// facts a declaration block compares across its entries. The errors are
+// split where the block interleaves its own comparisons, so the block
+// reports them in the order it always has.
+type entryCheck struct {
+	// head precedes the block's comparisons, configless and context sit
+	// between them, and body follows them. An identical copy reports only
+	// head.
+	head, configless, context, body ValidationErrors
+
+	// The block reads nothing past head when the type is invalid or a
+	// config key holds a reference; the second defers its literal
+	// cross-entry checks.
+	typeInvalid, referenceKeys bool
+	// parameterized defers typed validation, and the block's literal
+	// cross-entry checks, to the effective descriptor.
+	parameterized bool
+	// decodeFailed means the typed checks stopped early, so the entry
+	// offers no argvs. An invalid credential or network policy cannot
+	// take part in the inject-within-allow check.
+	decodeFailed, invalidCredential, invalidNetwork bool
+
+	singleton bool
+	// surface is equal for identical entries.
+	surface string
+	// keys are the instance keys the entry's literal fields settle; agent
+	// and destination are the config values a repeat names.
+	keys               []InstanceKey
+	agent, destination any
+	// What agent-context arity counts.
+	hasDirectory, hasBody bool
+	// The decoded argvs the block compares across entries, set only when
+	// the typed checks decoded the config.
+	newSession, interactive       []string
+	headlessList, interactiveList CommandLine
+}
+
+// checkEntry judges entry i of a declaration block on its own.
+func checkEntry(kind string, i int, n Capability) entryCheck {
+	var c entryCheck
+	path := fmt.Sprintf("capabilities[%d]", i)
+	if _, keys := environmentReferences(n.Config); keys {
+		c.head.add(fieldErrorf(path+".config", "environment references are not allowed in mapping keys"))
+	}
+	if n.Source != nil && n.Source.Path == "" {
+		c.head.add(fieldErrorf(path+".source.path", "source path is required"))
+	}
+	if !needType.MatchString(n.Type) {
+		c.head.add(fieldErrorf(path+".type", "capabilities[%d]: type %q is not <namespace>/<name>@<version>", i, n.Type))
+		c.typeInvalid = true
+		return c
+	}
+	// The rule create holds before expanding, judged the same way.
+	plain, _ := toConfigMap(n.Config)
+	if err := configReferenceKeys(plain, keyPath{path + ".config"}, n.Type); err != nil {
+		c.head.add(err)
+		c.referenceKeys = true
+		return c
+	}
+	c.singleton = singletonCapabilities[n.Type]
+	c.surface = capabilitySurfaceEntry(n)
+	// Presence, not emptiness: `config: {}` and `config: null` are
+	// config values, which these types' schemas (`not: {}`) reject,
+	// and neither is distinguishable from an omitted key by the
+	// decoded map alone. Testing length or nil-ness would let one
+	// descriptor pass here and fail schema validation.
+	if configlessCapabilities[n.Type] && n.ConfigStated() {
+		c.configless.add(fieldErrorf(path+".config", "capabilities[%d]: %s takes no config", i, n.Type))
+	}
+
+	switch n.Type {
+	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort,
+		CapabilityAgentContext, CapabilityAgentContextV2:
+		c.keys = literalInstanceKeys(n)
+	case CapabilityACP:
+		c.keys, c.agent = literalInstanceKeys(n), n.Config["agent"]
+	case CapabilityVolume, CapabilityHostMount:
+		c.keys, c.destination = literalInstanceKeys(n), n.Config["path"]
+	}
+
+	if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
+		c.context.add(validateContextDirectory(path, i, kind, n))
+		if n.Type == CapabilityAgentContextV2 {
+			c.context.add(validateContextV2(path, i, n))
+		}
+		_, c.hasDirectory = n.Config["directory"]
+		_, hasContent := n.Config["content"]
+		_, hasContentFile := n.Config["contentFile"]
+		c.hasBody = n.Type == CapabilityAgentContext && (hasContent || hasContentFile)
+	}
+
+	// A parameterized entry — its config references a kit arg — defers
+	// its typed validation to ValidateEffective, after expansion has
+	// resolved every placeholder: a string placeholder cannot pass a
+	// numeric field's decode, and a placeholder value cannot pass a
+	// value check. Type grammar, arity, and dedup above still hold;
+	// what the entry ASKS never goes unchecked, only WHEN it is
+	// checked moves.
+	if capabilityIsParameterized(n) {
+		c.parameterized = true
+		// Except for the names of its fields, which are literal
+		// (SPEC-v3 §6): an unknown one is refused now rather than
+		// passing the raw-key checks above unseen. validateContextV2
+		// has already decoded agent-context@2.
+		if n.Type != CapabilityAgentContextV2 {
+			if err := parameterizedConfigFields(n); err != nil {
+				c.body.add(configErrorf(path, i, err))
+				return c
+			}
+		}
+		// And except for the rules about which fields are present:
+		// those do not wait for values, and deferring them let a
+		// contradictory pair through to a merge that normalizes
+		// one of the two away — after which the evidence is gone
+		// and the strict pass at the end sees a valid descriptor.
+		c.body.add(validatePresenceRules(path, i, n))
+		return c
+	}
+	c.decodeFailed = !c.checkTyped(path, i, n)
+	return c
+}
+
+// checkTyped decodes a literal entry's config and checks its values. It
+// reports false when it stopped before reaching the end of its checks.
+func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
+	switch n.Type {
+	case CapabilityNetworkPolicy:
+		var p PhasedNetwork
+		if err := DecodeCapabilityConfig(n, &p); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			c.invalidNetwork = true
+			return false
+		}
+	case CapabilityNetworkPolicyV2:
+		var p PhasedNetworkV2
+		if err := DecodeCapabilityConfig(n, &p); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			c.invalidNetwork = true
+			return false
+		}
+		if err := validateNetworkEntries(path, i, &p); err != nil {
+			c.invalidNetwork = true
+			c.body.add(err)
+		}
+	case CapabilityCredential:
+		_, err := validateCredentialNeed(path, i, n)
+		if err != nil {
+			c.body.add(err)
+			c.invalidCredential = true
+			return false
+		}
+	case CapabilitySSHAgent:
+		_, err := validateSSHAgentNeed(path, i, n)
+		if err != nil {
+			c.body.add(err)
+			return false
+		}
+
+	case CapabilityVolume:
+		var v Volume
+		if err := DecodeCapabilityConfig(n, &v); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		if !strings.HasPrefix(v.Path, "/") {
+			c.body.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q must be absolute", i, v.Path))
+		}
+		if v.Size != "" && !sizeBytes.MatchString(v.Size) {
+			c.body.add(fieldErrorf(path+".config.size", "capabilities[%d]: invalid size %q", i, v.Size))
+		}
+		if v.Mode != "" && !octalMode.MatchString(v.Mode) {
+			c.body.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, v.Mode))
+		}
+	case CapabilityHostMount:
+		var mount HostMount
+		if err := DecodeCapabilityConfig(n, &mount); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		if mount.Path == "/" || !canonicalAbsPath(mount.Path) {
+			c.body.add(fieldErrorf(path+".config.path", "capabilities[%d]: host mount path %q must be absolute and canonical, not root /", i, mount.Path))
+		}
+		if _, stated := n.Config["mode"]; stated && !octalMode.MatchString(mount.Mode) {
+			c.body.add(fieldErrorf(path+".config.mode", "capabilities[%d]: invalid octal mode %q", i, mount.Mode))
+		}
+	case CapabilityAgentSkill:
+		c.body.add(validateBundledSkill(path, n))
+	case CapabilityAgentSkills:
+		var s AgentSkills
+		if err := DecodeCapabilityConfig(n, &s); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		// Canonical form is required, not normalized in: /x/../skills and
+		// /skills are different keys for one mount destination, so an
+		// alias would slip past the duplicate check and could declare a
+		// second mode for the same path.
+		if s.Path == "/" || !canonicalAbsPath(s.Path) {
+			c.body.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills path %q must be absolute and canonical (no . or .. segments, no trailing slash, not the root)", i, s.Path))
+		}
+		switch s.Mode {
+		case "", SkillsReadOnly, SkillsReadWrite:
+		default:
+			c.body.add(fieldErrorf(path+".config.mode", "capabilities[%d]: mode must be %q or %q, got %q", i, SkillsReadOnly, SkillsReadWrite, s.Mode))
+		}
+	case CapabilityPort:
+		var p Port
+		if err := DecodeCapabilityConfig(n, &p); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		if p.Container < 1 || p.Container > 65535 {
+			c.body.add(fieldErrorf(path+".config.container", "capabilities[%d]: container port %d out of range", i, p.Container))
+		}
+		switch p.Transport {
+		case "", "tcp", "udp":
+		default:
+			c.body.add(fieldErrorf(path+".config.transport", "capabilities[%d]: transport must be tcp or udp, got %q", i, p.Transport))
+		}
+		switch p.Family {
+		case "", PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual:
+		default:
+			c.body.add(fieldErrorf(path+".config.family", "capabilities[%d]: family must be %s, %s, or %s, got %q", i, PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual, p.Family))
+		}
+	case CapabilityUSBDevice:
+		var u USBDevice
+		if err := DecodeCapabilityConfig(n, &u); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		hasID := u.VendorID != "" || u.ProductID != ""
+		if hasID == (u.Class != "") {
+			c.body.add(fieldErrorf(path+".config", "capabilities[%d]: declare either vendorId/productId or class, not both and not neither", i))
+		}
+		if (u.VendorID != "") != (u.ProductID != "") {
+			c.body.add(fieldErrorf(path+".config", "capabilities[%d]: vendorId and productId go together", i))
+		}
+	case CapabilityResources:
+		var r Resources
+		if err := DecodeCapabilityConfig(n, &r); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		if r.CPU < 0 {
+			c.body.add(fieldErrorf(path+".config.cpu", "capabilities[%d]: cpu must be >= 0", i))
+		}
+		if r.Memory != "" && !sizeBytes.MatchString(r.Memory) {
+			c.body.add(fieldErrorf(path+".config.memory", "capabilities[%d]: invalid memory %q", i, r.Memory))
+		}
+	case CapabilityACP:
+		c.body.add(validateACP(path, i, n))
+	case CapabilityAgentSessions:
+		var a AgentSessions
+		if err := DecodeCapabilityConfig(n, &a); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		if len(a.Prompt) == 0 && len(a.Resume) == 0 && len(a.Continue) == 0 && len(a.List) == 0 {
+			c.body.add(fieldErrorf(path+".config", "capabilities[%d]: agent-sessions declares no verbs; drop the entry instead", i))
+		}
+		// The placeholder is the verb's whole point: a prompt verb
+		// that never receives the prompt (or a resume that never
+		// names the session) runs the agent with the caller's input
+		// silently discarded.
+		if len(a.Prompt) > 0 && !argvContains(a.Prompt, SessionPromptPlaceholder) {
+			c.body.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
+		}
+		if len(a.Resume) > 0 && !argvContains(a.Resume, SessionIDPlaceholder) {
+			c.body.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
+		}
+		c.headlessList = a.List
+	case CapabilityAgentInteractiveSessions:
+		var a AgentInteractiveSessions
+		if err := DecodeCapabilityConfig(n, &a); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		c.body.add(validateInteractiveSessionsAuthored(path, i, n))
+		// Presence, not length: an empty tail is a verb ("the launch
+		// argv alone"), so a declaration holding only newSession: []
+		// says something.
+		if a.Prompt == nil && a.Resume == nil && a.Continue == nil && a.NewSession == nil && a.SessionPicker == nil && len(a.List) == 0 {
+			c.body.add(fieldErrorf(path+".config", "capabilities[%d]: agent-interactive-sessions declares no verbs; drop the entry instead", i))
+		}
+		// Same reasoning as agent-sessions: a prompt verb that never
+		// receives the prompt discards the caller's input. Judged on
+		// presence here, so prompt: [] cannot carry it and is refused.
+		if a.Prompt != nil && !argvContains(a.Prompt, SessionPromptPlaceholder) {
+			c.body.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
+		}
+		if a.Resume != nil && !argvContains(a.Resume, SessionIDPlaceholder) {
+			c.body.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))
+		}
+		c.newSession, c.interactiveList = a.NewSession, a.List
+	case CapabilityLifecycle:
+		var l Lifecycle
+		if err := DecodeCapabilityConfig(n, &l); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		c.interactive = l.Interactive
+		if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
+			c.body.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
+		}
+		c.body.add(validateLifecycle(path, i, &l))
+	case CapabilityAgentContext:
+		var a AgentContext
+		if err := DecodeCapabilityConfig(n, &a); err != nil {
+			c.body.add(configErrorf(path, i, err))
+			return false
+		}
+		if a.ContentFile != "" && a.Content != "" {
+			c.body.add(fieldErrorf(path+".config", "capabilities[%d]: agent-context contentFile and content are mutually exclusive", i))
+		}
+	}
+	return true
+}
+
 // contextArity holds agent-context to one entry per explicit profile
 // destination within a declaration block. Judged on which fields are
 // stated, before parameterized entries defer, because a merge folds
@@ -1016,10 +1117,9 @@ type contextArity struct {
 	seenBody       bool
 }
 
-func (a *contextArity) add(field string, i int, n Capability) error {
+func (a *contextArity) add(field string, i int, c *entryCheck) error {
 	var errs ValidationErrors
-	_, hasDirectory := n.Config["directory"]
-	if !hasDirectory {
+	if !c.hasDirectory {
 		// The legacy profile and a tool's body-only contribution have no
 		// destination of their own to key on.
 		if a.seenUndirected {
@@ -1028,9 +1128,7 @@ func (a *contextArity) add(field string, i int, n Capability) error {
 			a.seenUndirected, a.undirected = true, i
 		}
 	}
-	_, hasContent := n.Config["content"]
-	_, hasContentFile := n.Config["contentFile"]
-	if n.Type == CapabilityAgentContext && (hasContent || hasContentFile) {
+	if c.hasBody {
 		// Publication stages one body per Kit, and every profile indexes it.
 		if a.seenBody {
 			errs.add(fieldErrorf(field+".config", "capabilities[%d]: agent-context body already declared at capabilities[%d]; a Kit contributes one body, which every profile indexes", i, a.body))
@@ -1038,7 +1136,7 @@ func (a *contextArity) add(field string, i int, n Capability) error {
 			a.seenBody, a.body = true, i
 		}
 	}
-	for _, key := range literalInstanceKeys(n) {
+	for _, key := range c.keys {
 		if len(key.Parts) == 0 {
 			// An empty directory names no profile; validateContextDirectory
 			// refuses it.
