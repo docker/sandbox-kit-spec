@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -757,13 +758,30 @@ func TestEntryConfigReadOnceAcrossBlocks(t *testing.T) {
 	}
 }
 
-func TestBlockErrorsReportedOnce(t *testing.T) {
-	volume := func(path, size string) Capability {
-		config := map[string]any{"path": path}
-		if size != "" {
-			config["size"] = size
-		}
-		return Capability{Type: CapabilityVolume, Config: config}
+func blockVolume(path, size string) Capability {
+	config := map[string]any{"path": path}
+	if size != "" {
+		config["size"] = size
+	}
+	return Capability{Type: CapabilityVolume, Config: config}
+}
+
+// launchPair is an agent-interactive-sessions entry whose newSession
+// disagrees with lifecycle's interactive tail.
+func launchPair(newSession string) []Capability {
+	return []Capability{
+		{Type: CapabilityAgentInteractiveSessions, Config: map[string]any{"newSession": []any{newSession}}},
+		{Type: CapabilityLifecycle, Config: map[string]any{"interactive": []any{"--other"}}},
+	}
+}
+
+// Every finding is reported once: an entry's own error, and a refusal
+// naming two entries, however many blocks the entries share.
+func TestFindingsReportedOnce(t *testing.T) {
+	volume := blockVolume
+	inBlock := func(c Capability, ids ...string) Capability {
+		c.DeclarationBlocks = ids
+		return c
 	}
 	bogus := acpWithEnv(1)
 	bogus.Config["bogus"] = true
@@ -779,10 +797,15 @@ func TestBlockErrorsReportedOnce(t *testing.T) {
 		{"own error in every block", inBlocks(8, bogus), map[string]int{`capabilities[0].config.bogus: capabilities[0]:`: 1}},
 		{"own error of a one-member group", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{oneMember(volume("relative", ""))}},
 			map[string]int{"capabilities[0].group.capabilities[0]: volume path": 1}},
-		{"identical entries in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "")), map[string]int{"identical to capabilities[0]": 8}},
-		{"repeated key in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "1G")), map[string]int{"already declared at capabilities[0]": 8}},
+		{"identical entries in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "")), map[string]int{"identical to capabilities[0]": 1}},
+		{"repeated key in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "1G")), map[string]int{"already declared at capabilities[0]": 1}},
 		{"identical invalid entries", inBlocks(4, volume("relative", ""), volume("relative", "")),
-			map[string]int{"capabilities[0]: volume path": 1, "capabilities[1]: volume path": 1, "identical to capabilities[0]": 4}},
+			map[string]int{"capabilities[0]: volume path": 1, "capabilities[1]: volume path": 1, "identical to capabilities[0]": 1}},
+		{"disagreeing launch in every block", inBlocks(8, launchPair("--tui")...), map[string]int{"disagrees with lifecycle interactive": 1}},
+		{"one entry meeting two others", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
+			inBlock(volume("/cache", ""), "b0", "b1"), inBlock(volume("/cache", "1G"), "b0"), inBlock(volume("/cache", "2G"), "b1"),
+		}}, map[string]int{"capabilities[1].config.path: capabilities[1]: volume for \"/cache\" already declared at capabilities[0]": 1,
+			"capabilities[2].config.path: capabilities[2]: volume for \"/cache\" already declared at capabilities[0]": 1}},
 		{"undeclared blocks", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{bogus, bogus}},
 			map[string]int{`capabilities[0].config.bogus`: 1, `capabilities[1].config.bogus`: 1, "identical to capabilities[0]": 1}},
 	} {
@@ -792,6 +815,49 @@ func TestBlockErrorsReportedOnce(t *testing.T) {
 			for message, count := range tt.want {
 				require.Equal(t, count, strings.Count(err.Error(), message), "%q in:\n%v", message, err)
 			}
+		})
+	}
+}
+
+// allocatedBytes is what one call of f allocates, averaged over a few.
+func allocatedBytes(f func()) uint64 {
+	const runs = 3
+	f()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range runs {
+		f()
+	}
+	runtime.ReadMemStats(&after)
+	return (after.TotalAlloc - before.TotalAlloc) / runs
+}
+
+func TestPairFindingCostOnceAcrossBlocks(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		message string
+		entries func(value string) []Capability
+	}{
+		{"volume repeat", "already declared", func(value string) []Capability {
+			return []Capability{blockVolume("/"+value, ""), blockVolume("/"+value, "1G")}
+		}},
+		{"launch disagreement", "disagrees with lifecycle interactive", launchPair},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// A finding that quotes a value is built once per pair of
+			// entries, so its cost does not grow with the blocks the pair
+			// shares.
+			cost := func(blocks, size int) uint64 {
+				d := inBlocks(blocks, tt.entries(strings.Repeat("v", size))...)
+				_, err := Validate(d)
+				require.ErrorContains(t, err, tt.message)
+				return allocatedBytes(func() { _, _ = Validate(d) })
+			}
+			const long = 64 << 10
+			one := cost(1, long) - cost(1, 1)
+			many := cost(256, long) - cost(256, 1)
+			require.Greater(t, one, uint64(long))
+			require.LessOrEqual(t, many, 2*one, "value cost in 256 blocks: %d bytes, in one: %d", many, one)
 		})
 	}
 }

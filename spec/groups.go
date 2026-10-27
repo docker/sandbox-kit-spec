@@ -244,6 +244,8 @@ func validateCapabilityEntries(d *Descriptor) error {
 	// Each entry is judged once, however many blocks it joins: its group
 	// and its blocks compare only what that judgment found, so a large
 	// config costs the same in one block as in many.
+	// Two entries that meet in many blocks are reported once.
+	reported := pairReports{}
 	type block struct {
 		members []Capability
 		checks  []*entryCheck
@@ -337,13 +339,13 @@ func validateCapabilityEntries(d *Descriptor) error {
 		for j, check := range memberChecks {
 			errs.add(remapCapabilityErrors(check.errs.err(), memberPaths[j:j+1]))
 		}
-		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, memberChecks), memberPaths))
+		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, memberChecks, reported), memberPaths))
 	}
 	for _, id := range blockOrder {
 		cp := *d
 		cp.Capabilities = blocks[id].members
 		cp.declarationsOnly = true
-		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, blocks[id].checks), blocks[id].paths))
+		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, blocks[id].checks, reported), blocks[id].paths))
 	}
 	return errs.err()
 }

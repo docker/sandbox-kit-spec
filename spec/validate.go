@@ -584,14 +584,15 @@ func validateCapabilityBlock(d *Descriptor) error {
 		checks[i] = &c
 		errs.add(c.errs.err())
 	}
-	errs.add(compareCapabilityBlock(d, checks))
+	errs.add(compareCapabilityBlock(d, checks, nil))
 	return errs.err()
 }
 
 // compareCapabilityBlock runs a declaration block's cross-entry checks on
 // what checkEntry found for each of its entries, in block order.
-// It reads no config, so an entry in many blocks is judged once.
-func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
+// It reads no config, so an entry in many blocks is judged once, and a
+// finding already in reported is not built again.
+func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairReports) error {
 	var errs ValidationErrors
 	needs := d.Capabilities
 	// The platform contract is about the image config a workload's layers
@@ -628,7 +629,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	// command. Compared on the decoded argv, so the string and list
 	// spellings of one command are equal.
 	var headlessList, interactiveList CommandLine
-	interactiveListAt := -1
+	headlessListAt, interactiveListAt := -1, -1
 	for i, c := range checks {
 		n := c.entry
 		path := fmt.Sprintf("capabilities[%d]", i)
@@ -646,7 +647,9 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 			if prev, dup := seenSingleton[n.Type]; dup {
 				duplicateSingleton = true
 				deferCrossChecks = deferCrossChecks || n.Type == CapabilityNetworkPolicy || n.Type == CapabilityNetworkPolicyV2
-				errs.add(fieldErrorf(path+".type", "capabilities[%d]: %s already declared at capabilities[%d]", i, n.Type, prev))
+				if reported.first(ruleSingleton, c, checks[prev], noKey) {
+					errs.add(fieldErrorf(path+".type", "capabilities[%d]: %s already declared at capabilities[%d]", i, n.Type, prev))
+				}
 			} else {
 				seenSingleton[n.Type] = i
 			}
@@ -654,7 +657,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		// surface is set for every entry that reaches here: checkEntry
 		// returns before setting it only for the two cases skipped above.
 		if prev, dup := seenExact[c.surface]; dup {
-			if !duplicateSingleton {
+			if !duplicateSingleton && reported.first(ruleIdentical, c, checks[prev], noKey) {
 				errs.add(fieldErrorf(path, "capabilities[%d]: identical to capabilities[%d]", i, prev))
 			}
 			// The first copy owns its value and cross-entry errors.
@@ -674,19 +677,19 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		switch n.Type {
 		case CapabilitySSHAgent:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup && prev != i {
+				if prev, dup := declared.add(n.Type, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.phase", "capabilities[%d]: ssh-agent for phase %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
 		case CapabilityCredential:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup && prev != i {
+				if prev, dup := declared.add(n.Type, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.parts[0], key.parts[1], prev))
 				}
 			}
 		case CapabilityACP:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.agent", "capabilities[%d]: ACP for agent %q already declared at capabilities[%d]", i, c.agent, prev))
 				}
 			}
@@ -698,16 +701,16 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 				label, other, otherLabel = otherLabel, CapabilityVolume, label
 			}
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s for %q already declared at capabilities[%d]", i, label, c.destination, prev))
 				}
-				if prev, dup := declared.at(other, key); dup {
+				if prev, dup := declared.at(other, key); dup && reported.first(ruleConflict, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, c.destination, otherLabel, prev))
 				}
 			}
 		case CapabilityAgentSkill:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config", "%s %q already declared at capabilities[%d]", n.Type, key.parts[0], prev))
 				}
 			}
@@ -715,13 +718,13 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 			// A path is one mount whatever mode each entry asks for, and
 			// two modes contradict each other, so a block states one.
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills for %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
 		case CapabilityPort:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					// The key's container is the decoded one, whatever
 					// number type the config holds it as.
 					container, _, _ := strings.Cut(key.parts[0], "/")
@@ -731,7 +734,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		}
 
 		if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
-			errs.add(contexts[n.Type].add(path, i, c))
+			errs.add(contexts[n.Type].add(path, i, checks, reported))
 		}
 
 		if c.parameterized {
@@ -749,7 +752,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		}
 		switch n.Type {
 		case CapabilityAgentSessions:
-			headlessList = c.headlessList
+			headlessList, headlessListAt = c.headlessList, i
 		case CapabilityAgentInteractiveSessions:
 			newSession, newSessionAt = c.newSession, i
 			interactiveList, interactiveListAt = c.interactiveList, i
@@ -762,6 +765,8 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	two, hasTwo := seenSingleton[CapabilityNetworkPolicyV2]
 	if hasOne && hasTwo {
 		deferCrossChecks = true
+	}
+	if hasOne && hasTwo && reported.first(ruleNetworkPolicyVersions, checks[two], checks[one], noKey) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].type", two),
 			"capabilities[%d]: %s cannot be declared beside %s at capabilities[%d]; a descriptor states one network-policy version",
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
@@ -776,13 +781,15 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	// tail included: newSession: [--tui] beside interactive: [] would
 	// launch two different ways. Composition makes the same comparison
 	// (see checkInteractiveAgreement) on the decoded asks.
-	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) {
+	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) &&
+		reported.first(ruleInteractive, checks[newSessionAt], checks[interactiveAt], noKey) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
 			newSessionAt, newSession, interactive, interactiveAt))
 	}
 
-	if len(headlessList) > 0 && len(interactiveList) > 0 && !slices.Equal(headlessList, interactiveList) {
+	if len(headlessList) > 0 && len(interactiveList) > 0 && !slices.Equal(headlessList, interactiveList) &&
+		reported.first(ruleList, checks[interactiveListAt], checks[headlessListAt], noKey) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.list", interactiveListAt),
 			"capabilities[%d]: list %q differs from agent-sessions list %q; both capabilities enumerate the same sessions, so they name one command",
 			interactiveListAt, []string(interactiveList), []string(headlessList)))
@@ -1145,13 +1152,16 @@ type contextArity struct {
 	seenBody       bool
 }
 
-func (a *contextArity) add(field string, i int, c *entryCheck) error {
+func (a *contextArity) add(field string, i int, checks []*entryCheck, reported pairReports) error {
 	var errs ValidationErrors
+	c := checks[i]
 	if !c.hasDirectory {
 		// The legacy profile and a tool's body-only contribution have no
 		// destination of their own to key on.
 		if a.seenUndirected {
-			errs.add(fieldErrorf(field+".type", "capabilities[%d]: agent-context without a directory already declared at capabilities[%d]; only explicit profiles may repeat", i, a.undirected))
+			if reported.first(ruleUndirectedContext, c, checks[a.undirected], noKey) {
+				errs.add(fieldErrorf(field+".type", "capabilities[%d]: agent-context without a directory already declared at capabilities[%d]; only explicit profiles may repeat", i, a.undirected))
+			}
 		} else {
 			a.seenUndirected, a.undirected = true, i
 		}
@@ -1159,7 +1169,9 @@ func (a *contextArity) add(field string, i int, c *entryCheck) error {
 	if c.hasBody {
 		// Publication stages one body per Kit, and every profile indexes it.
 		if a.seenBody {
-			errs.add(fieldErrorf(field+".config", "capabilities[%d]: agent-context body already declared at capabilities[%d]; a Kit contributes one body, which every profile indexes", i, a.body))
+			if reported.first(ruleContextBody, c, checks[a.body], noKey) {
+				errs.add(fieldErrorf(field+".config", "capabilities[%d]: agent-context body already declared at capabilities[%d]; a Kit contributes one body, which every profile indexes", i, a.body))
+			}
 		} else {
 			a.seenBody, a.body = true, i
 		}
@@ -1174,12 +1186,61 @@ func (a *contextArity) add(field string, i int, c *entryCheck) error {
 			a.destinations = map[string]int{}
 		}
 		if prev, dup := a.destinations[key.identity]; dup {
-			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context profile %s already declared at capabilities[%d]", i, key.parts[0], prev))
+			if reported.first(ruleContextProfile, c, checks[prev], key.identity) {
+				errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context profile %s already declared at capabilities[%d]", i, key.parts[0], prev))
+			}
 		} else {
 			a.destinations[key.identity] = i
 		}
 	}
 	return errs.err()
+}
+
+// pairReports remembers the cross-entry findings one validation has
+// reported, so two entries that meet in many declaration blocks are
+// reported once rather than once per block. A nil set reports every
+// finding: a lone block meets each pair once.
+type pairReports map[pairReport]bool
+
+// pairReport is one finding: a rule, the entry it is reported at, the
+// entry it names, and the instance key for rules that can fire for one
+// pair on several keys.
+type pairReport struct {
+	rule string
+	at   *entryCheck
+	with *entryCheck
+	key  string
+}
+
+// The cross-entry rules a pairReport names.
+const (
+	ruleSingleton             = "singleton"
+	ruleIdentical             = "identical"
+	ruleRepeat                = "repeat"
+	ruleConflict              = "conflict"
+	ruleUndirectedContext     = "undirected-context"
+	ruleContextBody           = "context-body"
+	ruleContextProfile        = "context-profile"
+	ruleInteractive           = "interactive"
+	ruleList                  = "list"
+	ruleNetworkPolicyVersions = "network-policy-versions"
+)
+
+// noKey stands for the key of a rule that fires at most once per pair.
+const noKey = ""
+
+// first reports whether a finding is new, and records it, so the caller
+// builds each message once.
+func (r pairReports) first(rule string, at, with *entryCheck, key string) bool {
+	if r == nil {
+		return true
+	}
+	report := pairReport{rule: rule, at: at, with: with, key: key}
+	if r[report] {
+		return false
+	}
+	r[report] = true
+	return true
 }
 
 // declaredKeys remembers, per type, the entry of a declaration block that
