@@ -2,13 +2,11 @@ package examples_test
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/docker/sandbox-kit-spec/v3/spec"
 	"github.com/stretchr/testify/require"
@@ -31,16 +29,37 @@ func writeExampleFixture(t *testing.T, path, content string, mode os.FileMode) {
 
 func runExampleCommand(t *testing.T, env []string, input string, argv ...string) (string, string, error) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	return startExampleCommand(t, nil, env, input, argv...)()
+}
+
+// startExampleCommand starts argv with env added to the test's environment
+// and input on stdin, and returns a function that waits for it and reports
+// its output. Each of extra becomes the child's descriptor 3 onwards and is
+// closed here after Start, so the child's process tree holds the only
+// copies and its exit is what closes them.
+//
+// There is no deadline. These scripts are dominated by process spawns,
+// which a loaded machine slows without limit, so a bound that fits an idle
+// machine only turns a slow run into a failed one. A script that hangs is
+// caught by go test -timeout, whose panic names the test.
+func startExampleCommand(t *testing.T, extra []*os.File, env []string, input string, argv ...string) func() (string, string, error) {
+	t.Helper()
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdin = strings.NewReader(input)
+	cmd.ExtraFiles = extra
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.String(), stderr.String(), err
+	err := cmd.Start()
+	for _, f := range extra {
+		_ = f.Close()
+	}
+	require.NoError(t, err)
+	return func() (string, string, error) {
+		err := cmd.Wait()
+		return stdout.String(), stderr.String(), err
+	}
 }
 
 func requireExampleTool(t *testing.T, name string) string {

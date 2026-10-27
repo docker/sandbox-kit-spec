@@ -2,11 +2,11 @@ package examples_test
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/docker/sandbox-kit-spec/v3/assemble"
 	"github.com/stretchr/testify/require"
@@ -394,6 +394,14 @@ exit 7
 func TestDesktopHookSerializesConcurrentClaudeStatus(t *testing.T) {
 	requireExampleTool(t, "jq")
 	bin := t.TempDir()
+	// The first delivery holds the worker's lock until the test releases
+	// it. It reports on descriptor 3 and waits on descriptor 4, pipes that
+	// only the first command is given and that its detached worker passes
+	// down to this curl; the hook redirects only descriptors 0 to 2, and
+	// this relies on that. Neither side polls or keeps time: the release is
+	// the test closing the write end of the pipe the mock reads as
+	// descriptor 4, and a first command that exits without arriving drops
+	// the last write end of descriptor 3, which the test reads as EOF.
 	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
 payload=""; headers=""
 while [ "$#" -gt 0 ]; do
@@ -408,9 +416,10 @@ if [ -n "$headers" ]; then
 fi
 case "$payload" in
   *'"name":"narwhal_session"'*)
-    if [ ! -f "$MOCK_ENTERED" ]; then
-      touch "$MOCK_ENTERED"
-      while [ ! -f "$MOCK_RELEASE" ]; do sleep 0.01; done
+    if [ ! -f "$MOCK_HELD" ]; then
+      touch "$MOCK_HELD"
+      echo entered >&3
+      read -r _ <&4
     fi
     printf '%s\n' "$payload" >> "$MOCK_DELIVERIES"
     printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
@@ -421,59 +430,54 @@ esac
 		for _, scenario := range []string{"newest update", "duplicate update"} {
 			t.Run(kit+"/"+scenario, func(t *testing.T) {
 				tmp := t.TempDir()
-				entered := filepath.Join(tmp, "entered")
-				release := filepath.Join(tmp, "release")
 				deliveries := filepath.Join(tmp, "deliveries")
-				type result struct {
-					stdout, stderr string
-					err            error
-				}
-				run := func(model string) result {
-					stdout, stderr, err := runExampleCommand(t, []string{
+				start := func(model string, extra ...*os.File) func() (string, string, error) {
+					return startExampleCommand(t, extra, []string{
 						"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 						"TMPDIR=" + tmp,
 						"HOME=" + tmp,
 						"MCP_GATEWAY_URL=http://test.invalid/mcp",
-						"MOCK_ENTERED=" + entered,
-						"MOCK_RELEASE=" + release,
+						"MOCK_HELD=" + filepath.Join(tmp, "held"),
 						"MOCK_DELIVERIES=" + deliveries,
 					}, `{"session_id":"test","model":{"id":"`+model+`"}}`, "sh", "-c",
 						`script=$1; shift; trap 'wait' EXIT; . "$script"`, "hook-test",
 						filepath.Join(kit, "scripts", "sbx-agent-hook.sh"), "claude-status")
-					return result{stdout, stderr, err}
 				}
-				check := func(r result) {
+				check := func(stdout, stderr string, err error) {
 					t.Helper()
-					require.NoError(t, r.err, r.stderr)
-					require.Empty(t, r.stdout)
-					require.Empty(t, r.stderr)
+					require.NoError(t, err, stderr)
+					require.Empty(t, stdout)
+					require.Empty(t, stderr)
 				}
-				first := make(chan result, 1)
-				go func() { first <- run("first") }()
-				finished := false
-				// Unblock and join the initial worker even if an assertion fails.
+				entered, enteredW, err := os.Pipe()
+				require.NoError(t, err)
+				releaseR, release, err := os.Pipe()
+				require.NoError(t, err)
+				var first func() (string, string, error)
+				waited := false
+				// Unblock and join the initial worker even if an assertion
+				// fails. One cleanup, so the release cannot run after the join.
 				t.Cleanup(func() {
-					_ = os.WriteFile(release, nil, 0o644)
-					if !finished {
-						<-first
+					_ = release.Close()
+					if first != nil && !waited {
+						_, _, _ = first()
 					}
+					_ = entered.Close()
 				})
-				require.Eventually(t, func() bool {
-					_, err := os.Stat(entered)
-					return err == nil
-				}, 3*time.Second, 10*time.Millisecond)
+				first = start("first", enteredW, releaseR)
+				_, err = io.ReadFull(entered, make([]byte, 1))
+				require.NoError(t, err, "the first status must reach delivery while holding the lock")
 				models := []string{"first"}
 				if scenario == "newest update" {
-					check(run("middle"))
-					check(run("newest"))
+					check(start("middle")())
+					check(start("newest")())
 					models = append(models, "newest")
 				} else {
-					check(run("first"))
+					check(start("first")())
 				}
-				writeExampleFixture(t, release, "", 0o644)
-				r := <-first
-				finished = true
-				check(r)
+				require.NoError(t, release.Close())
+				waited = true
+				check(first())
 				calls, err := os.ReadFile(deliveries)
 				require.NoError(t, err)
 				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
@@ -482,7 +486,7 @@ esac
 					require.Contains(t, lines[i], `"model_id":"`+model+`"`)
 				}
 				// Repeating the last update must agree with the final cache.
-				check(run(models[len(models)-1]))
+				check(start(models[len(models)-1])())
 				again, err := os.ReadFile(deliveries)
 				require.NoError(t, err)
 				require.Equal(t, calls, again)
