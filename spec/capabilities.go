@@ -62,6 +62,15 @@ var configTypes = map[string]reflect.Type{
 	CapabilityAgentInteractiveSessions: reflect.TypeFor[AgentInteractiveSessions](),
 }
 
+// freeFormConfigMaps lists, by type, the maps in a well-known config whose
+// keys are data rather than field names, the only ones where a key may
+// hold a reference (SPEC-v3 §6). acp@1 env is a map too, but its keys are
+// variable names. A type this grammar does not know has an opaque config,
+// all of it free-form.
+var freeFormConfigMaps = map[string][]string{
+	CapabilityCredential: {"oauth.credentialFile.structure"},
+}
+
 // parameterizedConfigFields refuses a key of a parameterized entry that
 // names no field of its type, before expansion lets the entry decode.
 // Field names are literal (SPEC-v3 §6), so no arg changes which field a
@@ -181,27 +190,21 @@ func configFields(t reflect.Type) (map[string]reflect.Type, error) {
 // the key's path within the config in the dotted form Positions uses, so
 // a diagnostic can point at the key rather than at the whole config.
 type unknownConfigFieldError struct {
-	path      string
-	suggest   string
-	reference bool
+	path    string
+	suggest string
 }
 
 func (e *unknownConfigFieldError) Error() string {
-	switch {
-	case e.reference:
-		return fmt.Sprintf("unknown field %q: config field names are literal; a reference may stand in a value or a free-form map's key", e.path)
-	case e.suggest != "":
+	if e.suggest != "" {
 		return fmt.Sprintf("unknown field %q: config field names are case-sensitive; did you mean %q?", e.path, e.suggest)
 	}
 	return fmt.Sprintf("unknown field %q", e.path)
 }
 
 // unknownConfigField names the refused key by its path in the config,
-// and the field it misspells when the two differ only in case, or says
-// why a key holding an arg reference names none. An env reference is
-// refused in every key (SPEC-v3 §6.1), which another check says.
+// and the field it misspells when the two differ only in case.
 func unknownConfigField(at, key string, fields map[string]reflect.Type) error {
-	refused := &unknownConfigFieldError{path: configPath(at, key), reference: ContainsKitPlaceholder(key) && !ContainsEnvRef(key)}
+	refused := &unknownConfigFieldError{path: configPath(at, key)}
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		if strings.EqualFold(name, key) {
 			refused.suggest = configPath(at, name)

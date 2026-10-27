@@ -1844,26 +1844,44 @@ func TestPortFamilyDefaultsToIPv4(t *testing.T) {
 	}
 }
 
-// A key names something the author chose, so references reach map keys
-// too — the credential capability's `structure` is an author-shaped
+// credentialStructure renders a descriptor whose credential file's
+// structure, a free-form map whose keys may hold references, is structure.
+func credentialStructure(structure string) []byte {
+	return []byte(`{"schemaVersion":"3","kind":"mixin","capabilities":[{"type":"com.docker.sandbox/credential@1","config":{"service":"example","phase":"runtime","oauth":{"credentialFile":{"path":"~/.example/token.json","structure":` + structure + `}}}}]}`)
+}
+
+// structureOf returns the structure of an expanded credentialStructure.
+func structureOf(t *testing.T, expanded []byte) string {
+	t.Helper()
+	d, err := Decode(expanded)
+	require.NoError(t, err)
+	credentials, err := CredentialsOf(d.Capabilities)
+	require.NoError(t, err)
+	structure, err := json.Marshal(credentials[0].OAuth.CredentialFile.Structure)
+	require.NoError(t, err)
+	return string(structure)
+}
+
+// A free-form map's keys are names the author chose, so references reach
+// them too: the credential capability's `structure` is an author-shaped
 // document, not a grammar-defined one. Textual expansion reached keys for
 // free; substituting inside the decoded document has to do it on purpose.
 func TestExpandCreateArgsExpandsMapKeys(t *testing.T) {
-	raw := []byte(`{"structure":{"${{ kit.args.name }}":{"nested":"${{ kit.args.name }} value"}}}`)
+	raw := credentialStructure(`{"${{ kit.args.name }}":{"nested":"${{ kit.args.name }} value"}}`)
 
 	out, err := ExpandCreateArgs(raw, map[string]Arg{"name": {}}, map[string]string{"name": "profile"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"structure":{"profile":{"nested":"profile value"}}}`, string(out))
+	require.JSONEq(t, `{"profile":{"nested":"profile value"}}`, structureOf(t, out))
 }
 
 // A key is text whatever the value looks like: a numeric value in key
 // position must not become a number, which is not a legal key.
 func TestExpandCreateArgsKeepsMapKeysTextual(t *testing.T) {
-	raw := []byte(`{"structure":{"${{ kit.args.port }}":"open"}}`)
+	raw := credentialStructure(`{"${{ kit.args.port }}":"open"}`)
 
 	out, err := ExpandCreateArgs(raw, map[string]Arg{"port": {}}, map[string]string{"port": "8080"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"structure":{"8080":"open"}}`, string(out))
+	require.JSONEq(t, `{"8080":"open"}`, structureOf(t, out))
 }
 
 // cpu is a float64, so integer-only typing would leave fractional CPU
@@ -1892,7 +1910,7 @@ func TestExpandCreateArgsTypesFractionalNumbers(t *testing.T) {
 // expansion used to leave the duplicate for the decoder to reject; keeping
 // the failure is the point, only the reporting moved.
 func TestExpandCreateArgsRejectsCollapsedMapKeys(t *testing.T) {
-	raw := []byte(`{"structure":{"${{ kit.args.name }}":"from-arg","profile":"literal"}}`)
+	raw := credentialStructure(`{"${{ kit.args.name }}":"from-arg","profile":"literal"}`)
 
 	_, err := ExpandCreateArgs(raw, map[string]Arg{"name": {}}, map[string]string{"name": "profile"})
 	require.ErrorContains(t, err, `collapses two keys onto "profile"`)
@@ -1900,24 +1918,18 @@ func TestExpandCreateArgsRejectsCollapsedMapKeys(t *testing.T) {
 	// A key that expands to something unused stays fine.
 	out, err := ExpandCreateArgs(raw, map[string]Arg{"name": {}}, map[string]string{"name": "other"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"structure":{"other":"from-arg","profile":"literal"}}`, string(out))
+	require.JSONEq(t, `{"other":"from-arg","profile":"literal"}`, structureOf(t, out))
 }
 
-// A fixed-shape config's field names are literal (SPEC-v3 §6), so create
-// refuses a key that expansion would turn into a field, without relying on
-// the published form having been validated. A reference in the entry's
-// own keys or type does not hide the entry, and a free-form map's keys
-// still expand.
-func TestExpandCreateArgsRefusesReferencesInConfigFieldNames(t *testing.T) {
-	decls := map[string]Arg{"k": {}, "typeKey": {}, "configKey": {}, "capabilitiesKey": {}, "policy": {}}
-	values := map[string]string{"k": "allow", "typeKey": "type", "configKey": "config", "capabilitiesKey": "capabilities", "policy": CapabilityNetworkPolicyV2}
+// A reference stands in a map key only in a free-form map (SPEC-v3 §6), so
+// create refuses one anywhere else without relying on the published form
+// having been validated, while a free-form map's keys still expand.
+func TestExpandCreateArgsRefusesReferencesInFixedShapeKeys(t *testing.T) {
+	decls := map[string]Arg{"k": {}, "typeKey": {}, "policy": {}}
+	values := map[string]string{"k": "allow", "typeKey": "type", "policy": CapabilityNetworkPolicyV2}
 	const policy = `{"runtime": {"${{ kit.args.k }}": ["api.example.com"]}}`
-	const entry = `{"type": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`
-	kit := func(entry string) []byte {
-		return []byte(`{"schemaVersion": "3", "kind": "mixin", "capabilities": [` + entry + `]}`)
-	}
-	refused := func(path string) string {
-		return `create-phase expansion: ` + path + `: capability com.docker.sandbox/network-policy@2: unknown field "runtime.${{ kit.args.k }}": config field names are literal; a reference may stand in a value or a free-form map's key`
+	kit := func(entries string) []byte {
+		return []byte(`{"schemaVersion": "3", "kind": "mixin", "capabilities": [` + entries + `]}`)
 	}
 
 	// Expanded by hand, the entry is a valid grant: the refusal is all
@@ -1928,35 +1940,23 @@ func TestExpandCreateArgsRefusesReferencesInConfigFieldNames(t *testing.T) {
 	_, err = ValidateEffective(allowed, d)
 	require.NoError(t, err)
 
-	for _, tt := range []struct {
-		name string
-		raw  []byte
-		want string
-	}{
-		{"config field", kit(entry), refused("capabilities[0]")},
-		{"group member", kit(`{"group": {"capabilities": [` + entry + `]}}`), refused("capabilities[0].group.capabilities[0]")},
-		{"nested group member", kit(`{"group": {"capabilities": [{"group": {"capabilities": [` + entry + `]}}]}}`), refused("capabilities[0].group.capabilities[0].group.capabilities[0]")},
-		{"capabilities key holding a reference", []byte(`{"schemaVersion": "3", "kind": "mixin", "${{ kit.args.capabilitiesKey }}": [` + entry + `]}`), refused("capabilities[0]")},
-		{"type key holding a reference", kit(`{"${{ kit.args.typeKey }}": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`), refused("capabilities[0]")},
-		{"config key holding a reference", kit(`{"type": "com.docker.sandbox/network-policy@2", "${{ kit.args.configKey }}": ` + policy + `}`), refused("capabilities[0]")},
-		{"type holding a reference", kit(`{"type": "${{ kit.args.policy }}", "config": ` + policy + `}`), refused("capabilities[0]")},
-		// Two spellings of type collapse, whichever map order meets first.
-		{"type beside a key expanding to type", kit(`{"type": "com.docker.sandbox/network-policy@2", "${{ kit.args.typeKey }}": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`), `create-phase expansion collapses two keys onto "type"`},
-		// Any unknown field, not only a reference, is refused before
-		// expansion.
-		{"case variant", kit(`{"type": "com.docker.sandbox/network-policy@2", "config": {"runtime": {"Allow": ["api.example.com"]}}}`), `create-phase expansion: capabilities[0]: capability com.docker.sandbox/network-policy@2: unknown field "runtime.Allow": config field names are case-sensitive; did you mean "runtime.allow"?`},
+	for _, tt := range []struct{ name, entry, path string }{
+		{"config field", `{"type": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`, "capabilities[0].config.runtime.${{ kit.args.k }}"},
+		{"group member", `{"group": {"capabilities": [{"type": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}]}}`, "capabilities[0].group.capabilities[0].config.runtime.${{ kit.args.k }}"},
+		{"structural key", `{"${{ kit.args.typeKey }}": "com.docker.sandbox/network-policy@2", "config": ` + policy + `}`, "capabilities[0].${{ kit.args.typeKey }}"},
+		// A type not yet literal cannot make its config opaque.
+		{"type holding a reference", `{"type": "${{ kit.args.policy }}", "config": ` + policy + `}`, "capabilities[0].config.runtime.${{ kit.args.k }}"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ExpandCreateArgs(tt.raw, decls, values)
-			require.EqualError(t, err, tt.want)
+			_, err := ExpandCreateArgs(kit(tt.entry), decls, values)
+			require.EqualError(t, err, tt.path+": this key holds a reference, which may stand in a map key only in a free-form map, such as a credential file's structure")
 		})
 	}
 
-	// A free-form map's keys still expand, even ones that read like an
-	// entry's.
-	out, err := ExpandCreateArgs(kit(`{"type": "com.docker.sandbox/credential@1", "config": {"service": "example", "phase": "runtime", "oauth": {"credentialFile": {"path": "~/.example/token.json", "structure": {"${{ kit.args.k }}": "{{.AccessToken}}", "entry": {"type": "com.docker.sandbox/volume@1", "config": {"${{ kit.args.k }}": "x"}}}}}}}`), decls, values)
-	require.NoError(t, err)
-	require.Contains(t, string(out), `"allow":"{{.AccessToken}}"`)
+	out, err := ExpandCreateArgs(kit(`{"type": "com.docker.sandbox/credential@1", "config": {"service": "example", "phase": "runtime", "oauth": {"credentialFile": {"path": "~/.example/token.json", "structure": {"${{ kit.args.k }}": "{{.AccessToken}}", "nested": [{"${{ kit.args.k }}": "x"}]}}}}},
+		{"type": "example.com/custom@1", "config": {"${{ kit.args.k }}": "x"}}`), decls, values)
+	require.NoError(t, err, "a credential structure and an unknown type's config are free-form")
+	require.Contains(t, string(out), `"structure":{"allow":"{{.AccessToken}}","nested":[{"allow":"x"}]}`)
 	require.Contains(t, string(out), `"config":{"allow":"x"}`)
 }
 

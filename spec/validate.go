@@ -631,6 +631,15 @@ func validateCapabilityBlock(d *Descriptor) error {
 			errs.add(fieldErrorf(path+".type", "capabilities[%d]: type %q is not <namespace>/<name>@<version>", i, n.Type))
 			continue
 		}
+		// The rule create holds before expanding, judged the same way. The
+		// entry holds a reference, so it cannot take part in the literal
+		// cross-entry checks either.
+		plain, _ := toConfigMap(n.Config)
+		if err := configReferenceKeys(plain, keyPath{path + ".config"}, n.Type); err != nil {
+			errs.add(err)
+			deferCrossChecks = true
+			continue
+		}
 		duplicateSingleton := false
 		if singletonCapabilities[n.Type] {
 			if prev, dup := seenSingleton[n.Type]; dup {
@@ -725,10 +734,9 @@ func validateCapabilityBlock(d *Descriptor) error {
 		if capabilityIsParameterized(n) {
 			deferCrossChecks = true
 			// Except for the names of its fields, which are literal
-			// (SPEC-v3 §6): an unknown one, a key holding a reference
-			// included, is refused now rather than passing the raw-key
-			// checks above unseen. validateContextV2 has already decoded
-			// agent-context@2.
+			// (SPEC-v3 §6): an unknown one is refused now rather than
+			// passing the raw-key checks above unseen. validateContextV2
+			// has already decoded agent-context@2.
 			if n.Type != CapabilityAgentContextV2 {
 				if err := parameterizedConfigFields(n); err != nil {
 					errs.add(configErrorf(path, i, err))

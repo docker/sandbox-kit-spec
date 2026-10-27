@@ -45,11 +45,6 @@ func TestDecodeCapabilityConfigExactFieldNames(t *testing.T) {
 			map[string]any{"Domain": "b.example.com"},
 		}}}), caseVariant("apiKey.inject[1].Domain", "apiKey.inject[1].domain")},
 		{"object entry beside a bare one", CapabilityNetworkPolicyV2, map[string]any{"install": map[string]any{"allow": []any{"example.com", map[string]any{"Hosts": []any{"api.example.com"}}}}}, caseVariant("install.allow[1].Hosts", "install.allow[1].hosts")},
-		// Field names are literal (SPEC-v3 §6); an env reference is
-		// refused in every key by a check of its own.
-		{"arg reference", CapabilityVolume, map[string]any{"path": "/data", "${{ kit.args.k }}": "1G"}, `unknown field "${{ kit.args.k }}": config field names are literal; a reference may stand in a value or a free-form map's key`},
-		{"malformed arg reference", CapabilityVolume, map[string]any{"path": "/data", "${{ kit.args. }}": "1G"}, `unknown field "${{ kit.args. }}": config field names are literal; a reference may stand in a value or a free-form map's key`},
-		{"env reference", CapabilityVolume, map[string]any{"path": "/data", "${{ kit.env.K }}": "1G"}, `unknown field "${{ kit.env.K }}"`},
 		// Map keys are data, not field names.
 		{"env names", CapabilityACP, map[string]any{"agent": "claude", "command": []any{"adapter"}, "env": map[string]any{"Path": "/bin"}}, ""},
 		{"credential file structure", CapabilityCredential, credential(map[string]any{"oauth": map[string]any{"credentialFile": map[string]any{"path": "/t", "structure": map[string]any{"Path": "{{.AccessToken}}", "nested": map[string]any{"Token": "x"}}}}}), ""},
@@ -135,6 +130,10 @@ func TestValidateRefusesCaseVariantConfigKeys(t *testing.T) {
 	}
 }
 
+// referenceKeyRefused is how publication and create refuse a reference in
+// a key outside a free-form map.
+const referenceKeyRefused = "this key holds a reference, which may stand in a map key only in a free-form map, such as a credential file's structure"
+
 // requireKeyRefused requires err to hold exactly one field error naming
 // want, attributed to path, which Positions finds in raw. Other checks
 // may refuse the entry too, so it looks for the refusal of the key.
@@ -216,7 +215,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 			for _, refused := range []struct{ name, key, want string }{
 				{"case variant", variant, fmt.Sprintf("capabilities[0]: capability %s: unknown field %q: config field names are case-sensitive; did you mean %q?", tt.typ, variant, tt.field)},
 				{"typo", typo, fmt.Sprintf("capabilities[0]: capability %s: unknown field %q", tt.typ, typo)},
-				{"key holding a reference", refKey, fmt.Sprintf("capabilities[0]: capability %s: unknown field %q: config field names are literal", tt.typ, refKey)},
+				{"key holding a reference", refKey, referenceKeyRefused},
 			} {
 				t.Run(refused.name, func(t *testing.T) {
 					raw := kit(refused.key)
@@ -244,11 +243,11 @@ func TestValidatePublishedRefusesUnknownKeysBesideReferences(t *testing.T) {
 		{"credential nested typo", `{type: com.docker.sandbox/credential@1, config: {service: github, phase: runtime, apiKey: {name: "${{ kit.args.s }}", injet: [{domain: api.github.com}]}}}`, `unknown field "apiKey.injet"`, "capabilities[0].config.apiKey.injet"},
 		{"network-policy@2 entry", `{type: com.docker.sandbox/network-policy@2, config: {runtime: {allow: [{hosts: ["${{ kit.args.s }}.example.com"], Methods: [GET]}]}}}`, `unknown field "runtime.allow[0].Methods": config field names are case-sensitive; did you mean "runtime.allow[0].methods"?`, "capabilities[0].config.runtime.allow[0].Methods"},
 		{"group member", `{group: {name: storage, capabilities: [{type: com.docker.sandbox/volume@1, config: {Path: /data, size: "${{ kit.args.s }}"}}]}}`, `capabilities[0].group.capabilities[0]: capability com.docker.sandbox/volume@1: unknown field "Path"`, "capabilities[0].group.capabilities[0].config.Path"},
-		{"nested key holding a reference", `{type: com.docker.sandbox/network-policy@2, config: {runtime: {allow: [{hosts: [api.example.com], "${{ kit.args.k }}": [GET]}]}}}`, `unknown field "runtime.allow[0].${{ kit.args.k }}": config field names are literal`, "capabilities[0].config.runtime.allow[0].${{ kit.args.k }}"},
+		{"nested key holding a reference", `{type: com.docker.sandbox/network-policy@2, config: {runtime: {allow: [{hosts: [api.example.com], "${{ kit.args.k }}": [GET]}]}}}`, referenceKeyRefused, "capabilities[0].config.runtime.allow[0].${{ kit.args.k }}"},
 		{"environment reference in a key", `{type: com.docker.sandbox/volume@1, config: {path: /data, size: "${{ kit.env.SIZE }}", "${{ kit.env.KEY }}": x}}`, `unknown field "${{ kit.env.KEY }}"`, "capabilities[0].config.${{ kit.env.KEY }}"},
 		// acp@1 env is a map, but its keys are variable names.
-		{"acp env name holding a reference", `{type: com.docker.sandbox/acp@1, config: {agent: claude, command: [claude-acp], env: {"${{ kit.args.k }}": x}}}`, `invalid environment variable "${{ kit.args.k }}"`, "capabilities[0].config.env"},
-		{"free-form map key holding a reference", `{type: com.docker.sandbox/credential@1, config: {service: example, phase: runtime, oauth: {tokenEndpoint: {host: auth.example.com, path: /token}, credentialFile: {path: ~/.example/token.json, structure: {"${{ kit.args.k }}": "{{.AccessToken}}"}}}}}`, "", ""},
+		{"acp env name holding a reference", `{type: com.docker.sandbox/acp@1, config: {agent: claude, command: [claude-acp], env: {"${{ kit.args.k }}": x}}}`, referenceKeyRefused, "capabilities[0].config.env.${{ kit.args.k }}"},
+		{"free-form map key holding a reference", `{type: com.docker.sandbox/credential@1, config: {service: example, phase: runtime, oauth: {tokenEndpoint: {host: auth.example.com, path: /token}, credentialFile: {path: ~/.example/token.json, structure: {"${{ kit.args.k }}": "{{.AccessToken}}", nested: [{"${{ kit.args.k }}": x}]}}}}}`, "", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := []byte("schemaVersion: \"3\"\nkind: workload\nargs:\n  s: {default: GH_TOKEN}\n  k: {default: methods}\ncapabilities: [" + tt.needs + "]\n")
@@ -261,6 +260,25 @@ func TestValidatePublishedRefusesUnknownKeysBesideReferences(t *testing.T) {
 			requireKeyRefused(t, raw, err, tt.want, tt.path)
 		})
 	}
+}
+
+// An entry refused for a reference key stays out of the cross-entry checks,
+// which would otherwise decode it again and refuse it a second time.
+func TestReferenceKeyKeepsEntryOutOfCrossChecks(t *testing.T) {
+	raw := []byte(`schemaVersion: "3"
+kind: workload
+args: {k: {default: header}}
+capabilities:
+  - {type: com.docker.sandbox/network-policy@2, config: {runtime: {allow: [api.example.com]}}}
+  - {type: com.docker.sandbox/credential@1, config: {service: example, phase: runtime, apiKey: {name: A, inject: [{domain: api.example.com, "${{ kit.args.k }}": x}]}}}
+`)
+	d, err := Decode(raw)
+	require.NoError(t, err)
+	_, err = Validate(d)
+	var all ValidationErrors
+	require.ErrorAs(t, err, &all)
+	require.Len(t, all, 1)
+	require.ErrorContains(t, all[0], referenceKeyRefused)
 }
 
 // parameterizedKit renders a workload whose one entry is typ with config,

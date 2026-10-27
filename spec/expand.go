@@ -3,6 +3,7 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -327,21 +328,18 @@ func sameExpansionValue(a, b *yaml.Node) bool {
 // declared enum/pattern constraints, which ride in the signed
 // descriptor, bound what values can materialize. A reference with no
 // resolved value is an error: a hole in effective policy must fail
-// loudly, not enforce an empty string. So is a well-known capability
-// config key that names no field before expansion, since only a
-// free-form map's keys may expand (SPEC-v3 §6).
+// loudly, not enforce an empty string. So is a reference in a map key
+// outside a free-form map, which no key expansion may turn into a field
+// name (SPEC-v3 §6).
 func ExpandCreateArgs(raw []byte, decls map[string]Arg, values map[string]string) ([]byte, error) {
 	var doc any
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("expand create args: %w", err)
 	}
+	if err := referenceKeys(doc, nil, inDocument, nil); err != nil {
+		return nil, err
+	}
 	var expandErr error
-	if root, ok := doc.(map[string]any); ok {
-		literalConfigFields(expandedFields(root, decls, values, &expandErr, "capabilities")["capabilities"], "capabilities", decls, values, &expandErr)
-	}
-	if expandErr != nil {
-		return nil, expandErr
-	}
 	expanded := expandNode(doc, decls, values, &expandErr, false)
 	if expandErr != nil {
 		return nil, expandErr
@@ -395,64 +393,105 @@ func expandNode(n any, decls map[string]Arg, values map[string]string, expandErr
 	}
 }
 
-// literalConfigFields refuses, before expansion can rewrite it, a key of a
-// capability entry's config that names no field of the entry's type,
-// group members included. A fixed-shape config's field names are literal
-// (SPEC-v3 §6): expanded, `${{ kit.args.k }}` would read as whichever
-// field k names, and the effective descriptor would ask for something its
-// published form never stated. Create holds this itself rather than
-// trusting that the published form was validated. Only capability entries
-// are walked, so a free-form map that happens to hold type and config
-// keys is data. The entries' own keys and types are read expanded, so a
-// reference cannot hide an entry either.
-func literalConfigFields(capabilities any, at string, decls map[string]Arg, values map[string]string, expandErr *error) {
-	list, _ := capabilities.([]any)
-	for i, item := range list {
-		entry, ok := item.(map[string]any)
-		if !ok {
+// keyPath is a path into a decoded document as segments, map keys and list
+// indices, rendered only for a refusal: rendering at every step would copy
+// the whole path once per key.
+type keyPath []any
+
+func (p keyPath) String() string {
+	var b strings.Builder
+	for _, segment := range p {
+		if i, ok := segment.(int); ok {
+			fmt.Fprintf(&b, "[%d]", i)
 			continue
 		}
-		path := fmt.Sprintf("%s[%d]", at, i)
-		fields := expandedFields(entry, decls, values, expandErr, "group", "type", "config")
-		if group, ok := fields["group"].(map[string]any); ok {
-			literalConfigFields(expandedFields(group, decls, values, expandErr, "capabilities")["capabilities"], path+".group.capabilities", decls, values, expandErr)
+		if b.Len() > 0 {
+			b.WriteByte('.')
 		}
-		typ, _ := fields["type"].(string)
-		typ = expandString(typ, decls, values, "create", expandErr)
-		if *expandErr != nil {
-			return
-		}
-		t, known := configTypes[typ]
-		if !known {
-			continue
-		}
-		if err := exactConfigFields(fields["config"], t, ""); err != nil {
-			*expandErr = fmt.Errorf("create-phase expansion: %s: capability %s: %w", path, typ, err)
-			return
-		}
+		fmt.Fprint(&b, segment)
 	}
+	return b.String()
 }
 
-// expandedFields returns the values of m's keys that expand to names,
-// keyed by name, expanding each key once. Two keys expanding to one name
-// are the collapse expandNode refuses, reported here first so the error
-// does not depend on map order.
-func expandedFields(m map[string]any, decls map[string]Arg, values map[string]string, expandErr *error, names ...string) map[string]any {
-	out := make(map[string]any, len(names))
-	for key, child := range m {
-		name := expandString(key, decls, values, "create", expandErr)
-		if !slices.Contains(names, name) {
-			continue
-		}
-		if _, taken := out[name]; taken {
-			if *expandErr == nil {
-				*expandErr = fmt.Errorf("create-phase expansion collapses two keys onto %q", name)
-			}
+// keyScope is where in a descriptor a walk is, which decides what the keys
+// below it name.
+type keyScope uint8
+
+const (
+	inStructure keyScope = iota // anything fixed-shape not named below
+	inDocument
+	inEntries // a capabilities list, at the root or in a group
+	inEntry
+	inGroup
+)
+
+// referenceKeys refuses a map key in v, at path in scope, that holds an arg
+// reference, unless the map is free-form (SPEC-v3 §6): expansion would turn
+// such a key into a field the published form never stated. Maps at the
+// paths in free are free-form, and each capability entry's config is
+// judged by its type (configReferenceKeys). Keys are judged as written,
+// structural ones included, so a reference cannot hide an entry, and
+// entries are found by where the walk is rather than by a rendered path.
+// Publication and create share it.
+func referenceKeys(v any, path keyPath, scope keyScope, free []keyPath) error {
+	switch v := v.(type) {
+	case map[string]any:
+		if slices.ContainsFunc(free, func(f keyPath) bool { return slices.Equal(f, path) }) {
 			return nil
 		}
-		out[name] = child
+		for _, key := range slices.Sorted(maps.Keys(v)) {
+			path := append(path, key)
+			if ContainsArgRef(key) {
+				return fieldErrorf(path.String(), "this key holds a reference, which may stand in a map key only in a free-form map, such as a credential file's structure")
+			}
+			var err error
+			switch {
+			case scope == inEntry && key == "config":
+				err = configReferenceKeys(v[key], path, v["type"])
+			case scope == inEntry && key == "group":
+				err = referenceKeys(v[key], path, inGroup, nil)
+			case (scope == inDocument || scope == inGroup) && key == "capabilities":
+				err = referenceKeys(v[key], path, inEntries, nil)
+			default:
+				err = referenceKeys(v[key], path, inStructure, free)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	case []any:
+		item := inStructure
+		if scope == inEntries {
+			item = inEntry
+		}
+		for i, child := range v {
+			if err := referenceKeys(child, append(path, i), item, free); err != nil {
+				return err
+			}
+		}
 	}
-	return out
+	return nil
+}
+
+// configReferenceKeys is referenceKeys over the config at path of an entry
+// of type typ. A type this grammar does not know has an opaque, free-form
+// config; a well-known one, or a type not yet literal, is fixed-shape
+// except for its freeFormConfigMaps. A type that takes no config is left
+// to the rule that says so.
+func configReferenceKeys(config any, path keyPath, typ any) error {
+	name, _ := typ.(string)
+	if _, known := configTypes[name]; !known && name != "" && !ContainsKitPlaceholder(name) {
+		return nil
+	}
+	var free []keyPath
+	for _, field := range freeFormConfigMaps[name] {
+		at := slices.Clone(path)
+		for _, segment := range strings.Split(field, ".") {
+			at = append(at, segment)
+		}
+		free = append(free, at)
+	}
+	return referenceKeys(config, path, inStructure, free)
 }
 
 // Volume sizes and octal modes are schema strings even when their values
