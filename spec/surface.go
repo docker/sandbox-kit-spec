@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -256,19 +257,22 @@ func entrySurface(entries []NetworkEntry) []string {
 }
 
 // capabilitySurfaceEntry renders one typed request for the surface: the type
-// alone when there is no config, the type plus a canonical config digest
-// when there is — equal configs compare equal, any change moves the
-// entry.
+// alone when there is no config, the type plus the full SHA-256 of the
+// canonical config when there is. Equal configs compare equal, and any
+// change moves the entry, because the gate reports a services widening
+// only when the entry is missing from the grant. A config that cannot be
+// encoded has no stable digest, so its entry is unique to each call and
+// always reports as widened.
 func capabilitySurfaceEntry(n Capability) string {
 	if len(n.Config) == 0 {
 		return n.Type
 	}
 	canonical, err := json.Marshal(n.Config)
 	if err != nil {
-		return n.Type + "+unencodable-config"
+		return n.Type + "+unencodable-config-" + rand.Text()
 	}
 	sum := sha256.Sum256(canonical)
-	return n.Type + "+" + hex.EncodeToString(sum[:6])
+	return n.Type + "+" + hex.EncodeToString(sum[:])
 }
 
 func normalized(in []string) []string {

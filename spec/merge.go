@@ -820,12 +820,9 @@ func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, e
 // capabilityIdentity is what makes two entries the same request for
 // merging: the type and the whole config, canonically encoded.
 //
-// Not capabilitySurfaceEntry, which shortens the config to six bytes
-// of hash. That is sound for a permission surface, where the value is
-// compared against another rendering of itself and displayed to a
-// human, but as an identity it means two unrelated requests can
-// collide and one be dropped — and an unknown type's config is
-// arbitrary, so nothing bounds what might collide.
+// Not capabilitySurfaceEntry, which renders the config as a digest for
+// display and for the gate. Merging keys on the encoding itself, so two
+// requests are the same only when their configs are.
 func capabilityIdentity(n Capability) string {
 	// An omitted config and one written as {} are the same request —
 	// they are the only two spellings a config-less type has — and
