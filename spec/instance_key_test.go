@@ -456,6 +456,23 @@ func TestArgReferencesOutsideConfigsReachEveryGate(t *testing.T) {
 		_, err = ValidateEffective(encoded, d)
 		require.ErrorContains(t, err, "still references kit args [x]")
 	})
+
+	// A caller-built config can hold a JSON number outside float64's range,
+	// which must not end the scan before a later capability's description.
+	t.Run("number outside float64's range", func(t *testing.T) {
+		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Version: "1.0.0", Author: "\x7f", Capabilities: []Capability{
+			{Type: "com.example/thing@1", Optional: true, Config: map[string]any{"n": json.RawMessage("1e1000")}},
+			{Type: "com.example/other@1", Optional: true, Description: "${{\tkit.args.x\t}}"},
+		}}
+		encoded, err := json.Marshal(d)
+		require.NoError(t, err)
+		_, err = Decode(encoded)
+		require.Error(t, err, "U+007F keeps the raw walk from reading the description")
+		_, err = ValidateRaw(encoded, d)
+		require.ErrorContains(t, err, undeclared)
+		_, err = ValidateEffective(encoded, d)
+		require.ErrorContains(t, err, "still references kit args [x]")
+	})
 }
 
 // What validation keys an authored entry on where a block cannot show it,

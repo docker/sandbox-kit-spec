@@ -3,7 +3,9 @@ package spec
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -163,24 +165,37 @@ func argReferences(raw []byte, d *Descriptor) (names []string, paths map[string]
 	if yaml.Unmarshal(raw, &root) == nil {
 		visit(&root, "")
 	}
-	// The whole descriptor reaches every capability string. A config that
-	// does not encode leaves the top-level fields readable, and
-	// capabilityArgRefs still reads each config that does.
-	encoded, err := json.Marshal(d)
-	if err != nil {
-		top := *d
-		top.Capabilities = nil
-		encoded, err = json.Marshal(&top)
-	}
-	if err == nil {
+	// The whole descriptor reaches every capability string. Numbers stay
+	// text, since a caller-built config may hold one outside float64's
+	// range. A descriptor whose JSON does not encode or decode is refused
+	// by Validate, which every caller runs, so the scan then still reads
+	// the top-level fields, and capabilityArgRefs each config it can.
+	scan := func(v any) error {
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
 		tokens := json.NewDecoder(bytes.NewReader(encoded))
-		for token, err := tokens.Token(); err == nil; token, err = tokens.Token() {
+		tokens.UseNumber()
+		for {
+			token, err := tokens.Token()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 			if s, ok := token.(string); ok {
 				for _, name := range ReferencedArgs([]byte(s)) {
 					add(name)
 				}
 			}
 		}
+	}
+	if scan(d) != nil {
+		top := *d
+		top.Capabilities = nil
+		_ = scan(&top) // Typed fields only, which always encode and decode.
 	}
 	for _, name := range capabilityArgRefs(d.Capabilities) {
 		add(name)
