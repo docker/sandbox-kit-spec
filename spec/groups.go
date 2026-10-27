@@ -522,22 +522,23 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 // arrive, is asked for as surely as an ungrouped entry. An optional group
 // may be declined in favor of another the same kit offers for the same
 // key, so its members wait for selection, as agent-context bodies wait
-// for staging. A request holding a reference
-// waits for create, except that a credential or host mount has one owner
-// whatever its config, so a literal key alone refuses a second asker.
+// for staging. A request holding a reference waits for create, except
+// what its literal keys already settle: a credential or host mount has one
+// owner whatever its config, so each literal key, a credential's per
+// phase, refuses a second asker, and a volume's literal path is a
+// destination a host mount owns alone, whatever the volume's settings.
 func refuseConcreteConflicts(contributions []Contribution) error {
+	type claim struct {
+		key       InstanceKey
+		reference string
+	}
+	var hostMounts, volumes []claim
 	concrete := make([]Contribution, len(contributions))
 	for i, c := range contributions {
 		d := &Descriptor{SchemaVersion: c.Descriptor.SchemaVersion, Kind: c.Descriptor.Kind}
 		check := func(item Capability, source CapabilitySource) {
-			if item.Type == CapabilityAgentContext || item.Type == CapabilityAgentContextV2 || keyHoldsReference(item) {
+			if item.Type == CapabilityAgentContext || item.Type == CapabilityAgentContextV2 {
 				return
-			}
-			if capabilityIsParameterized(item) {
-				if item.Type != CapabilityCredential && item.Type != CapabilityHostMount {
-					return
-				}
-				item.Config = keyFieldsOf(item)
 			}
 			if item.Source != nil {
 				source = *item.Source
@@ -546,7 +547,28 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 				}
 			}
 			item.Source = &source
-			d.Capabilities = append(d.Capabilities, item)
+			reference := fmt.Sprintf("%s (%s %s)", c.Reference, source.Kit, source.Path)
+			parameterized := capabilityIsParameterized(item)
+			switch {
+			case !parameterized:
+				d.Capabilities = append(d.Capabilities, item)
+			case item.Type == CapabilityCredential || item.Type == CapabilityHostMount:
+				for _, config := range literalKeyConfigs(item) {
+					standIn := item
+					standIn.Config = config
+					d.Capabilities = append(d.Capabilities, standIn)
+				}
+			case item.Type == CapabilityVolume:
+				for _, key := range literalInstanceKeys(item) {
+					volumes = append(volumes, claim{key, reference})
+				}
+				return
+			}
+			if item.Type == CapabilityHostMount {
+				for _, key := range literalInstanceKeys(item) {
+					hostMounts = append(hostMounts, claim{key, reference})
+				}
+			}
 		}
 		for j, item := range c.Descriptor.Capabilities {
 			source := CapabilitySource{Kit: c.Reference, Path: fmt.Sprintf("capabilities[%d]", j)}
@@ -566,8 +588,17 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 		}
 		concrete[i] = Contribution{Reference: c.Reference, Descriptor: d}
 	}
-	_, _, err := mergeCapabilities(concrete)
-	return err
+	if _, _, err := mergeCapabilities(concrete); err != nil {
+		return err
+	}
+	for _, volume := range volumes {
+		for _, mount := range hostMounts {
+			if volume.key.identity() == mount.key.identity() {
+				return fmt.Errorf("merge: %s and %s both declare storage at the same path; a host mount has one owner", mount.reference, volume.reference)
+			}
+		}
+	}
+	return nil
 }
 
 // preserveGroups preserves selection boundaries and unresolved declarations.

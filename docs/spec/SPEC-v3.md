@@ -1024,11 +1024,12 @@ concrete storage, which it still reconciles, and stages agent-context@1
 bodies separately, as for conditional declarations. The rows above then
 describe composition at create rather than the published descriptor.
 Publication still refuses what they refuse between requests that are
-already concrete, whether ungrouped or in a required group, and a second
-owner of a credential or host mount whose key is already literal, so an
-unrelated deferred request cannot carry such a conflict to create. An
-optional group waits for selection, which may decline it in favor of an
-alternative its Kit offers.
+already concrete, whether ungrouped or in a required group. It also
+refuses a second owner of a credential phase or a host-mount path that
+is already literal, a volume at that path included, whatever the rest of
+either request still holds. So an unrelated deferred request cannot
+carry such a conflict to create. An optional group waits for selection,
+which may decline it in favor of an alternative its Kit offers.
 
 A merged descriptor **MUST** be identical across every platform a <!-- tck: SPEC-v3 §9.5/declarations-platform-independent -->
 multi-platform set builds for: the annotation is written once per

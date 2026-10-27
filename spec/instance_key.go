@@ -213,6 +213,17 @@ func keyOn[T any](fields []string, key func(T) ([]string, error)) keyDefinition 
 // naming several phases gives one key per literal phase, as composition
 // splits it.
 func literalInstanceKeys(n Capability) []InstanceKey {
+	var keys []InstanceKey
+	for _, config := range literalKeyConfigs(n) {
+		key, _, _ := InstanceKeyOf(Capability{Type: n.Type, Config: config})
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// literalKeyConfigs projects an authored entry onto the fields its key
+// reads, one config per literal key literalInstanceKeys gives it.
+func literalKeyConfigs(n Capability) []map[string]any {
 	definition, keyed := instanceKeys[n.Type]
 	if !keyed || n.Group != nil {
 		return nil
@@ -241,13 +252,10 @@ func literalInstanceKeys(n Capability) []InstanceKey {
 			configs = append(configs, one)
 		}
 	}
-	var keys []InstanceKey
-	for _, config := range configs {
-		if key, _, err := InstanceKeyOf(Capability{Type: n.Type, Config: config}); err == nil {
-			keys = append(keys, key)
-		}
-	}
-	return keys
+	return slices.DeleteFunc(configs, func(config map[string]any) bool {
+		_, _, err := InstanceKeyOf(Capability{Type: n.Type, Config: config})
+		return err != nil
+	})
 }
 
 // keyHoldsReference reports whether a field an instance-shaped entry's key

@@ -303,6 +303,11 @@ func TestDeferredPublicationRefusesConcreteConflicts(t *testing.T) {
 	referencedToken := Capability{Type: CapabilityCredential, Config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "${{ kit.args.token }}"}}}
 	hostMount := Capability{Type: CapabilityHostMount, Config: map[string]any{"path": "/cache", "mode": "${{ kit.args.mode }}"}}
 	volume := Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache/"}}
+	sizedVolume := Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache/./", "size": "${{ kit.args.size }}"}}
+	phase := func(phase any) Capability {
+		return Capability{Type: CapabilityCredential, Config: map[string]any{"service": "github", "phase": phase, "apiKey": map[string]any{"name": "TOKEN"}}}
+	}
+	phasedToken := phase([]any{"install", "${{ kit.args.phase }}"})
 	group := func(optional bool, members ...Capability) Capability {
 		return Capability{Group: &CapabilityGroup{Optional: optional, Capabilities: members}}
 	}
@@ -314,6 +319,10 @@ func TestDeferredPublicationRefusesConcreteConflicts(t *testing.T) {
 		{"credential twins", credential, credential, "one credential has one owner"},
 		{"credential twin with a reference beside its key", referencedToken, credential, "one credential has one owner"},
 		{"host mount with a reference beside its path", hostMount, volume, "a host mount has one owner"},
+		{"credential's literal phase beside a referenced one", phasedToken, phase("install"), "one credential has one owner"},
+		{"credential's referenced phase", phasedToken, credential, ""},
+		{"volume with a reference beside a host mount", sizedVolume, Capability{Type: CapabilityHostMount, Config: map[string]any{"path": "/cache"}}, "a host mount has one owner"},
+		{"volume with a reference beside a volume", sizedVolume, Capability{Type: CapabilityVolume, Config: map[string]any{"path": "/cache", "size": "1g"}}, ""},
 		{"credential in a required group", group(false, credential, port), credential, "one credential has one owner"},
 		{"credential alone in an optional group", group(true, credential), credential, ""},
 		{"credential in an optional group", group(true, credential, port), credential, ""},
@@ -342,7 +351,9 @@ func TestDeferredPublicationRefusesConcreteConflicts(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, result.Descriptor.Capabilities, 3)
 			for _, c := range result.Descriptor.Capabilities {
-				require.NotNil(t, c.Group, "each request stays its own contribution")
+				if c.Group == nil {
+					require.Contains(t, []string{CapabilityVolume, CapabilityHostMount}, c.Type, "only concrete storage reconciles at publication")
+				}
 			}
 			if tc.first.Type == CapabilityAgentContext {
 				require.Len(t, result.ContextSources, 2)
