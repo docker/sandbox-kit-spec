@@ -594,7 +594,7 @@ func TestCapabilitySchemasAgreeOnCaseVariants(t *testing.T) {
 			bearing = append(bearing, typ)
 		}
 	}
-	require.ElementsMatch(t, bearing, slices.Collect(maps.Keys(configTargets)))
+	require.ElementsMatch(t, bearing, slices.Collect(maps.Keys(configTypes)))
 	for _, typ := range bearing {
 		t.Run(typ, func(t *testing.T) {
 			// Seeded by type, so a failure reproduces in a run of that
@@ -605,7 +605,7 @@ func TestCapabilitySchemasAgreeOnCaseVariants(t *testing.T) {
 			rng := rand.New(rand.NewPCG(seed.Sum64(), 0))
 			schema := loadJSON(t, perTypeSchemaPath(typ))
 			c := caseVariantCheck{t: t, typ: typ, root: schema, rng: rng}
-			c.object(schema, reflect.TypeOf(configTargets[typ]()).Elem(), "", func(obj map[string]any) map[string]any { return obj })
+			c.object(schema, configTypes[typ], "", func(obj map[string]any) map[string]any { return obj })
 		})
 	}
 }
@@ -631,7 +631,7 @@ func (c caseVariantCheck) object(node map[string]any, typ reflect.Type, path str
 	require.NotContains(c.t, schema, "patternProperties", "%s: a pattern would admit keys by shape", where)
 
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
-		err := DecodeCapabilityConfig(Capability{Type: c.typ, Config: place(map[string]any{name: nil})}, configTargets[c.typ]())
+		err := DecodeCapabilityConfig(Capability{Type: c.typ, Config: place(map[string]any{name: nil})}, newConfig(c.typ))
 		if err != nil {
 			require.NotContains(c.t, err.Error(), "unknown field", "%s: %q is a field", c.typ, configPath(path, name))
 		}
@@ -639,7 +639,7 @@ func (c caseVariantCheck) object(node map[string]any, typ reflect.Type, path str
 			if _, property := props[variant]; property {
 				continue // Another field's exact name, so a field to both.
 			}
-			err := DecodeCapabilityConfig(Capability{Type: c.typ, Config: place(map[string]any{variant: nil})}, configTargets[c.typ]())
+			err := DecodeCapabilityConfig(Capability{Type: c.typ, Config: place(map[string]any{variant: nil})}, newConfig(c.typ))
 			require.ErrorContains(c.t, err, fmt.Sprintf("unknown field %q", configPath(path, variant)),
 				"%s: the schema refuses %q, so the decoder must", c.typ, configPath(path, variant))
 		}

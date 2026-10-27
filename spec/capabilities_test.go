@@ -1,37 +1,21 @@
 package spec
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// configTargets is the struct each config-bearing well-known type decodes
-// into. TestCapabilitySchemasAgreeOnCaseVariants requires it to cover every
-// such type, so a new one cannot skip the agreement check.
-var configTargets = map[string]func() any{
-	CapabilityNetworkPolicy:            func() any { return new(PhasedNetwork) },
-	CapabilityNetworkPolicyV2:          func() any { return new(PhasedNetworkV2) },
-	CapabilityCredential:               func() any { return new(Credential) },
-	CapabilitySSHAgent:                 func() any { return new(SSHAgent) },
-	CapabilityVolume:                   func() any { return new(Volume) },
-	CapabilityHostMount:                func() any { return new(HostMount) },
-	CapabilityPort:                     func() any { return new(Port) },
-	CapabilityAgentSkills:              func() any { return new(AgentSkills) },
-	CapabilityAgentSkill:               func() any { return new(AgentSkill) },
-	CapabilityUSBDevice:                func() any { return new(USBDevice) },
-	CapabilityResources:                func() any { return new(Resources) },
-	CapabilityLifecycle:                func() any { return new(Lifecycle) },
-	CapabilityAgentContext:             func() any { return new(AgentContext) },
-	CapabilityAgentContextV2:           func() any { return new(AgentContextV2) },
-	CapabilityACP:                      func() any { return new(ACP) },
-	CapabilityAgentSessions:            func() any { return new(AgentSessions) },
-	CapabilityAgentInteractiveSessions: func() any { return new(AgentInteractiveSessions) },
-}
+// newConfig returns a pointer to a new config struct of a config-bearing
+// well-known type, the target DecodeCapabilityConfig fills.
+func newConfig(typ string) any { return reflect.New(configTypes[typ]).Interface() }
 
 // TestCapabilitySchemasAgreeOnCaseVariants tries every field of every type;
 // these cases pin the messages and the shapes it does not reach.
@@ -66,7 +50,7 @@ func TestDecodeCapabilityConfigExactFieldNames(t *testing.T) {
 		{"credential file structure", CapabilityCredential, credential(map[string]any{"oauth": map[string]any{"credentialFile": map[string]any{"path": "/t", "structure": map[string]any{"Path": "{{.AccessToken}}", "nested": map[string]any{"Token": "x"}}}}}), ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := DecodeCapabilityConfig(Capability{Type: tt.typ, Config: tt.config}, configTargets[tt.typ]())
+			err := DecodeCapabilityConfig(Capability{Type: tt.typ, Config: tt.config}, newConfig(tt.typ))
 			if tt.want == "" {
 				require.NoError(t, err)
 				return
@@ -144,4 +128,199 @@ func TestValidateRefusesCaseVariantConfigKeys(t *testing.T) {
 			require.Contains(t, Positions(raw), fieldErr.Path)
 		})
 	}
+}
+
+// requireKeyRefused requires err to hold exactly one field error naming
+// want, attributed to path, which Positions finds in raw. Other checks
+// may refuse the entry too, so it looks for the refusal of the key.
+func requireKeyRefused(t *testing.T, raw []byte, err error, want, path string) {
+	t.Helper()
+	require.ErrorContains(t, err, want)
+	var all ValidationErrors
+	require.ErrorAs(t, err, &all)
+	var refused []*FieldError
+	for _, e := range all {
+		if fieldErr, ok := errors.AsType[*FieldError](e); ok && strings.Contains(fieldErr.Error(), want) {
+			refused = append(refused, fieldErr)
+		}
+	}
+	require.Len(t, refused, 1, "one field error names %s", want)
+	require.Equal(t, path, refused[0].Path)
+	require.Contains(t, Positions(raw), path)
+}
+
+// A parameterized entry's unknown key is refused at publication, as it is
+// at create; only a key that itself holds a reference waits for create,
+// which expands keys (SPEC-v3 §6). Each config-bearing type renames one
+// key of an entry that is otherwise valid and holds a reference elsewhere.
+func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
+	const ref, refKey = "${{ kit.args.s }}", "${{ kit.args.k }}"
+	types := []struct {
+		typ string
+		// s is the default of the arg config references.
+		s      string
+		config map[string]any
+		// field is the key renamed: to a case variant, a typo, or a key
+		// holding a reference to arg k. No presence rule reads it by
+		// name; those rules still refuse a reference standing for acp@1
+		// agent, credential@1 phase, or agent-skill@1 path as missing.
+		field string
+		// decodedInFull marks types whose parameterized entries were
+		// already decoded in full, so a key holding a reference is
+		// refused at publication rather than deferred.
+		decodedInFull bool
+	}{
+		{typ: CapabilityNetworkPolicy, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{ref + ".example.com"}}}, field: "runtime"},
+		{typ: CapabilityNetworkPolicyV2, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{map[string]any{"hosts": []any{ref + ".example.com"}, "methods": []any{"GET"}}}}}, field: "runtime"},
+		{typ: CapabilityCredential, s: "GH_TOKEN", config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": ref}}, field: "service"},
+		{typ: CapabilitySSHAgent, s: "git", config: map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{ref}}, field: "sign", decodedInFull: true},
+		{typ: CapabilityVolume, s: "1G", config: map[string]any{"path": "/data", "size": ref}, field: "path"},
+		{typ: CapabilityHostMount, s: "0755", config: map[string]any{"path": "/data", "mode": ref}, field: "path"},
+		{typ: CapabilityPort, s: "8080", config: map[string]any{"container": ref, "transport": "tcp"}, field: "transport"},
+		{typ: CapabilityAgentSkills, s: "claude", config: map[string]any{"path": "/home/agent/." + ref + "/skills", "mode": SkillsReadOnly}, field: "mode"},
+		{typ: CapabilityAgentSkill, s: "review", config: map[string]any{"path": "/skills/review", "name": ref}, field: "name"},
+		{typ: CapabilityUSBDevice, s: "1d6b", config: map[string]any{"vendorId": ref, "productId": "0002"}, field: "productId"},
+		{typ: CapabilityResources, s: "2", config: map[string]any{"cpu": ref, "memory": "1G"}, field: "memory"},
+		{typ: CapabilityLifecycle, s: "ready", config: map[string]any{"startup": []any{map[string]any{"command": "echo " + ref}}}, field: "startup"},
+		{typ: CapabilityAgentContext, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content"},
+		{typ: CapabilityAgentContextV2, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content", decodedInFull: true},
+		{typ: CapabilityACP, s: "debug", config: map[string]any{"agent": "claude", "command": []any{"claude-acp"}, "env": map[string]any{"LOG": ref}}, field: "env"},
+		{typ: CapabilityAgentSessions, s: "opus", config: map[string]any{"prompt": []any{"--model", ref, "-p", SessionPromptPlaceholder}}, field: "prompt"},
+		{typ: CapabilityAgentInteractiveSessions, s: "opus", config: map[string]any{"newSession": []any{"--model", ref}}, field: "newSession"},
+	}
+	var covered []string
+	for _, tt := range types {
+		covered = append(covered, tt.typ)
+	}
+	require.ElementsMatch(t, slices.Collect(maps.Keys(configTypes)), covered, "every config-bearing type")
+
+	for _, tt := range types {
+		variant := strings.ToUpper(tt.field[:1]) + tt.field[1:]
+		typo := tt.field + tt.field[len(tt.field)-1:]
+		// kit renders a workload holding the entry with field renamed
+		// to key, and arg k defaulting to k.
+		kit := func(key, k string) []byte {
+			config := maps.Clone(tt.config)
+			config[key] = config[tt.field]
+			if key != tt.field {
+				delete(config, tt.field)
+			}
+			return parameterizedKit(t, tt.typ, config, tt.s, k)
+		}
+		at := func(key string) string { return "capabilities[0].config." + key }
+		t.Run(tt.typ, func(t *testing.T) {
+			t.Run("exact", func(t *testing.T) {
+				raw := kit(tt.field, tt.field)
+				require.NoError(t, validatePublished(t, raw))
+				_, err := validateCreated(t, raw)
+				require.NoError(t, err)
+			})
+			t.Run("case variant", func(t *testing.T) {
+				raw := kit(variant, tt.field)
+				want := fmt.Sprintf("capabilities[0]: capability %s: unknown field %q: config field names are case-sensitive; did you mean %q?", tt.typ, variant, tt.field)
+				requireKeyRefused(t, raw, validatePublished(t, raw), want, at(variant))
+			})
+			t.Run("typo", func(t *testing.T) {
+				raw := kit(typo, tt.field)
+				err := validatePublished(t, raw)
+				requireKeyRefused(t, raw, err, fmt.Sprintf("capability %s: unknown field %q", tt.typ, typo), at(typo))
+				require.NotContains(t, err.Error(), "did you mean")
+			})
+			t.Run("key holding a reference", func(t *testing.T) {
+				raw := kit(refKey, tt.field)
+				if tt.decodedInFull {
+					requireKeyRefused(t, raw, validatePublished(t, raw), fmt.Sprintf("unknown field %q", refKey), at(refKey))
+				} else {
+					require.NoError(t, validatePublished(t, raw), "the key names its field once expanded")
+				}
+				_, err := validateCreated(t, raw)
+				require.NoError(t, err, "k expands to %q", tt.field)
+			})
+			t.Run("key holding a reference to a case variant", func(t *testing.T) {
+				raw := kit(refKey, variant)
+				if !tt.decodedInFull {
+					require.NoError(t, validatePublished(t, raw), "the key names its field once expanded")
+				}
+				created, err := validateCreated(t, raw)
+				requireKeyRefused(t, created, err, fmt.Sprintf("unknown field %q", variant), at(variant))
+			})
+		})
+	}
+}
+
+// An unknown key beside a reference is refused wherever it sits: nested,
+// in a list, in a group member, or beside an entry its exact spelling
+// would duplicate.
+func TestValidatePublishedRefusesUnknownKeysBesideReferences(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		needs string
+		// want is the refusal and path the field it names; empty when the
+		// descriptor validates.
+		want string
+		path string
+	}{
+		{"volume", `{type: com.docker.sandbox/volume@1, config: {Path: /data, size: "${{ kit.args.s }}"}}`, `unknown field "Path": config field names are case-sensitive; did you mean "path"?`, "capabilities[0].config.Path"},
+		{"credential beside its exact spelling", `{type: com.docker.sandbox/credential@1, config: {service: github, phase: runtime, apiKey: {name: GH_TOKEN}}}, {type: com.docker.sandbox/credential@1, config: {Service: github, phase: runtime, apiKey: {name: "${{ kit.args.s }}"}}}`, `capabilities[1]: capability com.docker.sandbox/credential@1: unknown field "Service"`, "capabilities[1].config.Service"},
+		{"credential nested typo", `{type: com.docker.sandbox/credential@1, config: {service: github, phase: runtime, apiKey: {name: "${{ kit.args.s }}", injet: [{domain: api.github.com}]}}}`, `unknown field "apiKey.injet"`, "capabilities[0].config.apiKey.injet"},
+		{"network-policy@2 entry", `{type: com.docker.sandbox/network-policy@2, config: {runtime: {allow: [{hosts: ["${{ kit.args.s }}.example.com"], Methods: [GET]}]}}}`, `unknown field "runtime.allow[0].Methods": config field names are case-sensitive; did you mean "runtime.allow[0].methods"?`, "capabilities[0].config.runtime.allow[0].Methods"},
+		{"group member", `{group: {name: storage, capabilities: [{type: com.docker.sandbox/volume@1, config: {Path: /data, size: "${{ kit.args.s }}"}}]}}`, `capabilities[0].group.capabilities[0]: capability com.docker.sandbox/volume@1: unknown field "Path"`, "capabilities[0].group.capabilities[0].config.Path"},
+		// Only a well-formed reference expands, so a key that merely
+		// looks like one is a key.
+		{"malformed reference in a key", `{type: com.docker.sandbox/volume@1, config: {path: /data, size: "${{ kit.args.s }}", "${{ kit.args. }}": x}}`, `unknown field "${{ kit.args. }}"`, "capabilities[0].config.${{ kit.args. }}"},
+		{"nested key holding a reference", `{type: com.docker.sandbox/network-policy@2, config: {runtime: {allow: [{hosts: [api.example.com], "${{ kit.args.k }}": [GET]}]}}}`, "", ""},
+		// Create never expands an environment reference in a key, which
+		// is refused on its own rather than as an unknown field too.
+		{"environment reference in a key", `{type: com.docker.sandbox/volume@1, config: {path: /data, size: "${{ kit.env.SIZE }}", "${{ kit.env.KEY }}": x}}`, "environment references are not allowed in mapping keys", "capabilities[0].config"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := []byte("schemaVersion: \"3\"\nkind: workload\nargs:\n  s: {default: GH_TOKEN}\n  k: {default: methods}\ncapabilities: [" + tt.needs + "]\n")
+			err := validatePublished(t, raw)
+			if tt.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			requireKeyRefused(t, raw, err, tt.want, tt.path)
+			if !strings.Contains(tt.want, "unknown field") {
+				require.NotContains(t, err.Error(), "unknown field")
+			}
+		})
+	}
+}
+
+// parameterizedKit renders a workload whose one entry is typ with config,
+// declaring create-phase args s and k with those defaults.
+func parameterizedKit(t *testing.T, typ string, config map[string]any, s, k string) []byte {
+	t.Helper()
+	body, err := json.Marshal(config)
+	require.NoError(t, err)
+	sDefault, err := json.Marshal(s)
+	require.NoError(t, err)
+	kDefault, err := json.Marshal(k)
+	require.NoError(t, err)
+	return fmt.Appendf(nil, "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\nargs:\n  s: {default: %s}\n  k: {default: %s}\ncapabilities:\n  - type: %s\n    config: %s\n", sDefault, kDefault, typ, body)
+}
+
+func validatePublished(t *testing.T, raw []byte) error {
+	t.Helper()
+	d, err := Decode(raw)
+	require.NoError(t, err)
+	_, err = ValidatePublished(raw, d)
+	return err
+}
+
+// validateCreated expands raw's create-phase args to their defaults and
+// validates the effective descriptor, which it returns.
+func validateCreated(t *testing.T, raw []byte) ([]byte, error) {
+	t.Helper()
+	d, err := Decode(raw)
+	require.NoError(t, err)
+	values, err := ResolveArgs(d.Args, nil)
+	require.NoError(t, err)
+	effective, err := ExpandCreateArgs(raw, d.Args, values)
+	require.NoError(t, err)
+	de, err := Decode(effective)
+	require.NoError(t, err)
+	_, err = ValidateEffective(effective, de)
+	return effective, err
 }

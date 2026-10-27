@@ -459,8 +459,9 @@ args:
   `1024` or an octal mode of `755`. Numeric and boolean config fields
   still adopt their corresponding scalar types.
 - **Parameterized entries validate twice.** At build and load, a
-  capability entry whose config references an arg passes leniently — type
-  grammar and arity hold, typed config checks defer. At create, after
+  capability entry whose config references an arg passes leniently: type
+  grammar, arity, and its config field names hold, except a name holding
+  a reference, while typed config checks defer. At create, after
   expansion resolves every placeholder, the effective descriptor is
   validated strictly; nothing malformed reaches enforcement. The declared
   `enum`/`pattern` constraints ride in the signed descriptor, so the

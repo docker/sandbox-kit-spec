@@ -26,19 +26,9 @@ import (
 // exact walk `Path` would decode as volume@1's path, while the validation
 // checks that read raw keys by exact name would see no path at all.
 func DecodeCapabilityConfig(n Capability, out any) error {
-	data, err := json.Marshal(n.Config)
+	data, err := checkConfigFields(n, reflect.TypeOf(out), false)
 	if err != nil {
-		return fmt.Errorf("capability %s: encode config: %w", n.Type, err)
-	}
-	// Walk the JSON form rather than n.Config: a synthesized config can
-	// hold typed Go values ([]string, structs), which the walk would not
-	// recognize as the lists and objects they encode to.
-	var raw any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("capability %s: %w", n.Type, err)
-	}
-	if err := exactConfigFields(raw, reflect.TypeOf(out), ""); err != nil {
-		return fmt.Errorf("capability %s: %w", n.Type, err)
+		return err
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -48,13 +38,75 @@ func DecodeCapabilityConfig(n Capability, out any) error {
 	return nil
 }
 
+// configTypes is the struct each config-bearing well-known type decodes
+// into. TestCapabilitySchemasAgreeOnCaseVariants requires it to cover
+// every such type, so a new one cannot skip that check or
+// parameterizedConfigFields.
+var configTypes = map[string]reflect.Type{
+	CapabilityNetworkPolicy:            reflect.TypeFor[PhasedNetwork](),
+	CapabilityNetworkPolicyV2:          reflect.TypeFor[PhasedNetworkV2](),
+	CapabilityCredential:               reflect.TypeFor[Credential](),
+	CapabilitySSHAgent:                 reflect.TypeFor[SSHAgent](),
+	CapabilityVolume:                   reflect.TypeFor[Volume](),
+	CapabilityHostMount:                reflect.TypeFor[HostMount](),
+	CapabilityPort:                     reflect.TypeFor[Port](),
+	CapabilityAgentSkills:              reflect.TypeFor[AgentSkills](),
+	CapabilityAgentSkill:               reflect.TypeFor[AgentSkill](),
+	CapabilityUSBDevice:                reflect.TypeFor[USBDevice](),
+	CapabilityResources:                reflect.TypeFor[Resources](),
+	CapabilityLifecycle:                reflect.TypeFor[Lifecycle](),
+	CapabilityAgentContext:             reflect.TypeFor[AgentContext](),
+	CapabilityAgentContextV2:           reflect.TypeFor[AgentContextV2](),
+	CapabilityACP:                      reflect.TypeFor[ACP](),
+	CapabilityAgentSessions:            reflect.TypeFor[AgentSessions](),
+	CapabilityAgentInteractiveSessions: reflect.TypeFor[AgentInteractiveSessions](),
+}
+
+// parameterizedConfigFields refuses a key of a parameterized entry that
+// names no field of its type, before expansion lets the entry decode. No
+// value changes which field a key names, so create would refuse it
+// whatever the args are, and until then the checks that read raw keys by
+// exact name would not see it. A key that itself holds a reference waits:
+// create expands map keys (SPEC-v3 §6). An unknown type's config is
+// opaque and is not walked.
+func parameterizedConfigFields(n Capability) error {
+	t, known := configTypes[n.Type]
+	if !known {
+		return nil
+	}
+	_, err := checkConfigFields(n, t, true)
+	return err
+}
+
+// checkConfigFields encodes n's config and walks it against t, returning
+// the encoding for the decoder. The walk reads the JSON form rather than
+// n.Config: a synthesized config can hold typed Go values ([]string,
+// structs), which it would not recognize as the lists and objects they
+// encode to.
+func checkConfigFields(n Capability, t reflect.Type, deferReferences bool) ([]byte, error) {
+	data, err := json.Marshal(n.Config)
+	if err != nil {
+		return nil, fmt.Errorf("capability %s: encode config: %w", n.Type, err)
+	}
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("capability %s: %w", n.Type, err)
+	}
+	if err := exactConfigFields(raw, t, "", deferReferences); err != nil {
+		return nil, fmt.Errorf("capability %s: %w", n.Type, err)
+	}
+	return data, nil
+}
+
 // exactConfigFields refuses an object key, at any depth, that is not
 // exactly the JSON name of a field of the struct it decodes into. Map
 // keys are data, so only map values are walked, and a value of the wrong
 // shape is left for the decoder to report. Walking by shape also holds
 // for NetworkEntry, whose UnmarshalJSON decodes an object into its own
-// fields.
-func exactConfigFields(v any, t reflect.Type, at string) error {
+// fields. deferReferences skips a field key holding an arg or env
+// reference, and its value: expansion decides which field an arg
+// reference names, and an env reference in a key is refused on its own.
+func exactConfigFields(v any, t reflect.Type, at string, deferReferences bool) error {
 	if t == nil {
 		return nil // A nil target is the decoder's to refuse.
 	}
@@ -72,11 +124,14 @@ func exactConfigFields(v any, t reflect.Type, at string) error {
 			return err
 		}
 		for _, key := range slices.Sorted(maps.Keys(obj)) {
+			if deferReferences && (ContainsArgRef(key) || ContainsEnvRef(key)) {
+				continue
+			}
 			field, known := fields[key]
 			if !known {
 				return unknownConfigField(at, key, fields)
 			}
-			if err := exactConfigFields(obj[key], field, configPath(at, key)); err != nil {
+			if err := exactConfigFields(obj[key], field, configPath(at, key), deferReferences); err != nil {
 				return err
 			}
 		}
@@ -86,7 +141,7 @@ func exactConfigFields(v any, t reflect.Type, at string) error {
 			return nil
 		}
 		for _, key := range slices.Sorted(maps.Keys(obj)) {
-			if err := exactConfigFields(obj[key], t.Elem(), configPath(at, key)); err != nil {
+			if err := exactConfigFields(obj[key], t.Elem(), configPath(at, key), deferReferences); err != nil {
 				return err
 			}
 		}
@@ -96,7 +151,7 @@ func exactConfigFields(v any, t reflect.Type, at string) error {
 			return nil
 		}
 		for i, item := range list {
-			if err := exactConfigFields(item, t.Elem(), fmt.Sprintf("%s[%d]", at, i)); err != nil {
+			if err := exactConfigFields(item, t.Elem(), fmt.Sprintf("%s[%d]", at, i), deferReferences); err != nil {
 				return err
 			}
 		}
