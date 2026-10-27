@@ -50,9 +50,48 @@ func TestAgentSkillValidation(t *testing.T) {
 		_, err = Validate(d)
 		require.NoError(t, err, "an override permits a differently named source")
 	}
-	d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{skillEntry("/a/review", ""), skillEntry("/b/source", "review")}}
-	_, err := Validate(d)
-	require.ErrorContains(t, err, "already declared")
+}
+
+// A skill's key is settled by its literal key fields alone, so a reference
+// or an error elsewhere in an entry does not put the repeat off until
+// expansion, when a merge may already have folded the two.
+func TestAgentSkillRepeats(t *testing.T) {
+	const (
+		repeatedSkill  = `capabilities[1].config: com.docker.sandbox/agent-skill@1 "review" already declared at capabilities[0]`
+		repeatedSkills = `capabilities[1]: skills for "/home/agent/.claude/skills" already declared at capabilities[0]`
+	)
+	skill := func(config map[string]any) Capability { return Capability{Type: CapabilityAgentSkill, Config: config} }
+	mount := func(config map[string]any) Capability { return Capability{Type: CapabilityAgentSkills, Config: config} }
+	review := skillEntry("/a/review", "")
+	claude := mount(map[string]any{"path": "/home/agent/.claude/skills"})
+	for _, tc := range []struct {
+		name    string
+		entries []Capability
+		err     string
+	}{
+		{"skill named for another's source", []Capability{review, skillEntry("/b/source", "review")}, repeatedSkill},
+		{"skill beside an unknown field", []Capability{review, skill(map[string]any{"path": "/b/review", "typo": true})}, repeatedSkill},
+		{"skill beside an unknown field holding a reference", []Capability{review, skill(map[string]any{"path": "/b/review", "typo": "${{ kit.args.name }}"})}, repeatedSkill},
+		{"skill with a null name", []Capability{review, skill(map[string]any{"path": "/b/review", "name": nil})}, repeatedSkill},
+		{"skill name reference", []Capability{review, skillEntry("/a/review", "${{ kit.args.name }}")}, ""},
+		{"skill source reference", []Capability{review, skillEntry("/a/${{ kit.env.SKILL }}", "")}, ""},
+		{"skills with two modes", []Capability{claude, mount(map[string]any{"path": "/home/agent/.claude/skills", "mode": SkillsReadWrite})}, repeatedSkills},
+		{"skills beside a mode reference", []Capability{claude, mount(map[string]any{"path": "/home/agent/.claude/skills", "mode": "${{ kit.args.mode }}"})}, repeatedSkills},
+		{"skills beside an unknown field", []Capability{claude, mount(map[string]any{"path": "/home/agent/.claude/skills", "typo": true})}, repeatedSkills},
+		{"skills path reference", []Capability{claude, mount(map[string]any{"path": "/home/agent/${{ kit.args.agent }}/skills"})}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
+				Args:         map[string]Arg{"name": {}, "mode": {}, "agent": {}},
+				Capabilities: tc.entries}
+			_, err := Validate(d)
+			if tc.err == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.err)
+		})
+	}
 }
 
 func TestAgentSkillComposition(t *testing.T) {
