@@ -25,6 +25,16 @@ func canonicalAbsPath(p string) bool {
 	return strings.HasPrefix(p, "/") && p == containerpath.Clean(p)
 }
 
+// volumePath reports whether p is a destination volume@1 accepts:
+// absolute and without NUL. Lexical aliases stay valid because
+// composition compares volumes after cleaning, but cleaning keeps a NUL,
+// and no path a runtime can mount contains one. Accepting it let
+// /data/cache\x00 pass as a destination distinct from a host mount at
+// /data/cache and fail only at mount time.
+func volumePath(p string) bool {
+	return strings.HasPrefix(p, "/") && !strings.ContainsRune(p, '\x00')
+}
+
 // Size limits for the published descriptor. OCI puts no limit on annotation
 // values, but the manifest as a whole meets practical registry ceilings
 // around 4 MB; the grammar exiles everything bulky, so a rich descriptor
@@ -803,8 +813,8 @@ func validateCapabilityBlock(d *Descriptor) error {
 				errs.add(fieldErrorf(path+".config", "capabilities[%d]: %v", i, err))
 				continue
 			}
-			if !strings.HasPrefix(v.Path, "/") {
-				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q must be absolute", i, v.Path))
+			if !volumePath(v.Path) {
+				errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: volume path %q must be absolute, without NUL", i, v.Path))
 			}
 			if v.Size != "" && !sizeBytes.MatchString(v.Size) {
 				errs.add(fieldErrorf(path+".config.size", "capabilities[%d]: invalid size %q", i, v.Size))

@@ -20,7 +20,7 @@ sandbox instance and outlives its container; tmpfs is scratch storage.
 
 | Field | Type | Rules |
 |---|---|---|
-| `path` | string | REQUIRED. Absolute in-container path. |
+| `path` | string | REQUIRED. Absolute in-container path, without NUL. |
 | `size` | string | optional. Byte-size (`512m`, `2g`, `1gib`); suffixes use powers of 1024, with or without `i` or `b`. Omission leaves capacity unspecified. |
 | `tmpfs` | bool | optional. RAM-backed mount; contents do not survive a stop. |
 | `mode` | string | optional. Initial octal permissions (`755`, `0755`, `1777`). Omission leaves initial permissions unspecified. |

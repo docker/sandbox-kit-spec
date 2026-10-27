@@ -824,8 +824,8 @@ func (m *capabilityMerge) instanceKey(reference string, n Capability) (string, e
 		if err := decodeForMerge(reference, n, &v); err != nil {
 			return "", err
 		}
-		// The destination, not the spelling: validation asks only
-		// that a volume path be absolute, so /data/cache and
+		// The destination, not the spelling: validation does not ask
+		// that a volume path be canonical, so /data/cache and
 		// /data/./cache are one mount written two ways, and keying on
 		// the text would emit both and leave a runtime to reconcile
 		// sizes nobody agreed on.

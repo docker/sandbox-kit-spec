@@ -260,6 +260,10 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	assertAcceptsKitArg(t, at(t, volume, "properties", "mode"), "bearing")
 	assertAcceptsKitArg(t, at(t, volume, "properties", "path"), "bearing")
 	assertAcceptsKitArg(t, at(t, volume, "properties", "tmpfs"), "whole")
+	volumePathPattern := regexp.MustCompile(literalPattern(t, at(t, volume, "properties", "path")))
+	for _, p := range shortPaths() {
+		require.Equal(t, volumePath(p), volumePathPattern.MatchString(p), "volume path %q", p)
+	}
 
 	hostMount := loadJSON(t, perTypeSchemaPath(CapabilityHostMount))
 	require.Equal(t, octalMode.String(), literalPattern(t, at(t, hostMount, "properties", "mode")))

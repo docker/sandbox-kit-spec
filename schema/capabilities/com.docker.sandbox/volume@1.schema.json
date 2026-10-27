@@ -9,11 +9,11 @@
   ],
   "properties": {
     "path": {
-      "description": "Instance-local destination, compared after path cleaning.",
+      "description": "Instance-local destination: absolute, without NUL, compared after path cleaning.",
       "type": "string",
       "anyOf": [
         {
-          "pattern": "^/"
+          "pattern": "^/[^\\x00]*$"
         },
         {
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"

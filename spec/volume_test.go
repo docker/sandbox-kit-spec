@@ -61,3 +61,99 @@ capabilities:
 	require.NoError(t, err)
 	require.True(t, SameVolumeRequest(volumes[0], Volume{Path: "/data"}))
 }
+
+// TestVolumePathRefusesNUL walks each descriptor through the gates a
+// create crosses: authoring validation, create-argument expansion, and
+// the effective gate. A literal NUL is refused while authoring. An entry
+// whose config references an argument defers its typed checks, so a NUL
+// a create argument supplies, or a literal one beside a parameterized
+// size, is refused at the effective gate instead.
+func TestVolumePathRefusesNUL(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		path      string // YAML spelling of the volume path
+		size      string // YAML spelling of the volume size, when set
+		hostMount string // a host mount declared before the volume, when set
+		dir       string // value of the dir create argument, default cache
+		authoring string // error authoring validation reports
+		effective string // error the effective gate reports
+	}{
+		{name: "absolute", path: "/data/cache"},
+		{name: "alias compared after cleaning", path: "/data/./cache/"},
+		{name: "relative", path: "data/cache", authoring: "must be absolute"},
+		{name: "trailing NUL", path: `"/data/cache\0"`, authoring: "without NUL"},
+		{name: "interior NUL", path: `"/data/ca\0che"`, authoring: "without NUL"},
+		{name: "host mount elsewhere", path: "/data/cache", hostMount: "/data/models"},
+		{name: "host mount at the path", path: "/data/cache", hostMount: "/data/cache", authoring: "conflicts with host mount"},
+		{name: "NUL beside a host mount at its prefix", path: `"/data/cache\0"`, hostMount: "/data/cache", authoring: "without NUL"},
+		{name: "argument", path: `"/data/${{ kit.args.dir }}"`},
+		{name: "NUL from an argument", path: `"/data/${{ kit.args.dir }}"`, dir: "cache\x00", effective: "without NUL"},
+		{name: "NUL beside a parameterized size", path: `"/data/cache\0"`, size: `"${{ kit.args.size }}"`, hostMount: "/data/cache", effective: "without NUL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := "schemaVersion: \"3\"\nkind: mixin\nargs:\n  dir: {default: cache}\n  size: {default: 1g}\ncapabilities:\n"
+			if tc.hostMount != "" {
+				raw += "  - type: com.docker.sandbox/host-mount@1\n    config: {path: " + tc.hostMount + "}\n"
+			}
+			volume := "path: " + tc.path
+			if tc.size != "" {
+				volume += ", size: " + tc.size
+			}
+			raw += "  - type: com.docker.sandbox/volume@1\n    config: {" + volume + "}\n"
+			d, err := Decode([]byte(raw))
+			require.NoError(t, err)
+			_, err = ValidateRaw([]byte(raw), d)
+			if tc.authoring != "" {
+				require.ErrorContains(t, err, tc.authoring)
+				return
+			}
+			require.NoError(t, err)
+
+			supplied := map[string]string{}
+			if tc.dir != "" {
+				supplied["dir"] = tc.dir
+			}
+			values, err := KitArgValues(d.Args, supplied)
+			require.NoError(t, err)
+			expanded, err := ExpandCreateArgs([]byte(raw), d.Args, values)
+			require.NoError(t, err)
+			effective, err := Decode(expanded)
+			require.NoError(t, err)
+			_, err = ValidateEffective(expanded, effective)
+			if tc.effective != "" {
+				require.ErrorContains(t, err, tc.effective)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestVolumePathPredicateIsTheValidator(t *testing.T) {
+	for _, p := range shortPaths() {
+		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
+			{Type: CapabilityVolume, Config: map[string]any{"path": p}},
+		}}
+		_, err := Validate(d)
+		require.Equal(t, volumePath(p), err == nil, "volume path %q: %v", p, err)
+	}
+}
+
+// shortPaths returns every string of up to five characters over an
+// alphabet that spells relative paths, lexical aliases, newlines, and
+// NUL. Rules held to one predicate are compared on all of them, not on
+// hand-picked samples, so a path class they treat differently cannot
+// hide between the samples.
+func shortPaths() []string {
+	all, level := []string{""}, []string{""}
+	for range 5 {
+		var next []string
+		for _, prefix := range level {
+			for _, r := range "/.a\n\x00" {
+				next = append(next, prefix+string(r))
+			}
+		}
+		all, level = append(all, next...), next
+	}
+	return all
+}
