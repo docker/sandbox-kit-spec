@@ -517,12 +517,7 @@ func ValidateEffective(raw []byte, d *Descriptor) ([]string, error) {
 			}
 		}
 	}
-	refs := ReferencedArgs(raw)
-	for _, name := range capabilityArgRefs(d.Capabilities) {
-		if !slices.Contains(refs, name) {
-			refs = append(refs, name)
-		}
-	}
+	refs := descriptorArgRefs(raw, d)
 	if len(refs) > 0 {
 		errs.add(fieldErrorf("", "effective descriptor still references kit args %v; expansion did not run or a value did not resolve", refs))
 	}
@@ -532,6 +527,20 @@ func ValidateEffective(raw []byte, d *Descriptor) ([]string, error) {
 	warnings, err := ValidateRaw(raw, d)
 	errs.add(err)
 	return warnings, errs.err()
+}
+
+// descriptorArgRefs includes decoded capability strings as well as raw
+// references. JSON and quoted YAML escape whitespace inside references,
+// but those references still defer config validation and must be judged
+// at every descriptor gate.
+func descriptorArgRefs(raw []byte, d *Descriptor) []string {
+	refs := ReferencedArgs(raw)
+	for _, name := range capabilityArgRefs(d.Capabilities) {
+		if !slices.Contains(refs, name) {
+			refs = append(refs, name)
+		}
+	}
+	return refs
 }
 
 // ReferencedArgs returns the set of arg names referenced anywhere in the
