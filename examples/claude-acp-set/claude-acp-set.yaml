@@ -12,7 +12,7 @@ sourceUrl: https://github.com/docker/sandbox-kit-spec
 licenses: [Apache-2.0]
 
 kind: set
-version: "1.0.3"
+version: "1.0.4"
 
 args:
   # The kits below are published references, so the namespace they live
@@ -42,12 +42,12 @@ kits:
   # above is already the workload. The adapter would find either one's
   # claude: its wrapper resolves the binary on PATH, so the workload's
   # $HOME/.local/bin install works as well as this kit's /usr/local/bin.
-  - ref: ${{ kit.args.registry }}/sbx-kit-claude-mixin:2.1.310
+  - ref: ${{ kit.args.registry }}/sbx-kit-claude-mixin:2.1.311
 
   # The ACP adapter. Its requires: ["claude"] is answered by the kit
   # above — which is also what orders the two, whatever order they are
   # listed in here.
-  - ref: ${{ kit.args.registry }}/sbx-kit-claude-acp:0.96.0
+  - ref: ${{ kit.args.registry }}/sbx-kit-claude-acp:0.97.0
 
 # The set's own declarations merge on top of the three. This one adds
 # a note: how to reach the adapter, which is the one thing none of

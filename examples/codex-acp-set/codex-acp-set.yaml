@@ -12,7 +12,7 @@ sourceUrl: https://github.com/docker/sandbox-kit-spec
 licenses: [Apache-2.0]
 
 kind: set
-version: "1.0.4"
+version: "1.0.5"
 
 args:
   # The kits below are published references, so the namespace they live
@@ -38,7 +38,7 @@ kits:
 
   # The ACP adapter. Its codex requirement is answered by the mixin
   # above, which also orders the pair regardless of list order.
-  - ref: ${{ kit.args.registry }}/sbx-kit-codex-acp:2.2.2
+  - ref: ${{ kit.args.registry }}/sbx-kit-codex-acp:2.3.0
 
 # Explain the resolved composition and the two ways to invoke Codex.
 capabilities:
