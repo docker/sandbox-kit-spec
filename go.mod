@@ -1,6 +1,6 @@
 module github.com/docker/sandbox-kit-spec/v3
 
-go 1.26.8
+go 1.26.10
 
 require (
 	github.com/containerd/platforms v1.0.0-rc.5
@@ -63,6 +63,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-// containerd still requires v0.16.0, which has CVE-2026-10722. Keep its
-// transitive module graph on the fixed release until that requirement moves.
-replace github.com/cilium/ebpf v0.16.0 => github.com/cilium/ebpf v0.22.0
+// containerd still requires v0.17.3, which has CVE-2026-10722. Replace all
+// versions so a transitive upgrade cannot bypass the fixed release. Remove
+// this replacement once containerd requires v0.22.0 or later.
+replace github.com/cilium/ebpf => github.com/cilium/ebpf v0.22.0
