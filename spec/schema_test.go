@@ -75,6 +75,7 @@ func allCapabilityTypes() []string {
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity,
+		CapabilityWorkloadIdentity, CapabilityGitPush,
 	}
 }
 
@@ -290,6 +291,33 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	require.ElementsMatch(t, []any{PortFamilyIPv4, PortFamilyIPv6, PortFamilyDual},
 		literalEnum(t, at(t, port, "properties", "family")))
 	assertAcceptsKitArg(t, at(t, port, "properties", "family"), "bearing")
+
+	identity := loadJSON(t, perTypeSchemaPath(CapabilityWorkloadIdentity))
+	require.ElementsMatch(t, []any{WorkloadIdentityTrailersFull, WorkloadIdentityTrailersShort},
+		literalEnum(t, at(t, identity, "properties", "trailers")))
+	require.ElementsMatch(t, []any{WorkloadIdentityLedgerRequired, WorkloadIdentityLedgerPreferred},
+		literalEnum(t, at(t, identity, "properties", "ledger")))
+	assertAcceptsKitArg(t, at(t, identity, "properties", "trailers"), "bearing")
+	assertAcceptsKitArg(t, at(t, identity, "properties", "ledger"), "bearing")
+
+	gitPush := loadJSON(t, perTypeSchemaPath(CapabilityGitPush))
+	require.Equal(t, float64(1), gitPush["minProperties"], "a git-push stating nothing bounds nothing")
+	require.Equal(t, gitPushRemote.String(), literalPattern(t, at(t, gitPush, "properties", "remotes", "items")))
+	assertAcceptsKitArg(t, at(t, gitPush, "properties", "remotes", "items"), "bearing")
+	refPatterns := at(t, gitPush, "definitions", "refPatterns", "items")
+	require.Equal(t, gitPushRef.String(), literalPattern(t, refPatterns))
+	assertAcceptsKitArg(t, refPatterns, "bearing")
+	for _, field := range []string{"include", "exclude"} {
+		require.Equal(t, "#/definitions/refPatterns", at(t, gitPush, "properties", "refs", "properties", field)["$ref"])
+	}
+	require.ElementsMatch(t, []any{GitPushAllow, GitPushDeny}, literalEnum(t, at(t, gitPush, "properties", "delete")))
+	commits := at(t, gitPush, "properties", "commits", "properties")
+	require.ElementsMatch(t, []any{GitPushEnforce, GitPushWarn}, literalEnum(t, at(t, commits, "committer")))
+	require.ElementsMatch(t, []any{GitPushRequire, GitPushPrefer, GitPushIgnore}, literalEnum(t, at(t, commits, "signed")))
+	require.ElementsMatch(t, []any{GitPushRequire, GitPushWarn}, literalEnum(t, at(t, commits, "trailer")))
+	for _, field := range []string{"committer", "signed", "trailer"} {
+		assertAcceptsKitArg(t, at(t, commits, field), "bearing")
+	}
 
 	lifecycle := loadJSON(t, perTypeSchemaPath(CapabilityLifecycle))
 	fileMode := at(t, lifecycle, "properties", "files", "items", "properties", "mode")

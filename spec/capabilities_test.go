@@ -185,6 +185,8 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityACP, s: "debug", config: map[string]any{"agent": "claude", "command": []any{"claude-acp"}, "env": map[string]any{"LOG": ref}}, field: "env"},
 		{typ: CapabilityAgentSessions, s: "opus", config: map[string]any{"prompt": []any{"--model", ref, "-p", SessionPromptPlaceholder}}, field: "prompt"},
 		{typ: CapabilityAgentInteractiveSessions, s: "opus", config: map[string]any{"newSession": []any{"--model", ref}}, field: "newSession"},
+		{typ: CapabilityWorkloadIdentity, s: "full", config: map[string]any{"trailers": ref, "ledger": "preferred"}, field: "ledger"},
+		{typ: CapabilityGitPush, s: "deny", config: map[string]any{"delete": ref, "refs": map[string]any{"exclude": []any{"refs/heads/main"}}}, field: "refs"},
 	}
 	var covered []string
 	for _, tt := range types {

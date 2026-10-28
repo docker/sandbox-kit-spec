@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/git-push@1",
+  "description": "Bounds on what the sandbox may push over Git: remotes, refs by pattern, deletions, and what every pushed commit must carry. Each field narrows; an omitted field leaves that dimension unbounded, and a config stating nothing is an error. Singleton; contributions intersect. A pattern is a literal with at most one *, which matches any sequence of characters including /. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "remotes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "host/owner/repo patterns the sandbox may push to, such as github.com/docker/*. Omit to allow every remote; an empty list is an error.",
+      "items": {
+        "type": "string",
+        "anyOf": [
+          {
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(/[A-Za-z0-9._*-]+)+$",
+            "not": {
+              "pattern": "\\*.*\\*"
+            }
+          },
+          {
+            "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+          }
+        ]
+      }
+    },
+    "refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "Fully qualified ref patterns a push may update. Exclude wins; an absent include admits every ref not excluded.",
+      "properties": {
+        "include": {
+          "$ref": "#/definitions/refPatterns"
+        },
+        "exclude": {
+          "$ref": "#/definitions/refPatterns"
+        }
+      }
+    },
+    "delete": {
+      "description": "Whether a push may delete a ref. Omit for the runtime's default.",
+      "anyOf": [
+        {
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    },
+    "commits": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "What every pushed commit must carry.",
+      "properties": {
+        "committer": {
+          "description": "enforce refuses a commit whose committer is not the sandbox identity; warn forwards it and records the mismatch.",
+          "anyOf": [
+            {
+              "enum": [
+                "enforce",
+                "warn"
+              ]
+            },
+            {
+              "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+            }
+          ]
+        },
+        "signed": {
+          "description": "require refuses a commit without a signature made through the sandbox's agent grant; prefer records the absence; ignore does not look.",
+          "anyOf": [
+            {
+              "enum": [
+                "require",
+                "prefer",
+                "ignore"
+              ]
+            },
+            {
+              "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+            }
+          ]
+        },
+        "trailer": {
+          "description": "require refuses a commit missing the identity trailers; warn forwards it and records the absence.",
+          "anyOf": [
+            {
+              "enum": [
+                "require",
+                "warn"
+              ]
+            },
+            {
+              "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "refPatterns": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "anyOf": [
+          {
+            "pattern": "^refs/[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*$",
+            "not": {
+              "pattern": "\\*.*\\*"
+            }
+          },
+          {
+            "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+          }
+        ]
+      }
+    }
+  }
+}

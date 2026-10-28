@@ -478,6 +478,8 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
+	CapabilityWorkloadIdentity:         true,
+	CapabilityGitPush:                  true,
 }
 
 // deref unwraps pointer and interface layers, the way JSON marshaling
@@ -1059,6 +1061,16 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		if (u.VendorID != "") != (u.ProductID != "") {
 			c.errs.add(fieldErrorf(path+".config", "capabilities[%d]: vendorId and productId go together", i))
 		}
+	case CapabilityWorkloadIdentity:
+		if _, err := validateWorkloadIdentityNeed(path, i, n); err != nil {
+			c.errs.add(err)
+			return false
+		}
+	case CapabilityGitPush:
+		if _, err := validateGitPushNeed(path, i, n); err != nil {
+			c.errs.add(err)
+			return false
+		}
 	case CapabilityResources:
 		var r Resources
 		if err := DecodeCapabilityConfig(n, &r); err != nil {
@@ -1462,6 +1474,9 @@ func validatePresenceRules(path string, i int, n Capability) error {
 	var errs ValidationErrors
 	if n.Type == CapabilityACP {
 		return validateACPAuthored(path, i, n)
+	}
+	if n.Type == CapabilityGitPush {
+		return validateGitPushPresence(path, i, n)
 	}
 	if n.Type == CapabilityAgentInteractiveSessions {
 		// Whether a verb is stated is its meaning, so its nulls and its

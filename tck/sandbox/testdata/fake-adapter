@@ -355,6 +355,8 @@ create)
         ;;
       *long-running-workload*) ;;
       *long-running*) need="com.docker.sandbox/long-running@1" ;;
+      *workload-identity*) need="com.docker.sandbox/workload-identity@1" ;;
+      *git-push*) need="com.docker.sandbox/git-push@1" ;;
       */ssh-agent-optional) ;;
       */ssh-agent | */ssh-agent-install | */ssh-agent-bounded | */ssh-agent-dual) need="com.docker.sandbox/ssh-agent@1" ;;
       *skills-optional* | *scoped-egress*) ;;

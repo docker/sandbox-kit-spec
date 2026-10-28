@@ -88,7 +88,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -273,7 +273,29 @@ var waived = map[string]string{
 	"port@1/host-binding-default":                    "the adapter contract offers no host-side observation, so a published mapping cannot be seen",
 	"privileged@1/widening-gates":                    "gate semantics are surface diffs, judged by the spec package's tests",
 	"resources@1/max-of-declarations":                "needs a multi-declaration fixture; not exercised yet",
-	"resources@1/never-undercut-workload":            "needs a multi-declaration fixture; not exercised yet",
+
+	// Workload identity and push bounds are judged where pushes leave the
+	// sandbox. The fake adapter mints no identity and the suite has no
+	// git remote fixture, so the runtime duties wait for both.
+	"workload-identity@1/values-enumerated":    "grammar rule, judged by the spec package's validators and schema tests",
+	"workload-identity@1/fields-closed":        "grammar rule, judged by the spec package's validators and schema tests",
+	"workload-identity@1/minted-before-launch": "needs an identity-minting adapter; the fake adapter does not mint identities yet",
+	"workload-identity@1/committer-defaults":   "needs an identity-minting adapter; the fake adapter does not mint identities yet",
+	"workload-identity@1/trailers-applied":     "needs an identity-minting adapter and a commit made inside the sandbox; not exercised yet",
+	"workload-identity@1/pushes-recorded":      "needs a git remote fixture and a ledger the adapter exposes; not exercised yet",
+	"workload-identity@1/absent-without-grant": "needs an identity-minting adapter to show the difference; the fake adapter mints none either way",
+	"workload-identity@1/retired-on-destroy":   "host-internal: retirement is recorded in the runtime's ledger, which the adapter contract does not expose",
+	"git-push@1/states-a-rule":                 "grammar rule, judged by the spec package's validators and schema tests",
+	"git-push@1/pattern-grammar":               "grammar rule, judged by the spec package's validators and schema tests",
+	"git-push@1/patterns-unique":               "grammar rule, judged by the spec package's validators and schema tests",
+	"git-push@1/values-enumerated":             "grammar rule, judged by the spec package's validators and schema tests",
+	"git-push@1/every-update-judged":           "needs a git remote fixture; not exercised yet",
+	"git-push@1/every-commit-judged":           "needs a git remote fixture; not exercised yet",
+	"git-push@1/uninspectable-refused":         "needs a git remote fixture and a thin-pack push; not exercised yet",
+	"git-push@1/refusal-explained":             "needs a git remote fixture; not exercised yet",
+	"git-push@1/outcomes-recorded":             "needs a git remote fixture and a ledger the adapter exposes; not exercised yet",
+	"git-push@1/host-floor":                    "host-internal: the runtime's own floor has no in-sandbox symptom distinct from the Kit's rule",
+	"resources@1/never-undercut-workload":      "needs a multi-declaration fixture; not exercised yet",
 
 	// Statements about what a runtime must not trust or must keep to
 	// itself are unobservable from inside a sandbox.

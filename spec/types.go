@@ -438,6 +438,19 @@ const (
 	// CapabilityGitIdentity shares runtime-provided Git attribution, not credentials.
 	CapabilityGitIdentity = "com.docker.sandbox/git-identity@1"
 
+	// CapabilityWorkloadIdentity asks the runtime to mint a per-sandbox
+	// workload identity: a key the sandbox never holds, a committer the
+	// runtime attributes pushed commits to, and a ledger record of what
+	// the sandbox pushed. Config decodes to WorkloadIdentity. Singleton;
+	// a sandbox has one identity however many kits ask.
+	CapabilityWorkloadIdentity = "com.docker.sandbox/workload-identity@1"
+
+	// CapabilityGitPush bounds what the sandbox may push over Git:
+	// remotes, refs by pattern, deletions, and what each pushed commit
+	// must carry. Config decodes to GitPush. Singleton; contributions
+	// intersect, so a mixin can only narrow what the workload allows.
+	CapabilityGitPush = "com.docker.sandbox/git-push@1"
+
 	// CapabilityCredential is one service the workload authenticates to;
 	// config decodes to Credential. Instance-shaped, keyed by
 	// (service, phase).
@@ -732,6 +745,75 @@ func (p Phases) MarshalJSON() ([]byte, error) {
 
 // Bounded reports whether the entry limits signatures to named purposes.
 func (a SSHAgent) Bounded() bool { return a.Unrestricted != nil && !*a.Unrestricted }
+
+// WorkloadIdentity is CapabilityWorkloadIdentity's config. Both fields
+// are optional; an omitted field takes the runtime's default.
+type WorkloadIdentity struct {
+	// Trailers selects how much of the identity each commit carries as
+	// trailers: WorkloadIdentityTrailersFull or WorkloadIdentityTrailersShort.
+	Trailers string `json:"trailers,omitempty" yaml:"trailers,omitempty"`
+	// Ledger says what an unreachable ledger means at create:
+	// WorkloadIdentityLedgerRequired refuses the sandbox,
+	// WorkloadIdentityLedgerPreferred creates it and registers later.
+	Ledger string `json:"ledger,omitempty" yaml:"ledger,omitempty"`
+}
+
+// WorkloadIdentity.Trailers values.
+const (
+	WorkloadIdentityTrailersFull  = "full"
+	WorkloadIdentityTrailersShort = "short"
+)
+
+// WorkloadIdentity.Ledger values.
+const (
+	WorkloadIdentityLedgerRequired  = "required"
+	WorkloadIdentityLedgerPreferred = "preferred"
+)
+
+// GitPush is CapabilityGitPush's config. Every field bounds pushes
+// further; an omitted field leaves that dimension unbounded, and a
+// config stating nothing is invalid.
+type GitPush struct {
+	// Remotes are host/owner/repo patterns the sandbox may push to.
+	Remotes []string `json:"remotes,omitempty" yaml:"remotes,omitempty"`
+	// Refs bounds the fully qualified refs a push may update.
+	Refs *GitPushRefs `json:"refs,omitempty" yaml:"refs,omitempty"`
+	// Delete is GitPushAllow or GitPushDeny for ref deletions.
+	Delete string `json:"delete,omitempty" yaml:"delete,omitempty"`
+	// Commits states what every pushed commit must carry.
+	Commits *GitPushCommits `json:"commits,omitempty" yaml:"commits,omitempty"`
+}
+
+// GitPushRefs is an include/exclude pair of ref patterns. Exclude wins;
+// an absent include admits every ref not excluded.
+type GitPushRefs struct {
+	Include []string `json:"include,omitempty" yaml:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty" yaml:"exclude,omitempty"`
+}
+
+// GitPushCommits are the per-commit rules of a GitPush config.
+type GitPushCommits struct {
+	// Committer is GitPushEnforce or GitPushWarn for a commit whose
+	// committer is not the sandbox identity.
+	Committer string `json:"committer,omitempty" yaml:"committer,omitempty"`
+	// Signed is GitPushRequire, GitPushPrefer or GitPushIgnore for a
+	// commit without a signature made through the sandbox's agent grant.
+	Signed string `json:"signed,omitempty" yaml:"signed,omitempty"`
+	// Trailer is GitPushRequire or GitPushWarn for a commit missing the
+	// identity trailers.
+	Trailer string `json:"trailer,omitempty" yaml:"trailer,omitempty"`
+}
+
+// GitPush rule values.
+const (
+	GitPushAllow   = "allow"
+	GitPushDeny    = "deny"
+	GitPushEnforce = "enforce"
+	GitPushWarn    = "warn"
+	GitPushRequire = "require"
+	GitPushPrefer  = "prefer"
+	GitPushIgnore  = "ignore"
+)
 
 // APIKey configures proxy injection of an API key on outbound requests.
 type APIKey struct {

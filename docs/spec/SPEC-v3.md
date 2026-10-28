@@ -572,7 +572,8 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `kit-registry@1`, `agent-sessions@1`, `agent-interactive-sessions@1`,
-`lifecycle@1`, `sbx@1`, `long-running@1`, `git-identity@1`.
+`lifecycle@1`, `sbx@1`, `long-running@1`, `git-identity@1`,
+`workload-identity@1`, `git-push@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -771,6 +772,8 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
 | `com.docker.sandbox/agent-skill@1` | [agent-skill@1](capabilities/com.docker.sandbox/agent-skill@1.md) | per effective name |
 | `com.docker.sandbox/git-identity@1` | [git-identity@1](capabilities/com.docker.sandbox/git-identity@1.md) | singleton, config-less |
+| `com.docker.sandbox/workload-identity@1` | [workload-identity@1](capabilities/com.docker.sandbox/workload-identity@1.md) | singleton |
+| `com.docker.sandbox/git-push@1` | [git-push@1](capabilities/com.docker.sandbox/git-push@1.md) | singleton |
 | `com.docker.sandbox/kit-registry@1` | [kit-registry@1](capabilities/com.docker.sandbox/kit-registry@1.md) | singleton, config-less |
 | `com.docker.sandbox/sbx@1` | [sbx@1](capabilities/com.docker.sandbox/sbx@1.md) | singleton, config-less |
 
@@ -821,6 +824,10 @@ a Kit's surface in the lock and diff a candidate's against it:
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
+- `workload-identity@1` and `git-push@1` contribute their type and
+  config digest to the service surface: the first enrolls the sandbox
+  with the runtime's ledger, and the second's bounds are part of what
+  made the grant acceptable, so a change to either stops for approval.
 
 ---
 
@@ -1006,6 +1013,8 @@ error. In that order they reconcile into one descriptor:
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
+| `workload-identity@1` | Contributions fold into one identity: `full` trailers win over `short`, a `required` ledger over `preferred`. |
+| `git-push@1` | Contributions intersect: `exclude` lists union, `deny` wins over `allow`, the stricter commit rule wins. Two different `remotes` or `refs.include` lists conflict. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
 | `agent-context@2` | The same destination precedence and per-profile optionality as @1. Every effective profile carries all selected bodies inline in dependency order, joined with two newlines. Publication preserves original declarations in groups so later selection excludes skipped bodies and does not duplicate shared guidance. Selected @1 and @2 requests cannot compose. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |

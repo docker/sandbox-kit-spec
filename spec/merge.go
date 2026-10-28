@@ -566,6 +566,12 @@ type capabilityMerge struct {
 	resources *keyed
 	sessions  *keyed
 
+	// identity and push hold the folded policy of every contributor; the
+	// entry's Name and Optional follow the first author and the
+	// required-wins rule like every other merged entry.
+	identity *keyed
+	push     *keyed
+
 	interactiveSessions *keyed
 	newSession          []string
 	newSessionFrom      string
@@ -643,6 +649,34 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 
 	case CapabilityResources:
 		return mergeSole(&m.resources, reference, n, "resources")
+
+	case CapabilityWorkloadIdentity:
+		return mergeFolded(&m.identity, reference, n, func(held, asked Capability) (any, error) {
+			var a, b WorkloadIdentity
+			if err := decodeForMerge(m.identity.reference, held, &a); err != nil {
+				return nil, err
+			}
+			if err := decodeForMerge(reference, asked, &b); err != nil {
+				return nil, err
+			}
+			return MergeWorkloadIdentities(a, b), nil
+		})
+
+	case CapabilityGitPush:
+		return mergeFolded(&m.push, reference, n, func(held, asked Capability) (any, error) {
+			var a, b GitPush
+			if err := decodeForMerge(m.push.reference, held, &a); err != nil {
+				return nil, err
+			}
+			if err := decodeForMerge(reference, asked, &b); err != nil {
+				return nil, err
+			}
+			merged, err := MergeGitPushes(a, b)
+			if err != nil {
+				return nil, fmt.Errorf("merge: %s and %s %w", m.push.reference, reference, err)
+			}
+			return merged, nil
+		})
 
 	case CapabilityAgentSessions:
 		// Remembered for the list agreement in finish. This type was never
@@ -794,6 +828,33 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		(*slot).reference, reference, label)
 }
 
+// mergeFolded holds a singleton whose contributions fold into one policy:
+// the first author's entry is kept and its config replaced by fold's
+// answer for every further contribution. Required wins over optional as
+// everywhere else.
+func mergeFolded(slot **keyed, reference string, n Capability, fold func(held, asked Capability) (any, error)) error {
+	if *slot == nil {
+		*slot = &keyed{reference: reference, capability: n}
+		return nil
+	}
+	config, err := fold((*slot).capability, n)
+	if err != nil {
+		return err
+	}
+	merged, err := CapabilityWithConfig((*slot).capability, config)
+	if err != nil {
+		return fmt.Errorf("merge: %s and %s: %w", (*slot).reference, reference, err)
+	}
+	if merged.Name == "" {
+		merged.Name = n.Name
+	}
+	if !n.Optional {
+		merged.Optional = false
+	}
+	(*slot).capability = *merged
+	return nil
+}
+
 // instanceKey identifies requests to reconcile, per §7.1: the key
 // InstanceKeyOf gives the entry, so composition and an integration keying
 // the composed entries cannot disagree. The type's composition contract
@@ -903,6 +964,12 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 
 	if m.resources != nil {
 		out = append(out, m.resources.capability)
+	}
+	if m.identity != nil {
+		out = append(out, m.identity.capability)
+	}
+	if m.push != nil {
+		out = append(out, m.push.capability)
 	}
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)
