@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/workload-identity@1",
+  "description": "A per-sandbox workload identity minted by the runtime: a key the sandbox never holds, a committer its pushed commits are attributed to, and a ledger record of what it pushed. Singleton; presence is the request and every field is optional. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "trailers": {
+      "description": "How much of the identity each commit carries as trailers: full writes every identifier, short writes the sandbox id alone. Omit for the runtime's default.",
+      "anyOf": [
+        {
+          "enum": [
+            "full",
+            "short"
+          ]
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    },
+    "ledger": {
+      "description": "What an unreachable ledger means at create: required refuses the sandbox, preferred creates it and registers once the ledger answers. Omit for the runtime's default.",
+      "anyOf": [
+        {
+          "enum": [
+            "required",
+            "preferred"
+          ]
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    }
+  }
+}

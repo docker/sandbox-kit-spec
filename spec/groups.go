@@ -158,7 +158,8 @@ func KnownCapabilities() []string {
 	return []string{CapabilityDockerAuth, CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort, CapabilityUSBDevice, CapabilityResources,
 		CapabilityPrivileged, CapabilityDockerd, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP,
-		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry}
+		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry,
+		CapabilityWorkloadIdentity, CapabilityGitPush}
 }
 
 // SelectionRecord identifies an original item and its evaluated members.

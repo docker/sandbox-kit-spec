@@ -1,0 +1,12 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Git push bounds
+description: Bounds pushes to feature branches and refuses deletions
+capabilities:
+  - type: com.docker.sandbox/git-push@1
+    config:
+      refs:
+        include: [refs/heads/sbx/*]
+        exclude: [refs/heads/main]
+      delete: deny

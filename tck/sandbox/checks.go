@@ -220,6 +220,8 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capability: capLongRunning, fixture: fixtureLongRunning},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},
 				{capability: capDockerAuth, fixture: "docker-auth"},
+				{capability: capWorkloadIdentity, fixture: fixtureWorkloadIdentity},
+				{capability: capGitPush, fixture: fixtureGitPush},
 				{capLifecycle, fixtureHooks, false},
 				{capNetworkPolicy, fixtureEgress, false},
 				{capNetworkPolicyV2, fixtureHTTPEgress, false},
@@ -926,17 +928,21 @@ const (
 	capAgentSessions            = "com.docker.sandbox/agent-sessions@1"
 	capAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
 	capKitRegistry              = "com.docker.sandbox/kit-registry@1"
+	capWorkloadIdentity         = "com.docker.sandbox/workload-identity@1"
+	capGitPush                  = "com.docker.sandbox/git-push@1"
 )
 
 const (
-	fixtureContext        = "context"
-	fixtureVolume         = "volume"
-	fixtureResources      = "resources"
-	fixturePrivileged     = "privileged"
-	fixtureSkills         = "skills"
-	fixtureSkillsRW       = "skills-writable"
-	fixtureSkillsShared   = "skills-shared"
-	fixtureSkillsOptional = "skills-optional"
+	fixtureContext          = "context"
+	fixtureVolume           = "volume"
+	fixtureResources        = "resources"
+	fixturePrivileged       = "privileged"
+	fixtureSkills           = "skills"
+	fixtureSkillsRW         = "skills-writable"
+	fixtureSkillsShared     = "skills-shared"
+	fixtureSkillsOptional   = "skills-optional"
+	fixtureWorkloadIdentity = "workload-identity"
+	fixtureGitPush          = "git-push"
 )
 
 // The skills checks all compose both mixins: one declaring read-only and

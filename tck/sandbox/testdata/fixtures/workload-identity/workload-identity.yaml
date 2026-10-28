@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Workload identity
+description: Requests a runtime-minted sandbox identity with full trailers
+capabilities:
+  - type: com.docker.sandbox/workload-identity@1
+    config:
+      trailers: full
