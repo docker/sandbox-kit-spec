@@ -868,9 +868,15 @@ defeat version-constraint resolution. Kits with no provides publish fine.
 
 ### 9.3 Annotations
 
-The frontend sets four manifest annotations, and promotes all four onto
-the image index whenever the export produces one (multi-platform builds,
-single-platform builds with attestation manifests):
+The frontend sets four manifest annotations, and promotes them onto the
+image index when the export shape is known: multi-platform builds and
+single-platform builds with explicitly requested attestation manifests.
+Buildx's default provenance is marked inline-only; the selected exporter
+may retain it in an image index or omit it. The frontend cannot see that
+exporter choice, so a single-platform default-provenance export can have
+an index without these annotations. Request `--provenance=mode=min`
+explicitly when index annotations are wanted. The platform manifest
+carries the descriptor in every case:
 
 | Annotation | Value |
 |---|---|

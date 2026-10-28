@@ -6,10 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Index annotations are emitted exactly when the export produces an
-// index. For a single platform that is decided by live attestations, so
-// the gate must read the attest opts the way the solver does — including
-// buildx's disabled=true spelling for --provenance=false.
+// Index annotations need a guaranteed image index. Explicit attestations
+// provide that guarantee; inline-only default provenance is exporter-
+// dependent. The integration tests judge the resulting export shapes.
 func TestAttestationsRequested(t *testing.T) {
 	require.False(t, attestationsRequested(map[string]string{}))
 	require.True(t, attestationsRequested(map[string]string{"attest:provenance": "mode=min"}))
@@ -19,9 +18,9 @@ func TestAttestationsRequested(t *testing.T) {
 		"attest:provenance": "disabled=true",
 		"attest:sbom":       "",
 	}))
-	// buildx's default min provenance on exports that cannot carry
-	// attestation manifests: inline in the image config, bare-manifest
-	// export shape, no index to annotate.
+	// The selected exporter may omit inline-only provenance, leaving
+	// no image index. The gateway cannot distinguish that from an
+	// image exporter retaining the same provenance in an index.
 	require.False(t, attestationsRequested(map[string]string{"attest:provenance": "mode=min,inline-only=true"}))
 	require.True(t, attestationsRequested(map[string]string{
 		"attest:provenance": "mode=min,inline-only=true",

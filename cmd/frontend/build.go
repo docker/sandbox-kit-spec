@@ -409,11 +409,11 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 	// consumer resolving the tag learns the kit's declarations from the
 	// first GET without descending to a platform manifest. Safe to
 	// duplicate: the published descriptor is expanded once, before the
-	// platform loop, so index and manifests cannot disagree. Gated on
-	// whether this export produces an index at all — multi-platform, or
-	// any platform count with live attestations — because the exporter
-	// hard-errors on index annotations when a single-platform build
-	// exports a bare manifest (nothing to annotate).
+	// platform loop, so index and manifests cannot disagree. Emit index
+	// annotations only when the request guarantees an image index:
+	// multi-platform or explicit, non-inline-only attestations. The
+	// exporter rejects them on a bare manifest; default provenance is
+	// ambiguous, as attestationsRequested explains below.
 	if multiPlatform || attestationsRequested(opts) {
 		for key, value := range kitAnnotations {
 			res.AddMeta(exptypes.AnnotationIndexKey(key), []byte(value))
@@ -422,13 +422,14 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 	return res, nil
 }
 
-// attestationsRequested reports whether this build exports attestation
-// MANIFESTS — which is what turns a single-platform export into an image
-// index, the only shape that can carry index annotations. Two spellings
-// mean no manifest will exist: disabled=true (buildx --provenance=false),
-// and inline-only=true, which buildx sends for its default min provenance
-// on exports that cannot carry attestation manifests — the provenance
-// rides inside the image config and the export stays a bare manifest.
+// attestationsRequested reports whether the request guarantees an
+// attestation manifest, and therefore an image index to annotate.
+// disabled=true turns attestations off. Buildx's default min provenance
+// uses inline-only=true: the image exporter retains it in an index, but
+// the OCI exporter can omit it and emit a bare manifest. The gateway
+// options do not expose that exporter choice. Skip index annotations
+// for this ambiguous case, since a bare-manifest export rejects them;
+// consumers still have every platform manifest's annotations.
 func attestationsRequested(opts map[string]string) bool {
 	parsed, err := attestations.Parse(opts)
 	if err != nil {
