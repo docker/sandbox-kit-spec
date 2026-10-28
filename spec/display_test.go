@@ -3,7 +3,6 @@ package spec
 import (
 	"fmt"
 	"math/rand"
-	"strconv"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -26,6 +25,10 @@ func TestDisplayText(t *testing.T) {
 		{"tab", "/a\tb", `/a\tb`},
 		{"LF", "/a\nb", `/a\nb`},
 		{"CR", "/a\rb", `/a\rb`},
+		{"BEL", "/a\ab", `/a\ab`},
+		{"backspace", "/a\bb", `/a\bb`},
+		{"vertical tab", "/a\vb", `/a\vb`},
+		{"form feed", "/a\fb", `/a\fb`},
 		{"ESC sequence", "a\x1b[2K", `a\x1b[2K`},
 		{"DEL", "/a\x7f", `/a\x7f`},
 		{"C1 NEL", "/a\u0085", `/a\u0085`},
@@ -84,53 +87,6 @@ func TestDisplayText(t *testing.T) {
 	}
 }
 
-// unescape reverses displayText, independently of it, so a round trip
-// shows the rendering loses nothing.
-func unescape(t *testing.T, s string) string {
-	t.Helper()
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] != '\\' {
-			b.WriteByte(s[i])
-			continue
-		}
-		require.Less(t, i+1, len(s), "%q ends in a lone backslash", s)
-		i++
-		digits := 0
-		switch s[i] {
-		case '\\':
-			b.WriteByte('\\')
-		case 't':
-			b.WriteByte('\t')
-		case 'n':
-			b.WriteByte('\n')
-		case 'r':
-			b.WriteByte('\r')
-		case 'x':
-			digits = 2
-		case 'u':
-			digits = 4
-		case 'U':
-			digits = 8
-		default:
-			require.Failf(t, "unknown escape", "%q at %d", s, i)
-		}
-		if digits == 0 {
-			continue
-		}
-		require.LessOrEqual(t, i+1+digits, len(s), "%q has a short escape", s)
-		v, err := strconv.ParseUint(s[i+1:i+1+digits], 16, 32)
-		require.NoError(t, err, "%q", s)
-		if digits == 2 {
-			b.WriteByte(byte(v))
-		} else {
-			b.WriteRune(rune(v))
-		}
-		i += digits
-	}
-	return b.String()
-}
-
 // hidden reports whether r would act on a terminal or draw as nothing,
 // spelled from Unicode classes rather than from the rendering's rule.
 func hidden(r rune, first bool) bool {
@@ -141,42 +97,52 @@ func hidden(r rune, first bool) bool {
 		(first && unicode.In(r, unicode.Mn, unicode.Me))
 }
 
-// TestDisplayTextRoundTrips checks, on generated strings, that a rendering
-// reads back to exactly the string it came from and holds no character
-// that would act on a terminal or draw as nothing.
-func TestDisplayTextRoundTrips(t *testing.T) {
-	alphabet := []string{"a", "/", " ", `\`, `\x1b`, "x", "1", "é", "\x00", "\t", "\n", "\r", "\x1b", "\x7f", "\u0085", "\u009b", "\x9b", string(utf8.RuneError)}
-	for _, r := range []rune{0x00a0, 0x0301, 0x034f, 0x115f, 0x180b, 0x200b, 0x2028, 0x2029, 0x202e, 0x2066, 0x2800, 0x3000, 0x3164, 0xfe0f, 0xfeff, 0xffa0, 0xe0041, 0xe0100} {
-		alphabet = append(alphabet, string(r))
-	}
-	fromAlphabet := func(picks []uint8) string {
-		var b strings.Builder
-		for _, p := range picks {
-			b.WriteString(alphabet[int(p)%len(alphabet)])
-		}
-		return b.String()
-	}
-	check := func(s string) bool {
+// TestDisplayTextProperties checks, on generated strings, that a rendering
+// holds no character that would act on a terminal or draw as nothing, and
+// that no two distinct strings render the same.
+func TestDisplayTextProperties(t *testing.T) {
+	rendered := map[string]string{}
+	check := func(s string) error {
 		out := displayText(s)
-		if !utf8.ValidString(out) || unescape(t, out) != s {
-			return false
+		if prev, ok := rendered[out]; ok && prev != s {
+			return fmt.Errorf("%q and %q both render as %q", prev, s, out)
 		}
+		rendered[out] = s
 		for i, r := range out {
 			if hidden(r, i == 0) {
-				return false
+				return fmt.Errorf("%q renders as %q, which holds %U", s, out, r)
 			}
 		}
-		return true
+		return nil
 	}
-	for name, property := range map[string]any{
-		"alphabet":  func(x []uint8) bool { return check(fromAlphabet(x)) },
-		"raw bytes": func(x []byte) bool { return check(string(x)) },
-		"runes":     func(x string) bool { return check(x) },
-	} {
-		t.Run(name, func(t *testing.T) {
-			require.NoError(t, quick.Check(property, &quick.Config{MaxCount: 2000, Rand: rand.New(rand.NewSource(1))}))
-		})
+	// Pieces that would collide if escaping lost information: a backslash,
+	// text spelling an escape, and the characters those escapes stand for.
+	alphabet := []string{"a", "/", " ", `\`, "x1b", "u0085", "\x00", "\a", "\t", "\n", "\r", "\x1b", "\x7f", "\x9b"}
+	for _, r := range []rune{0x00e9, 0x0085, 0x009b, 0x00a0, 0x0301, 0x034f, 0x115f, 0x180b, 0x200b, 0x2028, 0x2029, 0x202e, 0x2066, 0x2800, 0x3000, 0x3164, 0xfe0f, 0xfeff, 0xffa0, 0xfffd, 0xe0041, 0xe0100} {
+		alphabet = append(alphabet, string(r))
 	}
+	// Every string of up to three pieces, so each pair and triple of pieces
+	// is compared against every other.
+	level := []string{""}
+	for range 3 {
+		var next []string
+		for _, s := range level {
+			for _, p := range alphabet {
+				next = append(next, s+p)
+			}
+		}
+		for _, s := range next {
+			require.NoError(t, check(s))
+		}
+		level = next
+	}
+	seeded := func() *quick.Config { return &quick.Config{MaxCount: 2000, Rand: rand.New(rand.NewSource(1))} }
+	t.Run("raw bytes", func(t *testing.T) {
+		require.NoError(t, quick.Check(func(x []byte) bool { return check(string(x)) == nil }, seeded()))
+	})
+	t.Run("runes", func(t *testing.T) {
+		require.NoError(t, quick.Check(func(s string) bool { return check(s) == nil }, seeded()))
+	})
 }
 
 // TestFormatWideningsShowsEveryGrant renders widenings whose fields carry

@@ -13,17 +13,15 @@ const brailleBlank = 0x2800
 
 // displayText renders s for a person reading a terminal. Printable text,
 // including non-ASCII letters, stays as it is. Control, invisible and
-// reordering characters become visible escapes: C0 controls, DEL, C1
-// controls, non-ASCII spaces and separators, format characters such as
-// bidirectional overrides and zero-width characters, default-ignorable
-// characters, variation selectors, a combining mark that does not follow
-// a character printed as itself, and bytes that are not UTF-8. A backslash is escaped too, so
+// reordering characters become the escapes strconv.QuoteRuneToASCII
+// writes: C0 controls, DEL, C1 controls, non-ASCII spaces and separators,
+// format characters such as bidirectional overrides and zero-width
+// characters, default-ignorable characters, variation selectors, and a
+// combining mark that does not follow a character printed as itself.
+// Bytes that are not UTF-8 become \xNN. A backslash is escaped too, so
 // distinct strings render distinctly. Lookalike letters and right-to-left
 // letters are out of scope: they print as themselves.
 func displayText(s string) string {
-	if utf8.ValidString(s) && !needsEscape(s) {
-		return s
-	}
 	var b strings.Builder
 	// based is whether the last rune was printed as itself, so a combining
 	// mark has its own base and cannot draw over an escape.
@@ -34,40 +32,17 @@ func displayText(s string) string {
 		switch {
 		case r == utf8.RuneError && size == 1:
 			fmt.Fprintf(&b, `\x%02x`, s[i])
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case printable(r, !based):
+		case r != '\\' && printable(r, !based):
 			b.WriteRune(r)
 			raw = true
-		case r < 0x80:
-			fmt.Fprintf(&b, `\x%02x`, r)
-		case r <= 0xffff:
-			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
-			fmt.Fprintf(&b, `\U%08x`, r)
+			q := strconv.QuoteRuneToASCII(r)
+			b.WriteString(q[1 : len(q)-1])
 		}
 		based = raw
 		i += size
 	}
 	return b.String()
-}
-
-// needsEscape reports whether valid UTF-8 s holds a rune displayText escapes.
-// Every rune before the first such rune prints as itself, so only a mark
-// at the start lacks a base.
-func needsEscape(s string) bool {
-	for i, r := range s {
-		if r == '\\' || !printable(r, i == 0) {
-			return true
-		}
-	}
-	return false
 }
 
 // printable reports whether r draws as itself: a letter, mark, number,
