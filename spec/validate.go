@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -579,10 +578,9 @@ var configlessCapabilities = map[string]bool{
 // domain the phase cannot reach.
 func validateCapabilityBlock(d *Descriptor) error {
 	var errs ValidationErrors
-	ids := newIdentities()
 	checks := make([]*entryCheck, len(d.Capabilities))
 	for i, n := range d.Capabilities {
-		c := checkEntry(d.Kind, i, n, ids)
+		c := checkEntry(d.Kind, i, n)
 		checks[i] = &c
 		errs.add(c.errs.err())
 	}
@@ -607,7 +605,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		errs.add(fieldErrorf("capabilities", "%s is workload-only: a mixin's image config never becomes the composed image's, so the identity it would promise is not the one a host reads", CapabilitySbx))
 	}
 	seenSingleton := map[string]int{}
-	seenExact := map[int]int{}
+	seenExact := map[string]int{}
 	declared := declaredKeys{}
 	// Published descriptors can offer optional versions of one profile;
 	// selection decides which version survives before mixed-version checks.
@@ -625,14 +623,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string
 	newSessionAt, interactiveAt := -1, -1
-	var newSessionArgv, interactiveArgv int
 	// Both session capabilities enumerate the same sessions whichever
 	// mode opened them, so a Kit declaring list on both states one
 	// command. Compared on the decoded argv, so the string and list
 	// spellings of one command are equal.
 	var headlessList, interactiveList CommandLine
 	interactiveListAt := -1
-	var headlessListArgv, interactiveListArgv int
 	for i, c := range checks {
 		n := c.entry
 		path := fmt.Sprintf("capabilities[%d]", i)
@@ -753,12 +749,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 		}
 		switch n.Type {
 		case CapabilityAgentSessions:
-			headlessList, headlessListArgv = c.headlessList, c.argvs.headlessList
+			headlessList = c.headlessList
 		case CapabilityAgentInteractiveSessions:
-			newSession, newSessionAt, newSessionArgv = c.newSession, i, c.argvs.newSession
-			interactiveList, interactiveListAt, interactiveListArgv = c.interactiveList, i, c.argvs.interactiveList
+			newSession, newSessionAt = c.newSession, i
+			interactiveList, interactiveListAt = c.interactiveList, i
 		case CapabilityLifecycle:
-			interactive, interactiveAt, interactiveArgv = c.interactive, i, c.argvs.interactive
+			interactive, interactiveAt = c.interactive, i
 		}
 	}
 
@@ -780,13 +776,13 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck) error {
 	// tail included: newSession: [--tui] beside interactive: [] would
 	// launch two different ways. Composition makes the same comparison
 	// (see checkInteractiveAgreement) on the decoded asks.
-	if newSession != nil && interactive != nil && newSessionArgv != interactiveArgv {
+	if newSession != nil && interactive != nil && !slices.Equal(newSession, interactive) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.newSession", newSessionAt),
 			"capabilities[%d]: newSession %q disagrees with lifecycle interactive %q at capabilities[%d]; they name the same launch",
 			newSessionAt, newSession, interactive, interactiveAt))
 	}
 
-	if len(headlessList) > 0 && len(interactiveList) > 0 && headlessListArgv != interactiveListArgv {
+	if len(headlessList) > 0 && len(interactiveList) > 0 && !slices.Equal(headlessList, interactiveList) {
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.list", interactiveListAt),
 			"capabilities[%d]: list %q differs from agent-sessions list %q; both capabilities enumerate the same sessions, so they name one command",
 			interactiveListAt, []string(interactiveList), []string(headlessList)))
@@ -828,7 +824,7 @@ type entryCheck struct {
 
 	singleton bool
 	// surface is equal for identical entries.
-	surface int
+	surface string
 	// keys are the instance keys the entry's literal fields settle; agent
 	// and destination are the config values a repeat names.
 	keys               []entryKey
@@ -839,58 +835,25 @@ type entryCheck struct {
 	// the typed checks decoded the config.
 	newSession, interactive       []string
 	headlessList, interactiveList CommandLine
-	// argvs numbers each of them, so a block compares argvs by number.
-	argvs struct{ newSession, interactive, headlessList, interactiveList int }
 }
 
-// entryKey is an instance key numbered by identities, with the parts its
-// messages name.
+// entryKey is an instance key's identity, with the parts its messages
+// name.
 type entryKey struct {
-	id    int
-	parts []string
+	identity string
+	parts    []string
 }
 
-// identities numbers entry identities and instance keys, each computed
-// once per entry, so blocks compare small ints.
-type identities struct {
-	surfaces, keys, argvs map[string]int
-}
-
-func newIdentities() *identities {
-	return &identities{surfaces: map[string]int{}, keys: map[string]int{}, argvs: map[string]int{}}
-}
-
-// argv numbers an argv by its elements, so equal argvs share a number.
-// Each element is length-prefixed, so no two argvs share an encoding.
-func (t *identities) argv(argv []string) int {
-	var b strings.Builder
-	for _, s := range argv {
-		b.WriteString(strconv.Itoa(len(s)))
-		b.WriteByte(':')
-		b.WriteString(s)
-	}
-	return intern(t.argvs, b.String())
-}
-
-func intern(ids map[string]int, s string) int {
-	id, ok := ids[s]
-	if !ok {
-		id = len(ids)
-		ids[s] = id
-	}
-	return id
-}
-
-func (t *identities) instanceKeys(n Capability) []entryKey {
+func entryKeys(n Capability) []entryKey {
 	var keys []entryKey
 	for _, key := range literalInstanceKeys(n) {
-		keys = append(keys, entryKey{id: intern(t.keys, key.identity()), parts: key.Parts})
+		keys = append(keys, entryKey{identity: key.identity(), parts: key.Parts})
 	}
 	return keys
 }
 
 // checkEntry judges entry i of a declaration block on its own.
-func checkEntry(kind string, i int, n Capability, ids *identities) entryCheck {
+func checkEntry(kind string, i int, n Capability) entryCheck {
 	c := entryCheck{entry: n}
 	path := fmt.Sprintf("capabilities[%d]", i)
 	if _, keys := environmentReferences(n.Config); keys {
@@ -912,7 +875,7 @@ func checkEntry(kind string, i int, n Capability, ids *identities) entryCheck {
 		return c
 	}
 	c.singleton = singletonCapabilities[n.Type]
-	c.surface = intern(ids.surfaces, capabilitySurfaceEntry(n))
+	c.surface = capabilitySurfaceEntry(n)
 	// Presence, not emptiness: `config: {}` and `config: null` are
 	// config values, which these types' schemas (`not: {}`) reject,
 	// and neither is distinguishable from an omitted key by the
@@ -925,11 +888,11 @@ func checkEntry(kind string, i int, n Capability, ids *identities) entryCheck {
 	switch n.Type {
 	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort,
 		CapabilityAgentContext, CapabilityAgentContextV2:
-		c.keys = ids.instanceKeys(n)
+		c.keys = entryKeys(n)
 	case CapabilityACP:
-		c.keys, c.agent = ids.instanceKeys(n), n.Config["agent"]
+		c.keys, c.agent = entryKeys(n), n.Config["agent"]
 	case CapabilityVolume, CapabilityHostMount:
-		c.keys, c.destination = ids.instanceKeys(n), n.Config["path"]
+		c.keys, c.destination = entryKeys(n), n.Config["path"]
 	}
 
 	if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
@@ -971,8 +934,6 @@ func checkEntry(kind string, i int, n Capability, ids *identities) entryCheck {
 		return c
 	}
 	c.decodeFailed = !c.checkTyped(path, i, n)
-	c.argvs.newSession, c.argvs.interactive = ids.argv(c.newSession), ids.argv(c.interactive)
-	c.argvs.headlessList, c.argvs.interactiveList = ids.argv(c.headlessList), ids.argv(c.interactiveList)
 	return c
 }
 
@@ -1177,7 +1138,7 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 // stated, before parameterized entries defer, because a merge folds
 // entries together and would erase the evidence.
 type contextArity struct {
-	destinations   map[int]int
+	destinations   map[string]int
 	undirected     int
 	body           int
 	seenUndirected bool
@@ -1210,12 +1171,12 @@ func (a *contextArity) add(field string, i int, c *entryCheck) error {
 			continue
 		}
 		if a.destinations == nil {
-			a.destinations = map[int]int{}
+			a.destinations = map[string]int{}
 		}
-		if prev, dup := a.destinations[key.id]; dup {
+		if prev, dup := a.destinations[key.identity]; dup {
 			errs.add(fieldErrorf(field+".config.directory", "capabilities[%d]: agent-context profile %s already declared at capabilities[%d]", i, key.parts[0], prev))
 		} else {
-			a.destinations[key.id] = i
+			a.destinations[key.identity] = i
 		}
 	}
 	return errs.err()
@@ -1226,21 +1187,20 @@ func (a *contextArity) add(field string, i int, c *entryCheck) error {
 type declaredKeys map[declaredKey]int
 
 type declaredKey struct {
-	typ string
-	id  int
+	typ, identity string
 }
 
 // add records entry i as asking for key and reports the entry that asked
 // for it before, if any.
 func (d declaredKeys) add(typ string, key entryKey, i int) (prev int, dup bool) {
 	prev, dup = d.at(typ, key)
-	d[declaredKey{typ, key.id}] = i
+	d[declaredKey{typ, key.identity}] = i
 	return prev, dup
 }
 
 // at reports the entry of type typ that last asked for key, if any.
 func (d declaredKeys) at(typ string, key entryKey) (int, bool) {
-	i, dup := d[declaredKey{typ, key.id}]
+	i, dup := d[declaredKey{typ, key.identity}]
 	return i, dup
 }
 

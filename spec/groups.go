@@ -243,7 +243,6 @@ func validateCapabilityEntries(d *Descriptor) error {
 	// Each entry is judged once, however many blocks it joins: its group
 	// and its blocks compare only what that judgment found, so a large
 	// config costs the same in one block as in many.
-	ids := newIdentities()
 	type block struct {
 		members []Capability
 		checks  []*entryCheck
@@ -273,7 +272,7 @@ func validateCapabilityEntries(d *Descriptor) error {
 			for j, member := range c.Group.Capabilities {
 				// Judged as a block's first entry, then remapped to its
 				// own path alone.
-				check := checkEntry(d.Kind, 0, member, ids)
+				check := checkEntry(d.Kind, 0, member)
 				memberChecks[j] = &check
 				memberPaths[j] = fmt.Sprintf("%s.group.capabilities[%d]", at, j)
 			}
@@ -303,7 +302,7 @@ func validateCapabilityEntries(d *Descriptor) error {
 			// An entry in no block, such as one whose every block id is
 			// refused, is not judged, as before.
 			if len(joined) > 0 {
-				check := checkEntry(d.Kind, i, c, ids)
+				check := checkEntry(d.Kind, i, c)
 				errs.add(check.errs.err())
 				for _, id := range joined {
 					addBlock(id, c, &check, at)
