@@ -584,7 +584,7 @@ func validateCapabilityBlock(d *Descriptor) error {
 		checks[i] = &c
 		errs.add(c.errs.err())
 	}
-	errs.add(compareCapabilityBlock(d, checks, nil))
+	errs.add(compareCapabilityBlock(d, checks, pairReports{}))
 	return errs.err()
 }
 
@@ -1198,8 +1198,7 @@ func (a *contextArity) add(field string, i int, checks []*entryCheck, reported p
 
 // pairReports remembers the cross-entry findings one validation has
 // reported, so two entries that meet in many declaration blocks are
-// reported once rather than once per block. A nil set reports every
-// finding: a lone block meets each pair once.
+// reported once rather than once per block.
 type pairReports map[pairReport]bool
 
 // pairReport is one finding: a rule, the entry it is reported at, the
@@ -1232,9 +1231,6 @@ const noKey = ""
 // first reports whether a finding is new, and records it, so the caller
 // builds each message once.
 func (r pairReports) first(rule string, at, with *entryCheck, key string) bool {
-	if r == nil {
-		return true
-	}
 	report := pairReport{rule: rule, at: at, with: with, key: key}
 	if r[report] {
 		return false

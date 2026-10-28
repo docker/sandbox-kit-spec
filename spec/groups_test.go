@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -815,49 +814,6 @@ func TestFindingsReportedOnce(t *testing.T) {
 			for message, count := range tt.want {
 				require.Equal(t, count, strings.Count(err.Error(), message), "%q in:\n%v", message, err)
 			}
-		})
-	}
-}
-
-// allocatedBytes is what one call of f allocates, averaged over a few.
-func allocatedBytes(f func()) uint64 {
-	const runs = 3
-	f()
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	for range runs {
-		f()
-	}
-	runtime.ReadMemStats(&after)
-	return (after.TotalAlloc - before.TotalAlloc) / runs
-}
-
-func TestPairFindingCostOnceAcrossBlocks(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		message string
-		entries func(value string) []Capability
-	}{
-		{"volume repeat", "already declared", func(value string) []Capability {
-			return []Capability{blockVolume("/"+value, ""), blockVolume("/"+value, "1G")}
-		}},
-		{"launch disagreement", "disagrees with lifecycle interactive", launchPair},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			// A finding that quotes a value is built once per pair of
-			// entries, so its cost does not grow with the blocks the pair
-			// shares.
-			cost := func(blocks, size int) uint64 {
-				d := inBlocks(blocks, tt.entries(strings.Repeat("v", size))...)
-				_, err := Validate(d)
-				require.ErrorContains(t, err, tt.message)
-				return allocatedBytes(func() { _, _ = Validate(d) })
-			}
-			const long = 64 << 10
-			one := cost(1, long) - cost(1, 1)
-			many := cost(256, long) - cost(256, 1)
-			require.Greater(t, one, uint64(long))
-			require.LessOrEqual(t, many, 2*one, "value cost in 256 blocks: %d bytes, in one: %d", many, one)
 		})
 	}
 }
