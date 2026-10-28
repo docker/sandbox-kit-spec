@@ -66,11 +66,16 @@ func TestDisplayText(t *testing.T) {
 			require.Equal(t, fmt.Sprintf(`/a\u%04xb`, tc.r), displayText("/a"+string(tc.r)+"b"))
 		})
 	}
-	acute := string(rune(0x0301))
+	acute, diaeresis := string(rune(0x0301)), string(rune(0x0308))
 	for _, tc := range []struct{ name, in, want string }{
 		{"variation selector supplement", "/a" + string(rune(0xe0100)), `/a\U000e0100`},
 		{"leading combining mark", acute + "a", `\u0301a`},
 		{"combining mark on a base", "e" + acute, "e" + acute},
+		{"marks on a base", "e" + acute + diaeresis, "e" + acute + diaeresis},
+		{"consecutive leading marks", acute + diaeresis + "api.example.com", `\u0301\u0308api.example.com`},
+		{"mark after a control", "/a\x1b" + acute, `/a\x1b\u0301`},
+		{"mark after a backslash", `/a\` + acute, `/a\\\u0301`},
+		{"mark after an escaped format character", "/a" + string(rune(0x200b)) + acute, `/a\u200b\u0301`},
 		{"replacement character", "/a" + string(utf8.RuneError), "/a" + string(utf8.RuneError)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
