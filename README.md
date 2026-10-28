@@ -312,11 +312,22 @@ sbx run ./hello --kit ./gh .
 ```
 
 Edit `hello/hello.yaml` (say, add an allow entry) and re-run: only hello
-rebuilds; unchanged Kits reuse the cache. `SBX_KIT_BUILDER=sandbox` moves
-these builds into a dedicated builder sandbox (`sbx kit builder status`
-shows it) instead of the host engine. Created with
-`--kit-arg buildkitExpose=true`, that sandbox also publishes BuildKit so
-the host's own `docker buildx` can attach to it:
+rebuilds; unchanged Kits reuse the cache. Recipe-based local builds use
+host Docker Buildx when Docker is available, otherwise a dedicated
+builder sandbox. Declaration-only mixins need neither backend.
+`SBX_KIT_BUILDER=host` or `SBX_KIT_BUILDER=sandbox` selects one explicitly.
+`sbx kit builder status`, history, and removal describe only the sandbox
+backend; removing it does not reclaim the host builder's cache.
+
+The host builder needs OCI export support. If a local source build or
+`sbx kit inspect ./hello` fails because the selected builder cannot export
+OCI, use `SBX_KIT_BUILDER=sandbox`, or create the container builder below
+and select it with `BUILDX_BUILDER=kit-builder`. The `docker` driver can
+support OCI export with the containerd image store; the classic image
+store does not provide the same exporter support.
+
+Created with `--kit-arg buildkitExpose=true`, the builder sandbox also
+publishes BuildKit so the host's own `docker buildx` can attach to it:
 
 ```sh
 # After the builder sandbox is up, read the published buildkit port from
@@ -341,9 +352,22 @@ to share, step 3's `task kit:push` is the whole publishing story.
 
 ## Building a Kit
 
+Create a named container builder once, then select it explicitly for Kit
+exports and publication:
+
 ```sh
-docker buildx build . -f claude.yaml -t docker.io/me/claude-kit:2.1.0
+docker buildx create --name kit-builder --driver docker-container --bootstrap
+docker buildx build --builder kit-builder . -f claude.yaml \
+  -t docker.io/me/claude-kit:2.1.0 \
+  --output type=oci,dest=/tmp/claude-kit-layout,tar=false
 ```
+
+The descriptor lives in manifest annotations. A push through the `docker`
+driver with the classic image store can discard those annotations and
+publish an image consumers cannot recognize as a Kit. The container
+builder avoids that store round trip. A successful build or push alone
+is not proof the exported artifact retained its descriptor; validate the
+OCI layout with `kit-tck validate --layout /tmp/claude-kit-layout 2.1.0`.
 
 A workload Kit's companion must build on a base that provides the runtime's
 platform floor — bash, the `agent` user (uid 1000), git, a CA store — which
@@ -370,7 +394,8 @@ Build-phase args are passed by their Kit-arg name and validated before the
 Dockerfile sees them under the declared `buildArg` name:
 
 ```sh
-docker buildx build . -f gh.yaml --build-arg version=2.99.0 -t gh-kit:2.99.0
+docker buildx build --builder kit-builder . -f gh.yaml \
+  --build-arg version=2.99.0 -t gh-kit:2.99.0 --output type=cacheonly
 ```
 
 ## Publishing a set as one Kit
@@ -422,9 +447,28 @@ Multi-platform builds produce an image index with the descriptor annotation
 on every platform manifest:
 
 ```sh
-docker buildx build . -f claude.yaml --platform linux/amd64,linux/arm64 --push \
+docker buildx build --builder kit-builder . -f claude.yaml \
+  --platform linux/amd64,linux/arm64 --provenance=mode=min --push \
   -t docker.io/me/claude-kit:2.1.0
+kit-tck validate docker.io/me/claude-kit:2.1.0
 ```
+
+Validate after publication too: the frontend's build-time checks cannot
+see metadata lost by an exporter or registry. From this repository,
+`task tck:kit REF=docker.io/me/claude-kit:2.1.0` runs the same artifact
+checks.
+
+The frontend also copies annotations onto the image index for
+multi-platform builds and explicit provenance. Single-platform builds
+with Buildx's default provenance can produce an unannotated index: the
+frontend cannot tell whether the selected exporter will retain that
+attestation. Request `--provenance=mode=min` explicitly when index
+annotations are wanted. Index annotations are an optimization; their
+absence does not invalidate a Kit whose platform
+manifest carries the descriptor. Consumers fall back to that manifest,
+as [SPEC-v3 §9.3](docs/spec/SPEC-v3.md#93-annotations) requires. An OCI
+layout's outer `index.json` catalog is separate from the image index
+referenced inside it.
 
 ## The frontend image
 
@@ -433,11 +477,13 @@ docker buildx build . -f claude.yaml --platform linux/amd64,linux/arm64 --push \
 Docker Hub, which BuildKit pulls and caches on the first build that names
 it.
 
-Every release also publishes its exact version — `docker/sandbox-kit:3.0.0-m.3`
-— which is what a build names when it must resolve the same frontend
-every time. The floating `3` moves only when a stable `3.X.Y` is
-released, never for a milestone, so until v3 has one the two tags can
-name different builds.
+Every release also publishes its exact version, such as
+`docker/sandbox-kit:3.0.0-m.11`. Before the first stable v3 release,
+maintainers may explicitly promote a milestone to floating `:3`;
+milestone release workflows do not promote it automatically. Once stable
+v3 releases begin, `:3` tracks the highest stable `3.X.Y`. Pin a release
+tag to control frontend upgrades, or a digest to pin exact content.
+See [RELEASES.md](RELEASES.md#frontend-image) for the promotion policy.
 
 Building it yourself is for working on the frontend, not for using it. An
 image under that tag in the local store is what a local build resolves,

@@ -13,7 +13,7 @@ to change. Schema-3 frontend releases and the Go module major share the
 | Module / schema-3 release | git tags `v3.X.Y` (+ Hub `docker/sandbox-kit:3.X.Y`) | A publish of the Go packages (`spec`, `resolve`, `assemble`, `fetch`, `tck`), the schema-3 BuildKit frontend, and `kit-tck` binaries |
 | Schema version | `spec.SchemaVersion`, the descriptor's `schemaVersion: "3"` | The descriptor grammar changes shape incompatibly |
 | Capability version | the `@N` in `com.docker.sandbox/<name>@N` | That capability's config schema or observable behavior changes after it has shipped, subject to the draft-stage exception below |
-| Frontend floating tag | `docker/sandbox-kit:3` | Tracks the highest stable schema-3 frontend release |
+| Frontend floating tag | `docker/sandbox-kit:3` | Before stable v3, an explicitly promoted milestone; after stable v3 begins, the highest stable schema-3 frontend release |
 
 A kit's own `version:` and its `provides` entries are a further axis, but
 they belong to kit authors rather than to this repository;
@@ -32,8 +32,9 @@ Tag when the Go packages (and the matching frontend / `kit-tck` release)
 should be consumable at a new version:
 `git tag -a v3.X.Y && git push origin v3.X.Y`. Prefer annotated tags.
 Pre-release suffixes (`v3.0.0-m.2`, `v3.0.0-rc.1`) are valid module
-versions and trigger the release workflow without moving floating Hub
-`:3`.
+versions and trigger the release workflow without automatically moving
+floating Hub `:3`. Before the first stable v3 release, maintainers may
+explicitly promote a milestone as described below.
 
 ## Frontend Go module
 
@@ -139,11 +140,18 @@ publishes `docker/sandbox-kit:3.X.Y` and, when that tag is the highest
 stable `v3.*.*` on the remote, also moves floating `docker/sandbox-kit:3`.
 Main commits publish `docker/sandbox-kit:<short-sha>` only.
 
+Before the first stable v3 release, maintainers may explicitly promote a
+milestone frontend to `:3` so the examples' syntax reference can use the
+current draft. Milestone release workflows do not do this automatically.
+Once stable v3 releases begin, `:3` tracks the highest stable release;
+pre-releases do not replace it. Pin a release tag for controlled upgrades
+or a digest for exact content.
+
 To publish by hand:
 
 ```sh
 FRONTEND_PUSH_OK=1 task frontend:push FRONTEND_VERSION=3.0.0
-# also move floating :3 (only when this is the intended tip):
+# also move floating :3 (subject to the promotion policy above):
 FRONTEND_PUSH_OK=1 FRONTEND_PROMOTE_MAJOR=1 \
   task frontend:push FRONTEND_VERSION=3.0.0
 ```
@@ -152,8 +160,10 @@ FRONTEND_PUSH_OK=1 FRONTEND_PROMOTE_MAJOR=1 \
 syntax references descriptors resolve, so publishing is never one
 forgotten flag away. Kits name the floating major in their `# syntax=`
 line, so `:3` must keep building every descriptor of that generation —
-rebuild and promote it whenever the grammar gains something kits may
-use, and never repoint it at a frontend that would reject an older v3
+rebuild and promote it under the policy above when Kits need a newer
+frontend. During the draft, consumers need a matching draft frontend;
+the approved compatibility exceptions are recorded above. After stable
+v3 begins, never repoint it at a frontend that would reject an older v3
 descriptor.
 
 ## Build stamps

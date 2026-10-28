@@ -5,9 +5,9 @@ on:
     branches: [main]
 
 # Build and push the BuildKit frontend on every main commit as
-# docker/sandbox-kit:<short-sha>. Does not move floating :3 — that is
-# only the stable v3.y.z release path. Hub OIDC is required; set
-# DOCKERHUB_ORGANIZATION and DOCKERHUB_OIDC_CONNECTIONID.
+# docker/sandbox-kit:<short-sha>. Automatic :3 promotion belongs to the
+# stable v3.y.z release path; explicit pre-stable promotion is in RELEASES.md.
+# Hub OIDC requires DOCKERHUB_ORGANIZATION and DOCKERHUB_OIDC_CONNECTIONID.
 permissions:
   contents: read
 
