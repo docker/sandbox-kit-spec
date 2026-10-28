@@ -60,7 +60,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	oras.land/oras-go/v2 v2.6.3 // indirect
+	oras.land/oras-go/v2 v2.6.4 // indirect
 )
 
 // containerd still requires v0.17.3, which has CVE-2026-10722. Replace all
