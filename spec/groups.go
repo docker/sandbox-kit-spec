@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -240,18 +241,25 @@ func validateCapabilityEntries(d *Descriptor) error {
 		return validateCapabilityBlock(d)
 	}
 	var errs ValidationErrors
+	// Each entry is judged once, however many blocks it joins: its group
+	// and its blocks compare only what that judgment found, so a large
+	// config costs the same in one block as in many.
+	// Two entries that meet in many blocks are reported once.
+	reported := pairReports{}
 	type block struct {
 		members []Capability
+		checks  []*entryCheck
 		paths   []string
 	}
 	blocks := map[string]*block{}
 	var blockOrder []string
-	addBlock := func(id string, member Capability, path string) {
+	addBlock := func(id string, member Capability, check *entryCheck, path string) {
 		if blocks[id] == nil {
 			blocks[id] = &block{}
 			blockOrder = append(blockOrder, id)
 		}
 		blocks[id].members = append(blocks[id].members, member)
+		blocks[id].checks = append(blocks[id].checks, check)
 		blocks[id].paths = append(blocks[id].paths, path)
 	}
 	for i, c := range d.Capabilities {
@@ -259,6 +267,20 @@ func validateCapabilityEntries(d *Descriptor) error {
 		if c.Source != nil && c.Source.Path == "" {
 			errs.add(fieldErrorf(at+".source", "path is required"))
 		}
+		var memberChecks []*entryCheck
+		var memberPaths []string
+		if c.Group != nil {
+			memberChecks = make([]*entryCheck, len(c.Group.Capabilities))
+			memberPaths = make([]string, len(c.Group.Capabilities))
+			for j, member := range c.Group.Capabilities {
+				// Judged as a block's first entry, then remapped to its
+				// own path alone.
+				check := checkEntry(d.Kind, 0, member)
+				memberChecks[j] = &check
+				memberPaths[j] = fmt.Sprintf("%s.group.capabilities[%d]", at, j)
+			}
+		}
+		var joined []string
 		seenBlocks := map[string]bool{}
 		for j, id := range c.DeclarationBlocks {
 			if id == "" || seenBlocks[id] {
@@ -266,24 +288,32 @@ func validateCapabilityEntries(d *Descriptor) error {
 				continue
 			}
 			seenBlocks[id] = true
-			member, path := c, at
 			if c.Group != nil {
 				if len(c.Group.Capabilities) != 1 {
 					errs.add(fieldErrorf(at+".declarationBlocks", "only ordinary entries and one-member groups may carry declaration blocks"))
 					continue
 				}
-				member, path = c.Group.Capabilities[0], at+".group.capabilities[0]"
+				addBlock(id, c.Group.Capabilities[0], memberChecks[0], memberPaths[0])
+				continue
 			}
-			addBlock(id, member, path)
-		}
-		if c.Group == nil && !c.groupSet {
-			if len(c.DeclarationBlocks) == 0 {
-				addBlock("", c, at)
-			}
-			continue
+			joined = append(joined, id)
 		}
 		if c.Group == nil {
-			errs.add(fieldErrorf(at+".group", "group must be an object"))
+			if !c.groupSet && len(c.DeclarationBlocks) == 0 {
+				joined = append(joined, "")
+			}
+			// An entry in no block, such as one whose every block id is
+			// refused, is not judged, as before.
+			if len(joined) > 0 {
+				check := checkEntry(d.Kind, i, c)
+				errs.add(check.errs.err())
+				for _, id := range joined {
+					addBlock(id, c, &check, at)
+				}
+			}
+			if c.groupSet {
+				errs.add(fieldErrorf(at+".group", "group must be an object"))
+			}
 			continue
 		}
 		if c.Type != "" || c.Name != "" || c.Description != "" || c.Optional || c.optionalSet || c.ConfigStated() {
@@ -295,9 +325,7 @@ func validateCapabilityEntries(d *Descriptor) error {
 		cp := *d
 		cp.declarationsOnly = true
 		cp.Capabilities = c.Group.Capabilities
-		memberPaths := make([]string, len(cp.Capabilities))
 		for j, member := range cp.Capabilities {
-			memberPaths[j] = fmt.Sprintf("%s.group.capabilities[%d]", at, j)
 			if member.Group != nil || member.groupSet {
 				errs.add(fieldErrorf(memberPaths[j], "nested groups are not permitted"))
 			}
@@ -308,13 +336,16 @@ func validateCapabilityEntries(d *Descriptor) error {
 				errs.add(fieldErrorf(memberPaths[j]+".optional", "group members must not state optional"))
 			}
 		}
-		errs.add(remapCapabilityErrors(validateCapabilityBlock(&cp), memberPaths))
+		for j, check := range memberChecks {
+			errs.add(remapCapabilityErrors(check.errs.err(), memberPaths[j:j+1]))
+		}
+		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, memberChecks, reported), memberPaths))
 	}
 	for _, id := range blockOrder {
 		cp := *d
 		cp.Capabilities = blocks[id].members
 		cp.declarationsOnly = true
-		errs.add(remapCapabilityErrors(validateCapabilityBlock(&cp), blocks[id].paths))
+		errs.add(remapCapabilityErrors(compareCapabilityBlock(&cp, blocks[id].checks, reported), blocks[id].paths))
 	}
 	return errs.err()
 }
@@ -323,28 +354,47 @@ func remapCapabilityErrors(err error, paths []string) error {
 	if err == nil {
 		return nil
 	}
+	// One replacer serves every error from the block, so remapping costs
+	// the errors plus the paths, not their product.
+	replacements := make([]string, 0, 2*len(paths))
+	for i, to := range paths {
+		replacements = append(replacements, fmt.Sprintf("capabilities[%d]", i), to)
+	}
+	return remapWith(err, paths, strings.NewReplacer(replacements...))
+}
+
+func remapWith(err error, paths []string, replacer *strings.Replacer) error {
 	if all, ok := err.(ValidationErrors); ok {
 		out := make(ValidationErrors, len(all))
 		for i, e := range all {
-			out[i] = remapCapabilityErrors(e, paths)
+			out[i] = remapWith(e, paths, replacer)
 		}
 		return out
 	}
 	if field, ok := err.(*FieldError); ok {
-		replacements := make([]string, 0, 2*len(paths))
-		for i, to := range paths {
-			replacements = append(replacements, fmt.Sprintf("capabilities[%d]", i), to)
-		}
-		for i, to := range paths {
-			from := fmt.Sprintf("capabilities[%d]", i)
-			if field.Path == from || strings.HasPrefix(field.Path, from+".") {
-				return &FieldError{Path: to + strings.TrimPrefix(field.Path, from), err: &capabilityPathError{
-					cause: field.err, paths: strings.NewReplacer(replacements...),
-				}}
-			}
+		if i, rest, ok := capabilityIndex(field.Path); ok && i < len(paths) {
+			return &FieldError{Path: paths[i] + rest, err: &capabilityPathError{cause: field.err, paths: replacer}}
 		}
 	}
 	return err
+}
+
+// capabilityIndex reads the entry index a block-local path starts with,
+// "capabilities[i]" alone or followed by a field.
+func capabilityIndex(path string) (int, string, bool) {
+	rest, ok := strings.CutPrefix(path, "capabilities[")
+	if !ok {
+		return 0, "", false
+	}
+	digits, rest, ok := strings.Cut(rest, "]")
+	if !ok || digits == "" || (rest != "" && !strings.HasPrefix(rest, ".")) {
+		return 0, "", false
+	}
+	i, err := strconv.Atoi(digits)
+	if err != nil || i < 0 || strconv.Itoa(i) != digits {
+		return 0, "", false
+	}
+	return i, rest, true
 }
 
 // Remap every referenced index in one pass, including the other side of a

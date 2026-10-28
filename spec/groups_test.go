@@ -707,3 +707,156 @@ func TestEffectiveCapabilitiesOmitDeclarationBlocks(t *testing.T) {
 	_, err = ValidateEffective(raw, d)
 	require.NoError(t, err)
 }
+
+// inBlocks declares each entry in the same blocks declaration blocks.
+func inBlocks(blocks int, entries ...Capability) *Descriptor {
+	ids := make([]string, blocks)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("b%d", i)
+	}
+	d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin}
+	for _, c := range entries {
+		c.DeclarationBlocks = ids
+		d.Capabilities = append(d.Capabilities, c)
+	}
+	return d
+}
+
+func acpWithEnv(vars int) Capability {
+	env := make(map[string]any, vars)
+	for i := range vars {
+		env[fmt.Sprintf("K%d", i)] = strings.Repeat("v", 40)
+	}
+	return Capability{Type: CapabilityACP, Config: map[string]any{"agent": "codex", "command": []any{"codex-acp"}, "env": env}}
+}
+
+func TestEntryConfigReadOnceAcrossBlocks(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		validate func(raw []byte, d *Descriptor) ([]string, error)
+	}{
+		{"validate", func(_ []byte, d *Descriptor) ([]string, error) { return Validate(d) }},
+		{"published", ValidatePublished},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// What a config's size costs is paid once per entry, not once
+			// per block the entry joins.
+			allocs := func(blocks, vars int) float64 {
+				d := inBlocks(blocks, acpWithEnv(vars))
+				raw, err := json.Marshal(d)
+				require.NoError(t, err)
+				_, err = tt.validate(raw, d)
+				require.NoError(t, err)
+				return testing.AllocsPerRun(3, func() { _, _ = tt.validate(raw, d) })
+			}
+			one := allocs(1, 500) - allocs(1, 1)
+			many := allocs(256, 500) - allocs(256, 1)
+			require.Positive(t, one)
+			require.LessOrEqual(t, many, 2*one, "config cost in 256 blocks: %.0f allocations, in one: %.0f", many, one)
+		})
+	}
+}
+
+func blockVolume(path, size string) Capability {
+	config := map[string]any{"path": path}
+	if size != "" {
+		config["size"] = size
+	}
+	return Capability{Type: CapabilityVolume, Config: config}
+}
+
+// launchPair is an agent-interactive-sessions entry whose newSession
+// disagrees with lifecycle's interactive tail.
+func launchPair(newSession string) []Capability {
+	return []Capability{
+		{Type: CapabilityAgentInteractiveSessions, Config: map[string]any{"newSession": []any{newSession}}},
+		{Type: CapabilityLifecycle, Config: map[string]any{"interactive": []any{"--other"}}},
+	}
+}
+
+// Every finding is reported once: an entry's own error, and a refusal
+// naming two entries, however many blocks the entries share.
+func TestFindingsReportedOnce(t *testing.T) {
+	volume := blockVolume
+	inBlock := func(c Capability, ids ...string) Capability {
+		c.DeclarationBlocks = ids
+		return c
+	}
+	bogus := acpWithEnv(1)
+	bogus.Config["bogus"] = true
+	oneMember := func(c Capability) Capability {
+		return Capability{DeclarationBlocks: []string{"b0", "b1", "b2"}, Group: &CapabilityGroup{Capabilities: []Capability{c}}}
+	}
+	for _, tt := range []struct {
+		name string
+		d    *Descriptor
+		// want counts each message's occurrences.
+		want map[string]int
+	}{
+		{"own error in every block", inBlocks(8, bogus), map[string]int{`capabilities[0].config.bogus: capabilities[0]:`: 1}},
+		{"own error of a one-member group", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{oneMember(volume("relative", ""))}},
+			map[string]int{"capabilities[0].group.capabilities[0]: volume path": 1}},
+		{"identical entries in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "")), map[string]int{"identical to capabilities[0]": 1}},
+		{"repeated key in every block", inBlocks(8, volume("/cache", ""), volume("/cache", "1G")), map[string]int{"already declared at capabilities[0]": 1}},
+		{"identical invalid entries", inBlocks(4, volume("relative", ""), volume("relative", "")),
+			map[string]int{"capabilities[0]: volume path": 1, "capabilities[1]: volume path": 1, "identical to capabilities[0]": 1}},
+		{"disagreeing launch in every block", inBlocks(8, launchPair("--tui")...), map[string]int{"disagrees with lifecycle interactive": 1}},
+		{"one entry meeting two others", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
+			inBlock(volume("/cache", ""), "b0", "b1"), inBlock(volume("/cache", "1G"), "b0"), inBlock(volume("/cache", "2G"), "b1"),
+		}}, map[string]int{"capabilities[1].config.path: capabilities[1]: volume for \"/cache\" already declared at capabilities[0]": 1,
+			"capabilities[2].config.path: capabilities[2]: volume for \"/cache\" already declared at capabilities[0]": 1}},
+		{"undeclared blocks", &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{bogus, bogus}},
+			map[string]int{`capabilities[0].config.bogus`: 1, `capabilities[1].config.bogus`: 1, "identical to capabilities[0]": 1}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Validate(tt.d)
+			require.Error(t, err)
+			for message, count := range tt.want {
+				require.Equal(t, count, strings.Count(err.Error(), message), "%q in:\n%v", message, err)
+			}
+		})
+	}
+}
+
+func TestRemapCostGrowsWithErrors(t *testing.T) {
+	// Every repeat of a singleton in one block is an error naming two
+	// entries, so remapping touches each error and each path once.
+	allocs := func(entries int) float64 {
+		d := &Descriptor{Kind: KindMixin}
+		for range entries {
+			d.Capabilities = append(d.Capabilities, Capability{Type: CapabilityPrivileged, DeclarationBlocks: []string{"b"}})
+		}
+		_, err := Validate(d)
+		require.ErrorContains(t, err, "already declared")
+		return testing.AllocsPerRun(3, func() { _, _ = Validate(d) })
+	}
+	small, large := allocs(64), allocs(512)
+	require.LessOrEqual(t, large, 12*small, "512 entries: %.0f allocations, 64: %.0f", large, small)
+}
+
+func TestCapabilityIndex(t *testing.T) {
+	for _, tt := range []struct {
+		path string
+		i    int
+		rest string
+		ok   bool
+	}{
+		{"capabilities[0]", 0, "", true},
+		{"capabilities[12].config.path", 12, ".config.path", true},
+		{"capabilities[1]x", 0, "", false},
+		{"capabilities[01]", 0, "", false},
+		{"capabilities[]", 0, "", false},
+		{"capabilities[-1]", 0, "", false},
+		{"capabilities[1", 0, "", false},
+		{"kits[0]", 0, "", false},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			i, rest, ok := capabilityIndex(tt.path)
+			require.Equal(t, tt.ok, ok)
+			if ok {
+				require.Equal(t, tt.i, i)
+				require.Equal(t, tt.rest, rest)
+			}
+		})
+	}
+}
