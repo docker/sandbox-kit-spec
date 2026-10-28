@@ -3,6 +3,7 @@ name: Scorecards supply-chain security
 permissions: {}
 
 on:
+  workflow_dispatch:
   branch_protection_rule:
   schedule:
     - cron: '44 9 * * 4'
