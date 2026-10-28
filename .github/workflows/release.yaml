@@ -100,7 +100,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           promote=
-          # Floating :3 only when this stable tag is the highest v3.X.Y on
+          # Automatically promote :3 only when this stable tag is the highest v3.X.Y on
           # the remote — reruns of older stables must not regress it.
           if printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             highest=$(git tag -l 'v3.*.*' \

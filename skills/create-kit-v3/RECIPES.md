@@ -154,10 +154,13 @@ not to the tool's own tree.
 
 A build proves the recipe ran. It does not prove the overlay works.
 
+Select the named `kit-builder` container builder created in
+[Build, run, verify](SKILL.md#build-run-verify).
+
 **Judge the exported layout with `kit-tck`:**
 
 ```sh
-docker buildx build . -f <kit>.yaml -t <kit>:<version> \
+docker buildx build --builder kit-builder . -f <kit>.yaml -t <kit>:<version> \
   --output type=oci,dest=/tmp/layout,tar=false
 kit-tck validate --layout /tmp/layout <version>
 ```
@@ -211,7 +214,7 @@ There is a faster filesystem-only shortcut, but know what it does **not** do
 before trusting it:
 
 ```sh
-docker buildx build . -f <kit>.yaml -t <kit>-test:local --load
+docker buildx build --builder kit-builder . -f <kit>.yaml -t <kit>-test:local --load
 printf 'FROM <the workload base>\nCOPY --from=<kit>-test:local / /\n' \
   | docker build -t compose-test -
 docker run --rm --user 1000:1000 compose-test sh -lc 'tool --version'

@@ -152,12 +152,25 @@ subtractions and the overlay recipe patterns.
 
 ### 4. Validate the descriptor
 
+Create a named container builder once; the commands below select it
+explicitly:
+
+```sh
+docker buildx create --name kit-builder --driver docker-container --bootstrap
+```
+
+A publication through the `docker` driver with the classic image store
+can discard the descriptor's manifest annotation. OCI export support
+also depends on the image store. Use the container builder for exports
+and publication, then validate the artifact that actually left it.
+
 The frontend decodes and validates the descriptor **before** it builds any
 content, so an export-less build is the fast loop *while the descriptor is
 wrong*:
 
 ```sh
-cd <kit> && docker buildx build . -f <kit>.yaml --output type=cacheonly
+cd <kit> && docker buildx build --builder kit-builder . \
+  -f <kit>.yaml --output type=cacheonly
 ```
 
 A malformed descriptor fails in about a second, naming the offending field and
@@ -172,7 +185,8 @@ Pass build-phase args by the **kit's** arg name, not the `buildArg` name the
 recipe sees, and supply anything declared `required` or validation fails:
 
 ```sh
-docker buildx build . -f <kit>.yaml --build-arg version=2.99.0 --output type=cacheonly
+docker buildx build --builder kit-builder . -f <kit>.yaml \
+  --build-arg version=2.99.0 --output type=cacheonly
 ```
 
 Because the recipe is solved too, a bad `FROM` or `COPY --from` surfaces here
@@ -184,7 +198,7 @@ Swap the export for `--load` to put an ordinary tagged image in the local
 store:
 
 ```sh
-docker buildx build . -f <kit>.yaml -t <kit>-kit:<tag> --load
+docker buildx build --builder kit-builder . -f <kit>.yaml -t <kit>-kit:<tag> --load
 ```
 
 `--load` is not optional on the `docker-container` driver, which is what
@@ -195,7 +209,7 @@ To judge the artifact with `kit-tck` without a registry, export an OCI layout
 directory instead:
 
 ```sh
-docker buildx build . -f <kit>.yaml -t <kit>-kit:<tag> \
+docker buildx build --builder kit-builder . -f <kit>.yaml -t <kit>-kit:<tag> \
   --output type=oci,dest=/tmp/<kit>-layout,tar=false
 ```
 
@@ -235,9 +249,15 @@ install hooks left what they should, confirm a declared volume is writable by
 
 `sbx kit inspect ./<kit>` builds the source kit and prints its resolved
 declarations (kind, network counts, credentials, args) without starting a
-sandbox. Add `--kit-arg` to preview how args resolve. The first source build
-creates the shared builder sandbox and is slow; `sbx kit builder status` shows
-it and `sbx kit builder rm` reclaims the cache.
+workload sandbox. Add `--kit-arg` to preview how args resolve. Recipe-based
+local builds use host Docker Buildx when Docker is available, otherwise
+the shared builder sandbox. The host builder needs OCI export support;
+select the named container builder with
+`BUILDX_BUILDER=kit-builder sbx kit inspect ./<kit>`, or require the
+sandbox backend with `SBX_KIT_BUILDER=sandbox`.
+`SBX_KIT_BUILDER=host` requires the host backend. Declaration-only mixins
+need neither. `sbx kit builder status`, history, and removal describe only
+the sandbox backend; removing it does not clear host-builder caches.
 
 For the published path instead of the local loop, push the kit as an ordinary
 image and run it by reference — a kit image that only exists in the local
@@ -245,7 +265,7 @@ Docker store cannot run, because the runtime resolves kit images from
 registries:
 
 ```sh
-docker buildx build . -f <kit>.yaml --push -t docker.io/<you>/sbx-kit-<kit>:<tag> \
+docker buildx build --builder kit-builder . -f <kit>.yaml --push -t docker.io/<you>/sbx-kit-<kit>:<tag> \
   --platform linux/amd64,linux/arm64 --provenance=true
 sbx run docker.io/<you>/sbx-kit-<kit>:<tag> .
 ```
@@ -273,7 +293,9 @@ A published kit built on a **multi-node** builder warns that the index carries
 no kit annotations. That is expected, not a defect: a multi-node build merges
 per-node results into a fresh index client-side, which dissolves them, and
 §9.3 requires consumers to fall back to the platform manifest, which does carry
-them. The verdict is still `✓ conforms`. A single-node build shows no warning.
+them. Missing index annotations alone do not invalidate a Kit whose
+platform manifest carries the descriptor. An OCI layout's outer
+`index.json` catalog is separate from the image index it references.
 
 Runtime conformance is a separate suite, for people implementing a runtime
 rather than authoring a kit: `kit-tck runtime --adapter <path>` drives hundreds
@@ -292,9 +314,14 @@ recipe's `FROM` builds the content, the frontend annotates it, and the result
 in the registry is the whole kit:
 
 ```sh
-docker buildx build . -f <kit>.yaml --platform linux/amd64,linux/arm64 --push \
+docker buildx build --builder kit-builder . -f <kit>.yaml \
+  --platform linux/amd64,linux/arm64 --provenance=mode=min --push \
   -t <registry>/sbx-kit-<kit>:<version> -t <registry>/sbx-kit-<kit>:latest
+kit-tck validate <registry>/sbx-kit-<kit>:<version>
 ```
+
+Validate after publication too: checks inside the frontend cannot see
+metadata lost by an exporter or registry.
 
 **Audit the CI that published the v2 pair.** A pipeline built around two
 artifacts does not fail once there is only one — it keeps pushing an image

@@ -265,14 +265,28 @@ broken.
 
 ## Build, run, verify
 
+Create a named container builder once and select it for exports and
+publication:
+
+```sh
+docker buildx create --name kit-builder --driver docker-container --bootstrap
+```
+
+The `docker` driver with the classic image store can drop manifest
+annotations during publication, leaving an image that is no longer a
+Kit. OCI export support also depends on the driver and image store. A
+container builder avoids that store round trip; validate the exported
+artifact as well as the source.
+
 ```sh
 # 1. validate — the descriptor is checked before any content is built, so this
 #    fails in a second on a bad field. cacheonly drops the EXPORT, not the
 #    build: once the descriptor is valid the whole recipe still solves.
-cd <kit> && docker buildx build . -f <kit>.yaml --output type=cacheonly
+cd <kit> && docker buildx build --builder kit-builder . \
+  -f <kit>.yaml --output type=cacheonly
 
 # 2. build, exporting a layout so kit-tck can judge it without a registry
-docker buildx build . -f <kit>.yaml -t <kit>:<version> \
+docker buildx build --builder kit-builder . -f <kit>.yaml -t <kit>:<version> \
   --output type=oci,dest=/tmp/<kit>-layout,tar=false
 
 # 3. conformance — NB the tag alone, not <kit>:<version>
@@ -281,8 +295,17 @@ kit-tck validate --layout /tmp/<kit>-layout <version>
 # 4. run it, no registry needed
 sbx run ./<kit> .                          # a workload
 sbx run ./<workload> --kit ./<kit> .       # a mixin, composed
-sbx kit inspect ./<kit>                    # resolved declarations, no sandbox
+sbx kit inspect ./<kit>                    # resolved declarations, no workload sandbox
 ```
+
+Recipe-based local source builds use host Docker Buildx when Docker is
+available, otherwise the shared builder sandbox. The host builder needs
+OCI export support. Select the named builder with
+`BUILDX_BUILDER=kit-builder sbx kit inspect ./<kit>`, or use
+`SBX_KIT_BUILDER=sandbox` to require the sandbox backend.
+`SBX_KIT_BUILDER=host` requires the host backend. Declaration-only mixins
+need neither. Sandbox builder status, history, and removal describe only
+that backend; removing it does not clear host-builder caches.
 
 Inside a sandbox the kit is self-describing: `/usr/share/sandbox/kit/<kit>/kit.yaml`
 is the published descriptor, `kit.dockerfile` the recipe, and
@@ -305,10 +328,20 @@ the registry is the kit — there is no pack step, no sidecar artifact and no
 kit you verified:
 
 ```sh
-docker buildx build . -f <kit>.yaml --platform linux/amd64,linux/arm64 --push \
+docker buildx build --builder kit-builder . -f <kit>.yaml \
+  --platform linux/amd64,linux/arm64 --provenance=mode=min --push \
   -t <registry>/<kit>:<version> -t <registry>/<kit>:latest \
   --metadata-file /tmp/<kit>-push.json
+kit-tck validate <registry>/<kit>:<version>
 ```
+
+Validate after pushing: build-time checks cannot see annotations lost by
+an exporter or registry. Explicit `--provenance=mode=min` also makes
+single-platform index annotation predictable; Buildx's default
+provenance can produce an index without Kit annotations. Index annotations are an optimization; consumers
+fall back to the platform manifest when the index omits them (§9.3).
+An OCI layout's outer `index.json` is a catalog, separate from any image
+index it references.
 
 **Push both platforms in one invocation.** One build writes the index
 consumers resolve through; two single-platform builds pushed to the same tag
@@ -325,7 +358,8 @@ distinguishes kits *by tag*, which leaves `<kit>:<version>` nowhere to put the
 version. Join them and keep the bare name as the moving tag:
 
 ```sh
-docker buildx build . -f <kit>.yaml --platform linux/amd64,linux/arm64 --push \
+docker buildx build --builder kit-builder . -f <kit>.yaml \
+  --platform linux/amd64,linux/arm64 --provenance=mode=min --push \
   -t <registry>/<kits-repo>:<kit>-<version> \
   -t <registry>/<kits-repo>:<kit>
 ```
