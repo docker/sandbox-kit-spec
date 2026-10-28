@@ -17,7 +17,7 @@ const brailleBlank = 0x2800
 // writes: C0 controls, DEL, C1 controls, non-ASCII spaces and separators,
 // format characters such as bidirectional overrides and zero-width
 // characters, default-ignorable characters, variation selectors, and a
-// combining mark that does not follow a character printed as itself.
+// mark that does not follow a character printed as itself.
 // Bytes that are not UTF-8 become \xNN. A backslash is escaped too, so
 // distinct strings render distinctly. Lookalike letters and right-to-left
 // letters are out of scope: they print as themselves.
@@ -47,14 +47,14 @@ func displayText(s string) string {
 
 // printable reports whether r draws as itself: a letter, mark, number,
 // punctuation, symbol, or the ASCII space, and not a format,
-// default-ignorable or variation-selector character. A combining mark with
-// no base printed before it does not count.
+// default-ignorable or variation-selector character. A mark of any
+// kind, combining or spacing, with no base printed before it does not count.
 func printable(r rune, unbased bool) bool {
 	switch {
 	case !strconv.IsPrint(r),
 		r == brailleBlank,
 		unicode.In(r, unicode.Cf, unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector),
-		unbased && unicode.In(r, unicode.Mn, unicode.Me):
+		unbased && unicode.Is(unicode.M, r):
 		return false
 	}
 	return true

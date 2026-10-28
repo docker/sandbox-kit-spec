@@ -76,6 +76,9 @@ func TestDisplayText(t *testing.T) {
 		{"combining mark on a base", "e" + acute, "e" + acute},
 		{"marks on a base", "e" + acute + diaeresis, "e" + acute + diaeresis},
 		{"consecutive leading marks", acute + diaeresis + "api.example.com", `\u0301\u0308api.example.com`},
+		{"leading spacing mark", string(rune(0x302e)) + "a", `\u302ea`},
+		{"spacing mark after an escape", "/a\x1b" + string(rune(0x0903)), `/a\x1b\u0903`},
+		{"spacing mark on a base", string(rune(0x0915)) + string(rune(0x0903)), string(rune(0x0915)) + string(rune(0x0903))},
 		{"mark after a control", "/a\x1b" + acute, `/a\x1b\u0301`},
 		{"mark after a backslash", `/a\` + acute, `/a\\\u0301`},
 		{"mark after an escaped format character", "/a" + string(rune(0x200b)) + acute, `/a\u200b\u0301`},
@@ -94,7 +97,7 @@ func hidden(r rune, first bool) bool {
 		unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector) ||
 		(unicode.Is(unicode.Zs, r) && r != ' ') ||
 		r == 0x2800 ||
-		(first && unicode.In(r, unicode.Mn, unicode.Me))
+		(first && unicode.Is(unicode.M, r))
 }
 
 // TestDisplayTextProperties checks, on generated strings, that a rendering
