@@ -333,6 +333,30 @@ func TestGateOnVersionMovement(t *testing.T) {
 	require.Equal(t, "services: "+spec.CapabilityKitRegistry, regWidenings[0].String())
 }
 
+func TestGateReportsUnknownTypeConfigChange(t *testing.T) {
+	sandbox := unit("reg.io/base:1", spec.KindWorkload)
+	thing := func(version, path string) *Unit {
+		u := unit("reg.io/thing-kit:latest", spec.KindMixin, provides("thing@"+version))
+		u.Digest = "sha256:" + version
+		u.Descriptor.Capabilities = []spec.Capability{{
+			Type:   "com.example/thing@1",
+			Config: map[string]any{"path": path},
+		}}
+		return u
+	}
+
+	r, err := Resolve([]*Unit{sandbox, thing("1.0.0", "/data")})
+	require.NoError(t, err)
+	lock := LockFrom(r)
+
+	moved, err := Resolve([]*Unit{sandbox, thing("1.1.0", "/other")})
+	require.NoError(t, err)
+	widenings := lock.Gate(moved)
+	require.Len(t, widenings, 1)
+	require.Equal(t, "services", widenings[0].Category)
+	require.Equal(t, spec.SurfaceOf(moved.Ordered()[1].Descriptor).Services[0], widenings[0].Detail)
+}
+
 func TestResolveRefusesTwoProvidersOfOneName(t *testing.T) {
 	// The canonical mistake: a workload that carries its agent composed
 	// with the mixin that installs the same agent.

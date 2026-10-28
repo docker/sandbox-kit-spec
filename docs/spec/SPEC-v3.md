@@ -789,14 +789,14 @@ pages above.
 A descriptor projects onto a **permission surface**: the normalized
 (sorted, deduplicated) set of everything the host must grant — phased
 network allow/deny lists, credentials by phase, what the SSH agent may
-sign by phase, storage paths, skills
-paths, ports, USB matches, privileged, plus one `type+config-digest` entry
-for every other request. The projection input is the **effective descriptor** — published
-declarations with this installation's create-phase arg values expanded
-([§6](#6-args)) — so the surface describes the policy actually enforced,
-and an arg value that widens policy gates like any widening. Consumers
-that gate updates store a Kit's surface in the lock and diff a
-candidate's against it:
+sign by phase, storage paths, skills paths, ports, USB matches,
+privileged, plus one `type+config-digest` entry (the full SHA-256 of the
+canonical config) for every other request. The projection input is the
+**effective descriptor** — published declarations with this
+installation's create-phase arg values expanded ([§6](#6-args)) — so the
+surface describes the policy actually enforced, and an arg value that
+widens policy gates like any widening. Consumers that gate updates store
+a Kit's surface in the lock and diff a candidate's against it:
 
 - Version movement whose surface stays within the granted one **MAY** apply
   silently.

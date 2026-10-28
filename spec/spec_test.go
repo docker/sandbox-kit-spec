@@ -1156,6 +1156,14 @@ func TestNeedSurfaceAndGate(t *testing.T) {
 	require.Empty(t, net.Services, "well-known decodable types do not double as service entries")
 }
 
+func TestCapabilitySurfaceEntryCarriesFullDigest(t *testing.T) {
+	const typ = "com.example/thing@1"
+	entry := capabilitySurfaceEntry(Capability{Type: typ, Config: map[string]any{"path": "/data"}})
+	digest, ok := strings.CutPrefix(entry, typ+"+")
+	require.True(t, ok, entry)
+	require.Regexp(t, `^[0-9a-f]{64}$`, digest)
+}
+
 func TestValidateArgPhaseExclusivity(t *testing.T) {
 	d := &Descriptor{
 		SchemaVersion: "3",
