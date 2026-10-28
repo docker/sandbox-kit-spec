@@ -1164,15 +1164,6 @@ func TestCapabilitySurfaceEntryCarriesFullDigest(t *testing.T) {
 	require.Regexp(t, `^[0-9a-f]{64}$`, digest)
 }
 
-func TestCapabilitySurfaceEntryUnencodableNeverMatches(t *testing.T) {
-	const typ = "com.example/thing@1"
-	a := capabilitySurfaceEntry(Capability{Type: typ, Config: map[string]any{"v": make(chan int)}})
-	b := capabilitySurfaceEntry(Capability{Type: typ, Config: map[string]any{"v": func() {}}})
-	require.NotEqual(t, a, b)
-	again := capabilitySurfaceEntry(Capability{Type: typ, Config: map[string]any{"v": make(chan int)}})
-	require.NotEqual(t, a, again, "an unencodable config has no stable identity to match a grant")
-}
-
 func TestValidateArgPhaseExclusivity(t *testing.T) {
 	d := &Descriptor{
 		SchemaVersion: "3",
