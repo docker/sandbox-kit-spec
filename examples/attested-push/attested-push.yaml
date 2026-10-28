@@ -1,0 +1,79 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Attested push
+description: >-
+  Gives the sandbox a workload identity of its own and bounds where it may
+  push: feature branches under one prefix, in one organization's
+  repositories, never deleting a ref. Every pushed commit must carry the
+  sandbox's identity trailers so the ledger can attribute it.
+
+kind: mixin
+provides: ["attested-push@1.0.0"]
+version: "1.0.0"
+
+args:
+  org:
+    default: docker
+    pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+    description: Organization whose repositories the sandbox may push to
+  branchPrefix:
+    default: sbx
+    pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+    description: Branch prefix the sandbox may push under (refs/heads/<prefix>/*)
+
+capabilities:
+  # Presence is the request. The host mints the identity before launch and
+  # sets the committer to it; a host with identity disabled refuses the
+  # create rather than running this kit unattested. `ledger: required`
+  # also refuses when the Identity Service is unreachable, so the record
+  # of what this sandbox pushed is never silently missing.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Attribute commits and pushes to this sandbox
+    config:
+      trailers: full
+      ledger: required
+
+  # Constraints, not grants: reaching GitHub is the network policy's
+  # business and authenticating is credential@1's or ssh-agent@1's. Each
+  # field narrows what a composed workload may already do, so another
+  # kit cannot widen these bounds, only tighten them further.
+  - type: com.docker.sandbox/git-push@1
+    description: Push only to ${{ kit.args.branchPrefix }}/* branches of ${{ kit.args.org }} repositories
+    config:
+      remotes: ["github.com/${{ kit.args.org }}/*"]
+      refs:
+        include: ["refs/heads/${{ kit.args.branchPrefix }}/*"]
+        exclude: [refs/heads/main, refs/heads/master, refs/heads/release/*, refs/tags/*]
+      delete: deny
+      commits:
+        committer: enforce
+        # `require` needs an ssh-agent@1 signing grant in the composition
+        # (see examples/git-signing); on its own this kit only records
+        # whether a signature was present.
+        signed: prefer
+        trailer: require
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Attested push
+
+        This sandbox has an identity of its own. Commits you make are
+        committed as the sandbox and carry `Sandbox-Id` trailers; the host
+        records every push in its ledger.
+
+        - You may push only to `refs/heads/${{ kit.args.branchPrefix }}/*` in
+          `github.com/${{ kit.args.org }}/*` repositories. Pushes to `main`,
+          `master`, release branches or tags are refused, as is deleting any
+          ref. Do not try to work around a refusal; tell the user what was
+          refused and why.
+        - Do not amend or rewrite the committer or strip the trailers from
+          commits: the push is refused without them.
+        - Pushing is not review. Open a pull request from the branch and say
+          which commits you made.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
