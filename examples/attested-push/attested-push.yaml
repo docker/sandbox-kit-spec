@@ -3,8 +3,9 @@ schemaVersion: "3"
 displayName: Attested push
 description: >-
   Gives the sandbox a workload identity of its own and bounds where it may
-  push: feature branches under one prefix, in one organization's
-  repositories, never deleting a ref. Every pushed commit must carry the
+  push: Conventional Commits branches (feat/*, fix/*, chore/* and the other
+  types) in one organization's repositories, never main, release branches
+  or tags, and never deleting a ref. Every pushed commit must carry the
   sandbox's identity trailers so the ledger can attribute it.
 
 kind: mixin
@@ -16,10 +17,6 @@ args:
     default: docker
     pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
     description: Organization whose repositories the sandbox may push to
-  branchPrefix:
-    default: sbx
-    pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
-    description: Branch prefix the sandbox may push under (refs/heads/<prefix>/*)
 
 capabilities:
   # Presence is the request. The host mints the identity before launch and
@@ -38,12 +35,33 @@ capabilities:
   # field narrows what a composed workload may already do, so another
   # kit cannot widen these bounds, only tighten them further.
   - type: com.docker.sandbox/git-push@1
-    description: Push only to ${{ kit.args.branchPrefix }}/* branches of ${{ kit.args.org }} repositories
+    description: Push only to Conventional Commits branches of ${{ kit.args.org }} repositories
     config:
       remotes: ["github.com/${{ kit.args.org }}/*"]
       refs:
-        include: ["refs/heads/${{ kit.args.branchPrefix }}/*"]
-        exclude: [refs/heads/main, refs/heads/master, refs/heads/release/*, refs/tags/*]
+        # One entry per Conventional Commits type: a pattern holds one `*`,
+        # so the types cannot be folded into a single alternation. Exclude
+        # wins over include, so the default branches, release branches and
+        # tags stay closed even if a type were ever added that matched them.
+        include:
+          - refs/heads/feat/*
+          - refs/heads/fix/*
+          - refs/heads/docs/*
+          - refs/heads/style/*
+          - refs/heads/refactor/*
+          - refs/heads/perf/*
+          - refs/heads/test/*
+          - refs/heads/build/*
+          - refs/heads/ci/*
+          - refs/heads/chore/*
+          - refs/heads/revert/*
+        exclude:
+          - refs/heads/main
+          - refs/heads/master
+          - refs/heads/develop
+          - refs/heads/release/*
+          - refs/heads/hotfix/*
+          - refs/tags/*
       delete: deny
       commits:
         committer: enforce
@@ -64,11 +82,13 @@ capabilities:
         committed as the sandbox and carry `Sandbox-Id` trailers; the host
         records every push in its ledger.
 
-        - You may push only to `refs/heads/${{ kit.args.branchPrefix }}/*` in
+        - You may push only to branches named after a Conventional Commits
+          type (`feat/*`, `fix/*`, `docs/*`, `style/*`, `refactor/*`,
+          `perf/*`, `test/*`, `build/*`, `ci/*`, `chore/*`, `revert/*`) in
           `github.com/${{ kit.args.org }}/*` repositories. Pushes to `main`,
-          `master`, release branches or tags are refused, as is deleting any
-          ref. Do not try to work around a refusal; tell the user what was
-          refused and why.
+          `master`, `develop`, release or hotfix branches, or tags are
+          refused, as is deleting any ref. Do not try to work around a
+          refusal; tell the user what was refused and why.
         - Do not amend or rewrite the committer or strip the trailers from
           commits: the push is refused without them.
         - Pushing is not review. Open a pull request from the branch and say
