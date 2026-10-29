@@ -17,7 +17,7 @@ func TestGitPushValidation(t *testing.T) {
 		"    config: {refs: {include: [refs/heads/sbx/*], exclude: [refs/heads/main, refs/tags/*]}}\n",
 		"    config: {refs: {exclude: [refs/heads/release/*]}}\n",
 		"    config: {delete: deny}\n",
-		"    config: {commits: {committer: enforce, signed: require, trailer: warn}}\n",
+		"    config: {commits: {signed: require, trailer: warn}}\n",
 		"    config: {remotes: ['github.com/${{ kit.args.org }}/*'], delete: '${{ kit.args.del }}'}\n    optional: true\n",
 	}
 	for _, config := range valid {
@@ -41,7 +41,8 @@ func TestGitPushValidation(t *testing.T) {
 		{"    config: {remotes: [GitHub.com/docker/x]}\n", "lowercase DNS host"},
 		{"    config: {remotes: [github.com]}\n", "host/owner/repo"},
 		{"    config: {delete: never}\n", `must be one of "allow" or "deny"`},
-		{"    config: {commits: {}}\n", "must state committer, signed or trailer"},
+		{"    config: {commits: {}}\n", "must state signed or trailer"},
+		{"    config: {commits: {committer: enforce}}\n", "unknown field"},
 		{"    config: {commits: {signed: maybe}}\n", `must be one of "require", "prefer" or "ignore"`},
 		{"    config: {commits: {trailer: null}}\n", "must not be null"},
 		{"    config: {branches: [main]}\n", "unknown field"},
@@ -102,7 +103,7 @@ capabilities:
       remotes: [github.com/docker/*]
       refs: {include: [refs/heads/sbx/*], exclude: [refs/heads/main]}
       delete: allow
-      commits: {committer: warn, signed: prefer}
+      commits: {signed: prefer, trailer: warn}
 `)
 	mixin := contribute(t, "policy", `schemaVersion: "3"
 kind: mixin
@@ -112,7 +113,7 @@ capabilities:
     config:
       refs: {exclude: [refs/tags/*]}
       delete: deny
-      commits: {committer: enforce, trailer: require}
+      commits: {trailer: require}
 `)
 	out := mergeOK(t, workload, mixin).Descriptor
 	require.Len(t, out.Capabilities, 1)
@@ -123,7 +124,7 @@ capabilities:
 		Remotes: []string{"github.com/docker/*"},
 		Refs:    &GitPushRefs{Include: []string{"refs/heads/sbx/*"}, Exclude: []string{"refs/heads/main", "refs/tags/*"}},
 		Delete:  GitPushDeny,
-		Commits: &GitPushCommits{Committer: GitPushEnforce, Signed: GitPushPrefer, Trailer: GitPushRequire},
+		Commits: &GitPushCommits{Signed: GitPushPrefer, Trailer: GitPushRequire},
 	}, merged)
 	_, err = Validate(out)
 	require.NoError(t, err)

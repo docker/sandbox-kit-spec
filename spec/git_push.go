@@ -89,9 +89,6 @@ func validateGitPushNeed(path string, i int, n Capability) (*GitPush, error) {
 		return nil, err
 	}
 	if p.Commits != nil {
-		if err := validateEnum(path+".config.commits.committer", i, "git-push commits.committer", p.Commits.Committer, GitPushEnforce, GitPushWarn); err != nil {
-			return nil, err
-		}
 		if err := validateEnum(path+".config.commits.signed", i, "git-push commits.signed", p.Commits.Signed, GitPushRequire, GitPushPrefer, GitPushIgnore); err != nil {
 			return nil, err
 		}
@@ -131,9 +128,9 @@ func validateGitPushPresence(path string, i int, n Capability) error {
 	if commits, present := n.Config["commits"]; present {
 		obj, ok := commits.(map[string]any)
 		if !ok || len(obj) == 0 {
-			return fieldErrorf(path+".config.commits", "capabilities[%d]: git-push commits must state committer, signed or trailer", i)
+			return fieldErrorf(path+".config.commits", "capabilities[%d]: git-push commits must state signed or trailer", i)
 		}
-		for _, field := range []string{"committer", "signed", "trailer"} {
+		for _, field := range []string{"signed", "trailer"} {
 			if v, present := obj[field]; present && v == nil {
 				return fieldErrorf(path+".config.commits."+field, "capabilities[%d]: git-push commits.%s must not be null", i, field)
 			}
@@ -202,9 +199,8 @@ func MergeGitPushes(a, b GitPush) (GitPush, error) {
 			cb = *b.Commits
 		}
 		out.Commits = &GitPushCommits{
-			Committer: stricter(ca.Committer, cb.Committer, GitPushEnforce, GitPushWarn),
-			Signed:    stricter(ca.Signed, cb.Signed, GitPushRequire, GitPushPrefer, GitPushIgnore),
-			Trailer:   stricter(ca.Trailer, cb.Trailer, GitPushRequire, GitPushWarn),
+			Signed:  stricter(ca.Signed, cb.Signed, GitPushRequire, GitPushPrefer, GitPushIgnore),
+			Trailer: stricter(ca.Trailer, cb.Trailer, GitPushRequire, GitPushWarn),
 		}
 	}
 	return out, nil

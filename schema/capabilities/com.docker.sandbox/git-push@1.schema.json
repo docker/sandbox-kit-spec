@@ -60,20 +60,6 @@
       "minProperties": 1,
       "description": "What every pushed commit must carry.",
       "properties": {
-        "committer": {
-          "description": "enforce refuses a commit whose committer is not the sandbox identity; warn forwards it and records the mismatch.",
-          "anyOf": [
-            {
-              "enum": [
-                "enforce",
-                "warn"
-              ]
-            },
-            {
-              "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
-            }
-          ]
-        },
         "signed": {
           "description": "require refuses a commit without a signature made through the sandbox's agent grant; prefer records the absence; ignore does not look.",
           "anyOf": [
@@ -90,7 +76,7 @@
           ]
         },
         "trailer": {
-          "description": "require refuses a commit missing the identity trailers; warn forwards it and records the absence.",
+          "description": "require refuses a commit whose Sandbox-Id trailer is missing or names another sandbox; warn forwards it and records the gap.",
           "anyOf": [
             {
               "enum": [

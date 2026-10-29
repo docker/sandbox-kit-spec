@@ -23,10 +23,12 @@ args:
 
 capabilities:
   # Presence is the request. The host mints the identity before launch and
-  # sets the committer to it; a host with identity disabled refuses the
-  # create rather than running this kit unattested. `ledger: required`
-  # also refuses when the Identity Service is unreachable, so the record
-  # of what this sandbox pushed is never silently missing.
+  # names it on each commit as `Sandbox-Id` and `Co-authored-by` trailers;
+  # the person stays author and committer. A host with identity disabled
+  # refuses the create rather than running this kit unattested.
+  # `ledger: required` also refuses when the Identity Service is
+  # unreachable, so the record of what this sandbox pushed is never
+  # silently missing.
   - type: com.docker.sandbox/workload-identity@1
     description: Attribute commits and pushes to this sandbox
     config:
@@ -67,7 +69,6 @@ capabilities:
           - refs/tags/*
       delete: deny
       commits:
-        committer: enforce
         # `require` needs an ssh-agent@1 signing grant in the composition
         # (see examples/git-signing); on its own this kit only records
         # whether a signature was present.
@@ -81,9 +82,10 @@ capabilities:
       content: |
         # Attested push
 
-        This sandbox has an identity of its own. Commits you make are
-        committed as the sandbox and carry `Sandbox-Id` trailers; the host
-        records every push in its ledger.
+        This sandbox has an identity of its own. Commits you make keep the
+        user as author and committer and carry `Sandbox-Id` and
+        `Co-authored-by` trailers naming the sandbox; the host records every
+        push in its ledger.
 
         - You may push only to branches named after a Conventional Commits
           type (`feat/*`, `fix/*`, `docs/*`, `style/*`, `refactor/*`,
@@ -92,8 +94,9 @@ capabilities:
           `master`, `develop`, release or hotfix branches, or tags are
           refused, as is deleting any ref. Do not try to work around a
           refusal; tell the user what was refused and why.
-        - Do not amend or rewrite the committer or strip the trailers from
-          commits: the push is refused without them.
+        - Do not strip the trailers from commits or rewrite history made
+          outside this sandbox: a push is refused when a new commit lacks
+          this sandbox's `Sandbox-Id` trailer.
         - Pushing is not review. Open a pull request from the branch and say
           which commits you made.
 
