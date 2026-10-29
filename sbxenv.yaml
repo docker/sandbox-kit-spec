@@ -70,6 +70,13 @@ kits:
   # (see prerequisite 4 above). Without the grant the sandbox never
   # sees the agent even when one is running.
   - ./examples/github-ssh
+  # A workload identity for the sandbox and a push bound to this
+  # repository: Conventional Commits branches only, never main, release
+  # branches or tags, never deleting a ref. Needs `identity.enabled` on
+  # the host and a reachable Identity Service (`ledger: required`).
+  - source: ./examples/attested-push
+    args:
+      remote: github.com/docker/sandbox-kit-spec
 
 # The repository itself, mounted read/write. A relative path resolves
 # against this file's directory, so this mounts the repository wherever
