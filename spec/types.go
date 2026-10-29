@@ -439,9 +439,9 @@ const (
 	CapabilityGitIdentity = "com.docker.sandbox/git-identity@1"
 
 	// CapabilityWorkloadIdentity asks the runtime to mint a per-sandbox
-	// workload identity: a key the sandbox never holds, a committer the
-	// runtime attributes pushed commits to, and a ledger record of what
-	// the sandbox pushed. Config decodes to WorkloadIdentity. Singleton;
+	// workload identity: a key the sandbox never holds, trailers that name
+	// the sandbox on the commits it makes, and a ledger record of what the
+	// sandbox pushed. Config decodes to WorkloadIdentity. Singleton;
 	// a sandbox has one identity however many kits ask.
 	CapabilityWorkloadIdentity = "com.docker.sandbox/workload-identity@1"
 
@@ -793,14 +793,11 @@ type GitPushRefs struct {
 
 // GitPushCommits are the per-commit rules of a GitPush config.
 type GitPushCommits struct {
-	// Committer is GitPushEnforce or GitPushWarn for a commit whose
-	// committer is not the sandbox identity.
-	Committer string `json:"committer,omitempty" yaml:"committer,omitempty"`
 	// Signed is GitPushRequire, GitPushPrefer or GitPushIgnore for a
 	// commit without a signature made through the sandbox's agent grant.
 	Signed string `json:"signed,omitempty" yaml:"signed,omitempty"`
-	// Trailer is GitPushRequire or GitPushWarn for a commit missing the
-	// identity trailers.
+	// Trailer is GitPushRequire or GitPushWarn for a commit whose
+	// Sandbox-Id trailer is missing or names another sandbox.
 	Trailer string `json:"trailer,omitempty" yaml:"trailer,omitempty"`
 }
 
@@ -808,7 +805,6 @@ type GitPushCommits struct {
 const (
 	GitPushAllow   = "allow"
 	GitPushDeny    = "deny"
-	GitPushEnforce = "enforce"
 	GitPushWarn    = "warn"
 	GitPushRequire = "require"
 	GitPushPrefer  = "prefer"

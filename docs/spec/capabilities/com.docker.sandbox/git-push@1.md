@@ -23,7 +23,6 @@ capabilities:
         exclude: [refs/heads/main, refs/heads/release/*, refs/tags/*]
       delete: deny
       commits:
-        committer: enforce     # enforce | warn
         signed: require        # require | prefer | ignore
         trailer: require       # require | warn
 ```
@@ -34,9 +33,8 @@ capabilities:
 | `refs.include` | Patterns a pushed ref must match. Omitted: any ref not excluded. |
 | `refs.exclude` | Patterns a pushed ref must not match. Exclude wins over include. |
 | `delete` | `deny` refuses a push that deletes a ref. Omitted: the runtime's default. |
-| `commits.committer` | `enforce` refuses a commit whose committer is not the sandbox's workload identity; `warn` forwards it and records the mismatch. |
 | `commits.signed` | `require` refuses a commit without a signature made through the sandbox's `ssh-agent@1` grant; `prefer` records the absence; `ignore` does not look. |
-| `commits.trailer` | `require` refuses a commit missing the workload identity trailers; `warn` forwards it and records the absence. |
+| `commits.trailer` | `require` refuses a commit whose `Sandbox-Id` trailer is missing or names another sandbox; `warn` forwards it and records the gap. |
 
 A pattern is a literal with at most one `*`, which matches any sequence
 of characters including `/`, as a Git refspec glob does: `refs/heads/*`
@@ -59,8 +57,8 @@ A conforming runtime:
   outside `remotes`, its ref is excluded or not included, or it deletes
   a ref under `delete: deny`. Other updates in the same push proceed.
 - **MUST** judge every commit the push introduces against `commits`, and <!-- tck: git-push@1/every-commit-judged -->
-  refuse the ref update that carries a commit an `enforce` or `require`
-  rule rejects. A commit the remote already holds, such as a pull-request
+  refuse the ref update that carries a commit a `require` rule rejects.
+  A commit the remote already holds, such as a pull-request
   head or a commit from a fork that no advertised ref reaches, is not
   introduced by the push: the runtime neither judges nor attests it.
 - **MUST** refuse a push it cannot inspect when any `commits` rule would <!-- tck: git-push@1/uninspectable-refused -->

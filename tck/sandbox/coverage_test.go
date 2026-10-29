@@ -280,7 +280,7 @@ var waived = map[string]string{
 	"workload-identity@1/values-enumerated":    "grammar rule, judged by the spec package's validators and schema tests",
 	"workload-identity@1/fields-closed":        "grammar rule, judged by the spec package's validators and schema tests",
 	"workload-identity@1/minted-before-launch": "needs an identity-minting adapter; the fake adapter does not mint identities yet",
-	"workload-identity@1/committer-defaults":   "needs an identity-minting adapter; the fake adapter does not mint identities yet",
+	"workload-identity@1/identity-exposed":     "needs an identity-minting adapter; the fake adapter does not mint identities yet",
 	"workload-identity@1/trailers-applied":     "needs an identity-minting adapter and a commit made inside the sandbox; not exercised yet",
 	"workload-identity@1/pushes-recorded":      "needs a git remote fixture and a ledger the adapter exposes; not exercised yet",
 	"workload-identity@1/absent-without-grant": "needs an identity-minting adapter to show the difference; the fake adapter mints none either way",

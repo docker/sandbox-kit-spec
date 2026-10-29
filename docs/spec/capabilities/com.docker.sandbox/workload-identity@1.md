@@ -1,10 +1,10 @@
 # `com.docker.sandbox/workload-identity@1`
 
 A per-sandbox workload identity minted by the runtime: a signing key the
-sandbox never holds, a committer the sandbox's commits are attributed
-to, and a ledger record of what the sandbox pushed. The identity names
-the sandbox, not the person running it; `git-identity@1` supplies the
-person's attribution, and the two compose.
+sandbox never holds, trailers that name the sandbox on the commits it
+makes, and a ledger record of what the sandbox pushed. The identity
+names the sandbox, not the person running it; `git-identity@1` supplies
+the person's attribution, and the two compose.
 
 - **Shape**: singleton; every field optional.
 - **Permission surface**: **yes** — presence enrolls the sandbox with
@@ -42,13 +42,15 @@ A conforming runtime:
   hooks and exec sessions run, and keep the private key outside the
   sandbox. Sandbox processes see identifiers and may ask the runtime to
   attest with the key; they never read it.
-- **MUST** expose the identity to the workload user as the Git committer <!-- tck: workload-identity@1/committer-defaults -->
-  defaults and as the `SBX_SANDBOX_ID` environment variable. The
-  committer email is the sandbox identity's; the author stays whatever
-  `git-identity@1` or repository configuration selects.
-- **MUST** add the identity trailers selected by `trailers` to commits <!-- tck: workload-identity@1/trailers-applied -->
-  created by the workload user, through Git's own hook mechanism, so a
-  commit's history names the sandbox that made it.
+- **MUST** expose the identity to the workload user as the <!-- tck: workload-identity@1/identity-exposed -->
+  `SBX_SANDBOX_ID` environment variable, and **MUST NOT** override the
+  Git author or committer: both stay whatever `git-identity@1` or
+  repository configuration selects, so the person's signature still
+  verifies.
+- **MUST** add the identity trailers selected by `trailers`, and a <!-- tck: workload-identity@1/trailers-applied -->
+  `Co-authored-by` trailer naming the sandbox, to commits created by the
+  workload user through Git's own hook mechanism, so a commit's history
+  names the sandbox that made it. A trailer already present is kept.
 - **MUST** attribute every push the sandbox makes to the identity and <!-- tck: workload-identity@1/pushes-recorded -->
   record its outcome, accepted or refused, where the runtime's ledger
   can show it.

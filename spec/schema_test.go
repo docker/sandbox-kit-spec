@@ -312,10 +312,9 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	}
 	require.ElementsMatch(t, []any{GitPushAllow, GitPushDeny}, literalEnum(t, at(t, gitPush, "properties", "delete")))
 	commits := at(t, gitPush, "properties", "commits", "properties")
-	require.ElementsMatch(t, []any{GitPushEnforce, GitPushWarn}, literalEnum(t, at(t, commits, "committer")))
 	require.ElementsMatch(t, []any{GitPushRequire, GitPushPrefer, GitPushIgnore}, literalEnum(t, at(t, commits, "signed")))
 	require.ElementsMatch(t, []any{GitPushRequire, GitPushWarn}, literalEnum(t, at(t, commits, "trailer")))
-	for _, field := range []string{"committer", "signed", "trailer"} {
+	for _, field := range []string{"signed", "trailer"} {
 		assertAcceptsKitArg(t, at(t, commits, field), "bearing")
 	}
 
