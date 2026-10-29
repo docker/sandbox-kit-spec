@@ -29,7 +29,7 @@ kind: mixin
 
 args:
   version:
-    default: "2.3.0"
+    default: "2.5.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
     description: codex-acp release to install
     buildArg: ACP_VERSION
@@ -42,10 +42,10 @@ provides: ["codex-acp@${{ kit.args.version }}"]
 # eligible, and it is also what makes CODEX_PATH resolvable: the
 # codex-mixin kit installs /usr/local/bin/codex.
 #
-# codex-acp 2.3.0 declares @openai/codex ^0.164.0. With the bundled
+# codex-acp 2.5.0 declares @openai/codex ^0.165.0. With the bundled
 # binary removed, the composed codex must satisfy this range instead.
 # Keep both bounds aligned with the adapter's declared dependency.
-requires: ["codex >= 0.164.0, < 0.165.0"]
+requires: ["codex >= 0.165.0, < 0.166.0"]
 
 # No network policy and no credential: the adapter opens no sockets of
 # its own. Its egress and auth are whatever the codex it execs already
@@ -53,7 +53,7 @@ requires: ["codex >= 0.164.0, < 0.165.0"]
 # build time, so unlike an `npx`-at-startup launcher this needs no
 # registry.npmjs.org access at runtime either.
 capabilities:
-  # Pinned codex-acp 2.3.0 handles stdin close but has no SIGTERM cleanup
+  # Pinned codex-acp 2.5.0 handles stdin close but has no SIGTERM cleanup
   # handler. SIGTERM cancellation and session flushing remain unverified;
   # optionality governs host support, not adapter conformance.
   - type: com.docker.sandbox/acp@1
@@ -97,7 +97,7 @@ capabilities:
         find the adapter without hard-coding its command. It starts in
         `agent-full-access` mode to match the interactive Codex entrypoint.
 
-        Pinned `codex-acp` 2.3.0 handles stdin closure but has no `SIGTERM`
+        Pinned `codex-acp` 2.5.0 handles stdin closure but has no `SIGTERM`
         cleanup handler. Cancellation and session flushing on `SIGTERM` have
         not been verified against `acp@1`'s shutdown guarantee. Hosts should
         close the ACP stdin stream and allow the adapter to finish before

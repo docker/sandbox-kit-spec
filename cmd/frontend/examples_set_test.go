@@ -114,9 +114,11 @@ func TestCodexACPExampleRequiresCompatibleCodex(t *testing.T) {
 		{version: "0.162.0"},
 		{version: "0.163.0"},
 		{version: "0.163.9"},
-		{version: "0.164.0", compatible: true},
-		{version: "0.164.1", compatible: true},
-		{version: "0.165.0"},
+		{version: "0.164.0"},
+		{version: "0.164.1"},
+		{version: "0.165.0", compatible: true},
+		{version: "0.165.1", compatible: true},
+		{version: "0.166.0"},
 		{version: "1.0.0"},
 	} {
 		t.Run(tc.version, func(t *testing.T) {
