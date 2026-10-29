@@ -94,9 +94,15 @@ capabilities:
           `master`, `develop`, release or hotfix branches, or tags are
           refused, as is deleting any ref. Do not try to work around a
           refusal; tell the user what was refused and why.
-        - Do not strip the trailers from commits or rewrite history made
-          outside this sandbox: a push is refused when a new commit lacks
-          this sandbox's `Sandbox-Id` trailer.
+        - Create commits with `git commit` so the sandbox hook adds the
+          trailers. Plumbing such as `git commit-tree`, or a `core.hooksPath`
+          override, skips the hook and the push is refused when a new commit
+          lacks this sandbox's `Sandbox-Id` trailer. Do not rewrite history
+          made outside this sandbox for the same reason.
+        - Leave author and committer as configured. Do not set
+          `GIT_AUTHOR_*`, `GIT_COMMITTER_*` or `--author`: the user's
+          signature only shows as verified when they are the committer, and
+          the ledger attributes the push to them regardless of the header.
         - Pushing is not review. Open a pull request from the branch and say
           which commits you made.
 
