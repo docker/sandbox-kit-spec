@@ -9,7 +9,7 @@ description: >-
   sandbox's identity trailers so the ledger can attribute it.
 
 kind: mixin
-provides: ["attested-push@1.0.0"]
+provides: ["attested-push"]
 version: "1.0.0"
 
 args:
