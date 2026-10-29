@@ -54,12 +54,12 @@ kits:
   # `codex --model … -c model_reasoning_effort=…` would set per launch,
   # and export CODEX_MODEL / CODEX_REASONING_EFFORT into the sandbox.
   # `--kit-arg model=…` overrides per invocation.
-  - source: docker/sbx-kit-codex:0.162.1
+  - source: docker/sbx-kit-codex:0.164.0
     args:
       model: gpt-6.1-sol
       reasoningEffort: high
   # The ACP kit is used to run the ACP agent.
-  - source: docker/sbx-kit-codex-acp:2.2.2
+  - source: docker/sbx-kit-codex-acp:2.3.0
   # This repository's own toolchain — task, golangci-lint, regctl at the
   # versions CI pins, and the egress a `task` run needs. Built from source
   # on every create, so it always matches the checkout.
