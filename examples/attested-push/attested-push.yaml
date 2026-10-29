@@ -17,6 +17,10 @@ args:
     default: docker
     pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
     description: Organization whose repositories the sandbox may push to
+  repo:
+    default: "*"
+    pattern: '^(\*|[A-Za-z0-9][A-Za-z0-9._-]*)$'
+    description: Repository within the organization the sandbox may push to; `*` admits every repository
 
 capabilities:
   # Presence is the request. The host mints the identity before launch and
@@ -35,9 +39,11 @@ capabilities:
   # field narrows what a composed workload may already do, so another
   # kit cannot widen these bounds, only tighten them further.
   - type: com.docker.sandbox/git-push@1
-    description: Push only to Conventional Commits branches of ${{ kit.args.org }} repositories
+    description: Push only to Conventional Commits branches of github.com/${{ kit.args.org }}/${{ kit.args.repo }}
     config:
-      remotes: ["github.com/${{ kit.args.org }}/*"]
+      # A remote pattern holds at most one `*`, so `repo` is either one
+      # repository or `*`; the organization is always literal.
+      remotes: ["github.com/${{ kit.args.org }}/${{ kit.args.repo }}"]
       refs:
         # One entry per Conventional Commits type: a pattern holds one `*`,
         # so the types cannot be folded into a single alternation. Exclude
@@ -85,7 +91,7 @@ capabilities:
         - You may push only to branches named after a Conventional Commits
           type (`feat/*`, `fix/*`, `docs/*`, `style/*`, `refactor/*`,
           `perf/*`, `test/*`, `build/*`, `ci/*`, `chore/*`, `revert/*`) in
-          `github.com/${{ kit.args.org }}/*` repositories. Pushes to `main`,
+          `github.com/${{ kit.args.org }}/${{ kit.args.repo }}`. Pushes to `main`,
           `master`, `develop`, release or hotfix branches, or tags are
           refused, as is deleting any ref. Do not try to work around a
           refusal; tell the user what was refused and why.
