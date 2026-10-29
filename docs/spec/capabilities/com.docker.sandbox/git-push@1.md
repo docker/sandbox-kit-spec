@@ -60,7 +60,9 @@ A conforming runtime:
   a ref under `delete: deny`. Other updates in the same push proceed.
 - **MUST** judge every commit the push introduces against `commits`, and <!-- tck: git-push@1/every-commit-judged -->
   refuse the ref update that carries a commit an `enforce` or `require`
-  rule rejects.
+  rule rejects. A commit the remote already holds, such as a pull-request
+  head or a commit from a fork that no advertised ref reaches, is not
+  introduced by the push: the runtime neither judges nor attests it.
 - **MUST** refuse a push it cannot inspect when any `commits` rule would <!-- tck: git-push@1/uninspectable-refused -->
   refuse; a push the runtime cannot read cannot be shown to comply.
   Under rules that only warn, the push is forwarded and the gap recorded.
