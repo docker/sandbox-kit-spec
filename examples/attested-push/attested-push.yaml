@@ -4,7 +4,7 @@ displayName: Attested push
 description: >-
   Gives the sandbox a workload identity of its own and bounds where it may
   push: Conventional Commits branches (feat/*, fix/*, chore/* and the other
-  types) in one organization's repositories, never main, release branches
+  types) of the remotes one pattern admits, never main, release branches
   or tags, and never deleting a ref. Every pushed commit must carry the
   sandbox's identity trailers so the ledger can attribute it.
 
@@ -13,14 +13,13 @@ provides: ["attested-push"]
 version: "1.0.0"
 
 args:
-  org:
-    default: docker
-    pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
-    description: Organization whose repositories the sandbox may push to
-  repo:
-    default: "*"
-    pattern: '^(\*|[A-Za-z0-9][A-Za-z0-9._-]*)$'
-    description: Repository within the organization the sandbox may push to; `*` admits every repository
+  # A host/owner/repo pattern with at most one `*`, which also matches
+  # `/`: `github.com/*` is every repository on GitHub, `github.com/docker/*`
+  # one organization, `github.com/docker/sandboxes` one repository.
+  remote:
+    default: github.com/*
+    pattern: '^[a-z0-9.-]+(/[A-Za-z0-9._*-]+)+$'
+    description: Remote pattern the sandbox may push to, as host/owner/repo with at most one `*`
 
 capabilities:
   # Presence is the request. The host mints the identity before launch and
@@ -39,11 +38,9 @@ capabilities:
   # field narrows what a composed workload may already do, so another
   # kit cannot widen these bounds, only tighten them further.
   - type: com.docker.sandbox/git-push@1
-    description: Push only to Conventional Commits branches of github.com/${{ kit.args.org }}/${{ kit.args.repo }}
+    description: Push only to Conventional Commits branches of ${{ kit.args.remote }}
     config:
-      # A remote pattern holds at most one `*`, so `repo` is either one
-      # repository or `*`; the organization is always literal.
-      remotes: ["github.com/${{ kit.args.org }}/${{ kit.args.repo }}"]
+      remotes: ["${{ kit.args.remote }}"]
       refs:
         # One entry per Conventional Commits type: a pattern holds one `*`,
         # so the types cannot be folded into a single alternation. Exclude
@@ -91,7 +88,7 @@ capabilities:
         - You may push only to branches named after a Conventional Commits
           type (`feat/*`, `fix/*`, `docs/*`, `style/*`, `refactor/*`,
           `perf/*`, `test/*`, `build/*`, `ci/*`, `chore/*`, `revert/*`) in
-          `github.com/${{ kit.args.org }}/${{ kit.args.repo }}`. Pushes to `main`,
+          `${{ kit.args.remote }}`. Pushes to `main`,
           `master`, `develop`, release or hotfix branches, or tags are
           refused, as is deleting any ref. Do not try to work around a
           refusal; tell the user what was refused and why.
