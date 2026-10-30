@@ -62,6 +62,7 @@ func Validate(d *Descriptor) (warnings []string, err error) {
 	errs.add(validateIconURL(d.IconURL))
 	errs.add(validateCapabilityNames(d))
 	errs.add(validateCapabilityEntries(d))
+	errs.add(validateMCPServerRole(d))
 	errs.add(validateArgs(d.Args))
 	errs.add(validateRecipe(d))
 	errs.add(validateKits(d))
@@ -687,6 +688,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.parts[0], key.parts[1], prev))
 				}
 			}
+		case CapabilityMCPServer:
+			for _, key := range c.keys {
+				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
+					errs.add(fieldErrorf(path+".config.name", "capabilities[%d]: MCP server %q already declared at capabilities[%d]", i, key.parts[0], prev))
+				}
+			}
 		case CapabilityACP:
 			for _, key := range c.keys {
 				if prev, dup := declared.add(n.Type, key, i); dup && reported.first(ruleRepeat, c, checks[prev], key.identity) {
@@ -902,7 +909,7 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 
 	switch n.Type {
 	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
-		CapabilityAgentContext, CapabilityAgentContextV2:
+		CapabilityAgentContext, CapabilityAgentContextV2, CapabilityMCPServer:
 		c.keys = entryKeys(n)
 	case CapabilityACP:
 		c.keys, c.agent = entryKeys(n), n.Config["agent"]
@@ -1104,6 +1111,8 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		}
 	case CapabilityACP:
 		c.errs.add(validateACP(path, i, n))
+	case CapabilityMCPServer:
+		c.errs.add(validateMCPServer(path, i, n))
 	case CapabilityAgentSessions:
 		var a AgentSessions
 		if err := DecodeCapabilityConfig(n, &a); err != nil {
@@ -1493,6 +1502,9 @@ func validatePresenceRules(path string, i int, n Capability) error {
 	var errs ValidationErrors
 	if n.Type == CapabilityACP {
 		return validateACPAuthored(path, i, n)
+	}
+	if n.Type == CapabilityMCPServer {
+		return validateMCPServerAuthored(path, i, n)
 	}
 	if n.Type == CapabilityAgentInteractiveSessions {
 		// Whether a verb is stated is its meaning, so its nulls and its

@@ -43,6 +43,7 @@ func DecodeCapabilityConfig(n Capability, out any) error {
 // every such type, so a new one cannot skip that check or
 // parameterizedConfigFields.
 var configTypes = map[string]reflect.Type{
+	CapabilityMCPServer:                reflect.TypeFor[MCPServer](),
 	CapabilityNetworkPolicy:            reflect.TypeFor[PhasedNetwork](),
 	CapabilityNetworkPolicyV2:          reflect.TypeFor[PhasedNetworkV2](),
 	CapabilityCredential:               reflect.TypeFor[Credential](),

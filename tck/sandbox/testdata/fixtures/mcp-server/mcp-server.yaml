@@ -1,0 +1,11 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Required MCP server
+description: Requires MCP server support so refusal when unclaimed is observable
+capabilities:
+  - type: com.docker.sandbox/mcp-server@1
+    config:
+      name: kit-tck
+      transport: stdio
+      command: [kit-tck-mcp]

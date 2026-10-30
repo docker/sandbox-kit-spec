@@ -506,6 +506,11 @@ const (
 	// CapabilityACP declares how to run an ACP agent inside the sandbox.
 	CapabilityACP = "com.docker.sandbox/acp@1"
 
+	// CapabilityMCPServer declares an MCP server the sandbox runs, either
+	// as the workload's launch or as a command of its own, and how an MCP
+	// client reaches it.
+	CapabilityMCPServer = "com.docker.sandbox/mcp-server@1"
+
 	// CapabilityAgentSessions declares the workload's session control surface:
 	// the argv shapes a harness uses to drive the agent — run one prompt
 	// headlessly, list past sessions, resume or continue one. Not a

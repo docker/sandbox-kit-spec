@@ -769,6 +769,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
 | `com.docker.sandbox/agent-context@2` | [agent-context@2](capabilities/com.docker.sandbox/agent-context@2.md) | per explicit profile destination; one undirected entry; inline bodies |
 | `com.docker.sandbox/acp@1` | [acp@1](capabilities/com.docker.sandbox/acp@1.md) | per agent |
+| `com.docker.sandbox/mcp-server@1` | [mcp-server@1](capabilities/com.docker.sandbox/mcp-server@1.md) | per name; at most one entry without `command`, in a workload |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
@@ -820,7 +821,9 @@ a Kit's surface in the lock and diff a candidate's against it:
   to launch the workload a particular way and to read an identity the
   image already states (see their pages). `long-running@1` likewise grants
   no access; it keeps the workload running independently of attached
-  sessions.
+  sessions. `mcp-server@1` grants none either: it says how an MCP
+  client reaches a server running inside the sandbox, which the
+  sandbox's own network and credential entries already bound.
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
@@ -840,7 +843,10 @@ capability's `interactive` field. The effective argv per mode:
 | Default (headless / task) | image `Entrypoint` + image `Cmd` |
 | Interactive (TTY) | image `Entrypoint` + lifecycle `interactive` |
 
-With no `interactive` declared, both modes run the image config as-is. See
+With no `interactive` declared, both modes run the image config as-is. A
+workload whose launch is an MCP server says so with
+[mcp-server@1](capabilities/com.docker.sandbox/mcp-server@1.md), which
+can replace `Cmd` with installer-configured arguments. See
 [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) for
 the headless prompt/resume verbs, which append after the launch argv the
 same way user-supplied args do, and
@@ -1006,6 +1012,7 @@ error. In that order they reconcile into one descriptor:
 | `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
 | `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
+| `mcp-server@1` | Union, keyed on `name`. Different configs for one name conflict; identical restatements collapse, comparing decoded commands and the default HTTP path. Only the workload can contribute the entry that runs its launch, so a merged descriptor has at most one. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |

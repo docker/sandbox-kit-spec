@@ -46,6 +46,7 @@ const (
 	fixturePort                     = "port"
 	fixtureUSBDevice                = "usb-device"
 	fixtureACP                      = "acp"
+	fixtureMCPServer                = "mcp-server"
 	fixtureAgentSessions            = "agent-sessions"
 	fixtureAgentInteractiveSessions = "agent-interactive-sessions"
 	fixtureKitRegistry              = "kit-registry"
@@ -224,6 +225,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capUSBDevice, fixtureUSBDevice, false},
 				{capAgentSessions, fixtureAgentSessions, false},
 				{capACP, fixtureACP, false},
+				{capMCPServer, fixtureMCPServer, false},
 				{capAgentInteractiveSessions, fixtureAgentInteractiveSessions, false},
 				{capKitRegistry, fixtureKitRegistry, false},
 			} {
@@ -906,6 +908,7 @@ const (
 	capPort                     = "com.docker.sandbox/port@1"
 	capUSBDevice                = "com.docker.sandbox/usb-device@1"
 	capACP                      = "com.docker.sandbox/acp@1"
+	capMCPServer                = "com.docker.sandbox/mcp-server@1"
 	capAgentSessions            = "com.docker.sandbox/agent-sessions@1"
 	capAgentInteractiveSessions = "com.docker.sandbox/agent-interactive-sessions@1"
 	capKitRegistry              = "com.docker.sandbox/kit-registry@1"

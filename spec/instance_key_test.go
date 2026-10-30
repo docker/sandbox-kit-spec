@@ -122,6 +122,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityAgentSkills:              ArityInstance,
 		CapabilityAgentSkill:               ArityInstance,
 		CapabilityACP:                      ArityInstance,
+		CapabilityMCPServer:                ArityInstance,
 		CapabilityPort:                     ArityInstance,
 		CapabilityHostPort:                 ArityInstance,
 		CapabilityAgentContext:             ArityInstance,
@@ -198,6 +199,9 @@ func TestInstanceKeysIgnoreSpelling(t *testing.T) {
 // request, different requests under one key, and different keys.
 func TestInstanceKeysAgreeWithComposition(t *testing.T) {
 	pool := []Capability{
+		commandServer("docs"),
+		commandServer("notes"),
+		mcpServerEntry(map[string]any{"name": "docs", "transport": "stdio", "command": "other-mcp"}),
 		instance(CapabilityACP, map[string]any{"agent": "claude", "command": "claude-acp"}),
 		instance(CapabilityACP, map[string]any{"agent": "com.docker.kit/claude", "command": "claude-acp"}),
 		instance(CapabilityACP, map[string]any{"agent": "com.docker.kit/claude", "command": "other-acp"}),
@@ -558,6 +562,8 @@ func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
 		config map[string]any
 		others []string
 	}{
+		CapabilityMCPServer: {map[string]any{"name": "docs", "transport": "streamable-http", "port": 8080, "path": "/tools", "command": "docs-mcp"},
+			[]string{"transport", "port", "path", "command", "arguments"}},
 		CapabilityACP: {map[string]any{"agent": "claude", "command": "claude-acp", "env": map[string]any{"MODE": "fast"}, "protocolVersion": 2},
 			[]string{"command", "env", "protocolVersion"}},
 		CapabilityCredential: {map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": "GH_TOKEN", "proxyManaged": true}},
@@ -622,6 +628,9 @@ func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
 func TestValidationAgreesWithInstanceKeys(t *testing.T) {
 	token := map[string]any{"name": "GH_TOKEN"}
 	pool := []Capability{
+		commandServer("docs"),
+		commandServer("notes"),
+		mcpServerEntry(map[string]any{"name": "docs", "transport": "stdio", "command": "other-mcp"}),
 		instance(CapabilityACP, map[string]any{"agent": "claude", "command": "claude-acp"}),
 		instance(CapabilityACP, map[string]any{"agent": "com.docker.kit/claude", "command": "other-acp"}),
 		instance(CapabilityACP, map[string]any{"agent": "example.com/claude", "command": "claude-acp"}),

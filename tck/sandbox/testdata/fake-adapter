@@ -356,6 +356,7 @@ create)
       # contain a capability name (for example, git-identity).
       case "${kit##*/}" in
       acp) need="com.docker.sandbox/acp@1" ;;
+      mcp-server) need="com.docker.sandbox/mcp-server@1" ;;
       bundled-optional | bundled-existing) ;;
       bundled-reader) need="com.docker.sandbox/agent-skills@1" ;;
       bundled-skill | bundled-host-conflict) need="com.docker.sandbox/agent-skill@1" ;;

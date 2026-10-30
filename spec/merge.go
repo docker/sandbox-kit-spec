@@ -804,7 +804,7 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		}
 		return nil
 	}
-	return fmt.Errorf("merge: %s and %s both declare %s; it describes the whole sandbox, so it has one author",
+	return fmt.Errorf("merge: %s and %s both declare %s; it describes the whole composition, so it has one author",
 		(*slot).reference, reference, label)
 }
 
@@ -896,6 +896,11 @@ func sameRequest(a, b Capability) bool {
 		var sa, sb AgentSkills
 		if DecodeCapabilityConfig(a, &sa) == nil && DecodeCapabilityConfig(b, &sb) == nil {
 			return sa.Path == sb.Path && SkillsMode(sa) == SkillsMode(sb)
+		}
+	case CapabilityMCPServer:
+		var ma, mb MCPServer
+		if DecodeCapabilityConfig(a, &ma) == nil && DecodeCapabilityConfig(b, &mb) == nil {
+			return sameMCPServer(ma, mb)
 		}
 	}
 	return capabilityIdentity(a) == capabilityIdentity(b)

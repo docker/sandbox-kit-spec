@@ -37,6 +37,15 @@ Most new kits should be mixins, and a tool worth shipping as a workload is
 usually worth shipping as both — that is what the `claude`/`claude-mixin` pair
 in the examples is.
 
+An **MCP server** Kit is a sandbox like any other, declaring
+`mcp-server@1` so the host knows how to reach the server inside it and
+can serve it to another sandbox's MCP gateway or to MCP clients on the
+host. When the server *is* the Kit, write a workload whose launch is the
+server and leave the entry's `command` out; no agent is launched, so the
+agent guidance below — platform floor, `sbx@1`, sessions — does not
+apply. See `examples/hello-mcp`. An agent Kit or a mixin can carry a
+server too, by giving the entry its own `command`.
+
 A mixin cannot set `ENTRYPOINT`, `CMD`, `USER` or `WORKDIR` and have it take
 effect: the workload anchors the composition and owns those contract fields.
 The **additive** fields do merge — env, labels, ports and volumes — so a
@@ -144,6 +153,14 @@ often got wrong:
 | `agent-interactive-sessions@1` | the TUI verbs a human-facing host launches (seeded prompt, continue, resume, session picker, list) | The sibling of `agent-sessions@1` for an agent whose CLI has an interactive mode; an agent that also has a headless mode declares both, and one with only a TUI declares just this. **Presence is meaning**: a present key is supported, an absent key is not, and for `continue`, `newSession` and `sessionPicker` `[]` is the launch argv alone (`prompt` and `resume` carry their placeholders, so they are never empty). `newSession` is the exception: omit it when a bare launch opens the TUI, because it then defaults to `lifecycle@1`'s `interactive` launch; if you state both `newSession` and `interactive` they must be the same argv, an explicit `[]` included. `list` is the same command as in `agent-sessions@1`. Declare only verbs you verified. |
 | `host-port@1` | one host loopback TCP or UDP service | `host` is required (1–65535); `container` defaults to `host` (also when zero); `transport` is `tcp` (default when empty) or `udp`. `family` selects host loopback: `ipv4` (default), `ipv6`, or `dual` when either reaches the same service; it is part of the grant. The sandbox endpoint stays IPv4 loopback. A mapping conflicts with `port@1` on the same sandbox port and transport. This grants raw access to a host service, not general egress or a published guest port. |
 | `port@1`, `resources@1`, `privileged@1` | inbound ports, limits, elevation | Do not declare on speculation; `privileged@1` is the largest widening available. |
+| `mcp-server@1` | "this sandbox runs an MCP server, reached like this" | One entry per server, keyed on `name` (one lowercase DNS label, unique in the Kit). `transport` is `stdio` or `streamable-http`; HTTP adds `port` and `path` (default `/mcp`). Those four stay literal. **Without `command`** the server is the workload's launch (`ENTRYPOINT` plus `CMD`): only a workload can declare that, once, and not beside `sbx@1`, whose launch is the agent; an optional `arguments` list replaces `CMD` as `docker run <image> <args>` does — that is where a registry `server.json`'s `packageArguments` go, and its non-secret `environmentVariables` become args with `env:`. **With `command`** (string via `sh -c`, or exec list) the server starts inside the sandbox beside the launch, as `acp@1` adapters do; every mixin entry needs one, and `arguments` is not allowed. `command` and `arguments` may reference `${{ kit.args.* }}` and `${{ kit.env.* }}`. The server's reach is the sandbox's own network policy and credentials; no network policy means no egress. Mark an agent Kit's extra servers `optional: true`; leave a server-only Kit's entry required. |
+
+For an MCP server, verify it before publishing: pipe an `initialize`
+request, `tools/list` and a `tools/call` into `docker run -i <image>` (or
+into the entry's `command` under `docker run -i --entrypoint`) and check
+that stdout carries only JSON-RPC lines, logs go to stderr, and stdin EOF
+exits. An HTTP server must listen on every interface of the sandbox, not
+only loopback.
 
 Host sharing is a separate grant from `volume@1`, including when the
 in-container path stays the same. Do not supply a host path or assume a
