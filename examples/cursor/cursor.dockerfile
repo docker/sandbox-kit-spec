@@ -7,7 +7,7 @@
 # agent it carries: otherwise a refresh would publish a different binary
 # under an unchanged kit tag. Move the digest, CURSOR_AGENT_BUILD, and
 # version: together.
-FROM dhi.io/sbx-templates:cursor-agent-docker@sha256:c2fce9d7c903a7421ecc9a4a8ce3498767f99f1ceee2fb8cb181113c94d0e4e8
+FROM dhi.io/sbx-templates:cursor-agent-docker@sha256:2ebd43969e4683a4ecdc6e121a1ea067eed9e6c562c72b49fa1af0ed31b8b328
 ARG CURSOR_AGENT_BUILD=2026.10.22-27dcf5f
 ARG BUILDARCH
 ARG TARGETARCH
