@@ -671,6 +671,7 @@ var mutations = map[string][]string{
 	"docker-flags-beside-daemon-json":        {"dockerd@1/daemon-json-honored"},
 	"docker-config-file-elsewhere":           {"dockerd@1/daemon-json-honored"},
 	"docker-joined-host-flag":                {"dockerd@1/daemon-json-honored"},
+	"docker-socket-group-flag":               {"dockerd@1/daemon-json-honored"},
 	"docker-manual-autostarts":               {"dockerd@1/manual-engine-not-started"},
 	"docker-manual-autostarts-later":         {"dockerd@1/manual-engine-not-started"},
 	"ignores-skills":                         {"agent-skills@1/store-mounted-at-declared-path"},

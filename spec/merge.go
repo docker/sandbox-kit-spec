@@ -815,7 +815,7 @@ func (m *capabilityMerge) addDockerd(reference string, n Capability) error {
 	// one true between them. Spelled as the default, the merged entry
 	// reads the same whichever order the Kits come in.
 	if !sameRequest(held, n) {
-		held.Config = nil
+		held.Config, held.configSet = nil, false
 	}
 	held.Name = lesserNonEmpty(held.Name, n.Name)
 	held.Description = lesserNonEmpty(held.Description, n.Description)

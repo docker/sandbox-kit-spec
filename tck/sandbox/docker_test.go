@@ -7,15 +7,15 @@ import (
 )
 
 // The image's own config file is still the image's config, in either
-// spelling; any other file, and any spelling of a directive the fixture's
-// daemon.json sets, is refused.
+// spelling; any other file, and any spelling of a directive daemon.json
+// can set, is refused.
 func TestDaemonJSONViolation(t *testing.T) {
 	for _, tc := range []struct {
 		argv []string
 		ok   bool
 	}{
 		{nil, true},
-		{[]string{"--debug"}, true},
+		{[]string{"--containerd-namespace=moby"}, true},
 		{[]string{"--config-file", "/etc/docker/daemon.json"}, true},
 		{[]string{"--config-file=/etc/docker/daemon.json"}, true},
 		{[]string{"--config-file=/etc/docker/./daemon.json"}, true},
@@ -26,8 +26,16 @@ func TestDaemonJSONViolation(t *testing.T) {
 		{[]string{"-Hunix:///var/run/docker.sock"}, false},
 		{[]string{"--host=unix:///var/run/docker.sock"}, false},
 		{[]string{"--data-root", "/var/lib/docker"}, false},
-		{[]string{"-g/var/lib/docker"}, false},
-		{[]string{"--graph=/var/lib/docker"}, false},
+		{[]string{"--group", "docker"}, false},
+		{[]string{"--group=docker"}, false},
+		{[]string{"-G", "docker"}, false},
+		{[]string{"-Gdocker"}, false},
+		{[]string{"-soverlay2"}, false},
+		{[]string{"--storage-driver=overlay2"}, false},
+		{[]string{"--debug"}, false},
+		{[]string{"-D"}, false},
+		{[]string{"--tlsverify"}, false},
+		{[]string{"--pidfile=/run/docker.pid"}, false},
 	} {
 		got := daemonJSONViolation(tc.argv)
 		if tc.ok {

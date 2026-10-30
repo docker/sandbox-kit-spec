@@ -229,9 +229,9 @@ func dockerStoreOwned(ctx context.Context, e *Env) []report.Finding {
 	return nil
 }
 
-// The workload ships a daemon.json setting hosts and data-root, so a flag
-// for either is one a real engine would refuse to start with, and a
-// config file elsewhere is one that never reads the image's.
+// A flag for any directive daemon.json can set is one a real engine
+// refuses once the image's file sets it too, and a config file elsewhere
+// is one that never reads the image's.
 func dockerDaemonJSON(ctx context.Context, e *Env) []report.Finding {
 	id, cleanup, f := dockerSandbox(ctx, e, dockerComposition)
 	defer cleanup()
@@ -252,24 +252,42 @@ func dockerDaemonJSON(ctx context.Context, e *Env) []report.Finding {
 	return nil
 }
 
-// daemonJSONViolation names the first argument that sets a directive the
-// fixture's daemon.json sets too, or points dockerd at another config
-// file. Short flags take their value joined as well as separate, and
-// pointing --config-file at the image's own file is still reading it.
+// daemonFileFlags are dockerd flags whose directive has a daemon.json
+// key, as dockerd's reference documents the file. Short forms take their
+// value joined as well as separate.
+var (
+	daemonFileFlags = map[string]bool{
+		"--group": true, "--host": true, "--data-root": true,
+		"--storage-driver": true, "--storage-opt": true,
+		"--log-level": true, "--log-driver": true, "--log-opt": true,
+		"--iptables": true, "--ip6tables": true, "--bridge": true, "--bip": true,
+		"--default-address-pool": true, "--dns": true, "--dns-search": true, "--dns-opt": true,
+		"--insecure-registry": true, "--registry-mirror": true, "--mtu": true,
+		"--userns-remap": true, "--live-restore": true, "--features": true,
+		"--exec-opt": true, "--default-runtime": true, "--containerd": true,
+		"--tls": true, "--tlsverify": true, "--tlscacert": true, "--tlscert": true, "--tlskey": true,
+		"--debug": true, "--experimental": true, "--pidfile": true,
+	}
+	daemonFileShortFlags = []string{"-G", "-H", "-b", "-s", "-l", "-D", "-p"}
+)
+
+// daemonJSONViolation names the first argument that sets a directive
+// daemon.json can also set, or points dockerd at another config file.
+// Pointing --config-file at the image's own file is still reading it.
 func daemonJSONViolation(argv []string) string {
 	for i, arg := range argv {
 		flag, value, joined := strings.Cut(arg, "=")
 		if !strings.HasPrefix(arg, "--") {
-			for _, short := range []string{"-H", "-g"} {
+			for _, short := range daemonFileShortFlags {
 				if strings.HasPrefix(arg, short) {
-					flag = short
+					return fmt.Sprintf("the runtime passed dockerd %q, a directive daemon.json can also set", arg)
 				}
 			}
 		}
-		switch flag {
-		case "-H", "--host", "--data-root", "-g", "--graph":
-			return fmt.Sprintf("the runtime passed dockerd %q, a directive the image's daemon.json also sets", arg)
-		case "--config-file":
+		if daemonFileFlags[flag] {
+			return fmt.Sprintf("the runtime passed dockerd %q, a directive daemon.json can also set", arg)
+		}
+		if flag == "--config-file" {
 			if !joined && i+1 < len(argv) {
 				value = argv[i+1]
 			}

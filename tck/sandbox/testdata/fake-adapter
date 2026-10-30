@@ -722,6 +722,7 @@ create)
     docker-flags-beside-daemon-json) echo '["--host=unix:///var/run/docker.sock"]' >"$dir/docker-argv" ;;
     docker-config-file-elsewhere) echo '["--config-file","/run/kit/daemon.json"]' >"$dir/docker-argv" ;;
     docker-joined-host-flag) echo '["-Hunix:///var/run/docker.sock"]' >"$dir/docker-argv" ;;
+    docker-socket-group-flag) echo '["--group","docker"]' >"$dir/docker-argv" ;;
     *) echo '[]' >"$dir/docker-argv" ;;
     esac
     token="$id-store"

@@ -617,7 +617,7 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 				// An arg in autoStart decides who starts the engine, not
 				// who owns its store.
 				standIn := item
-				standIn.Config = nil
+				standIn.Config, standIn.configSet = nil, false
 				d.Capabilities = append(d.Capabilities, standIn)
 			}
 			if item.Type == CapabilityHostMount {
