@@ -93,11 +93,15 @@ tasks:
   test:mem0:
     desc: Build the Mem0 example and start its database, API and dashboard
     vars:
+      MEM0_BUILD_ARGS: "{{.BUILD_ARGS}} --load"
       MEM0_VERSION:
         sh: scripts/kit-version.sh current mem0
     cmds:
       - task: kit:build
-        vars: {KIT: mem0, TAG: "{{.MEM0_VERSION}}"}
+        vars:
+          KIT: mem0
+          TAG: "{{.MEM0_VERSION}}"
+          BUILD_ARGS: "{{.MEM0_BUILD_ARGS}}"
       - |
         docker run --rm -i --network none --entrypoint python \
           -e OPENAI_API_KEY=offline-test-key \
