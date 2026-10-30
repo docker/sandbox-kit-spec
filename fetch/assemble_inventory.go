@@ -48,15 +48,23 @@ const (
 )
 
 type inventoryBudget struct {
+	limits         InventoryLimits
 	layersLeft     int
 	entriesLeft    int
 	pathBytesLeft  int
 	componentsLeft int
 }
 
+func (b *inventoryBudget) limit(value, fallback int) int {
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
 func (b *inventoryBudget) consumeLayer() error {
 	if b.layersLeft == 0 {
-		return fmt.Errorf("assembly inventory exceeds %d layers", maxInventoryLayers)
+		return fmt.Errorf("assembly inventory exceeds %d layers", b.limit(b.limits.Layers, maxInventoryLayers))
 	}
 	b.layersLeft--
 	return nil
@@ -64,16 +72,16 @@ func (b *inventoryBudget) consumeLayer() error {
 
 func (b *inventoryBudget) consume(hdr *tar.Header) error {
 	if b.entriesLeft == 0 {
-		return fmt.Errorf("assembly inventory exceeds %d entries", maxInventoryEntries)
+		return fmt.Errorf("assembly inventory exceeds %d entries", b.limit(b.limits.Entries, maxInventoryEntries))
 	}
 	if len(hdr.Name) > b.pathBytesLeft || len(hdr.Linkname) > b.pathBytesLeft-len(hdr.Name) {
-		return fmt.Errorf("assembly inventory exceeds %d path and link-name bytes", maxInventoryPathBytes)
+		return fmt.Errorf("assembly inventory exceeds %d path and link-name bytes", b.limit(b.limits.PathBytes, maxInventoryPathBytes))
 	}
 	// Charge uncleaned paths and link targets conservatively: normalization
 	// must not hide the work of building implied directories or resolving links.
 	components := pathComponents(hdr.Name) + pathComponents(hdr.Linkname)
 	if components > b.componentsLeft {
-		return fmt.Errorf("assembly inventory exceeds %d path components", maxInventoryComponents)
+		return fmt.Errorf("assembly inventory exceeds %d path components", b.limit(b.limits.Components, maxInventoryComponents))
 	}
 	b.componentsLeft -= components
 	b.entriesLeft--
@@ -95,7 +103,7 @@ func pathComponents(name string) int {
 	return count
 }
 
-func inventoryKits(ctx context.Context, kits []*resolve.Unit, loaded map[string]*LoadedKit, report func(Progress)) ([]kitInventory, error) {
+func inventoryKits(ctx context.Context, kits []*resolve.Unit, loaded map[string]*LoadedKit, report func(Progress), limits InventoryLimits) ([]kitInventory, error) {
 	// Descriptors are dependency-ordered; filesystem effects are workload-first.
 	resolution, err := resolve.Resolve(kits)
 	if err != nil {
@@ -107,7 +115,7 @@ func inventoryKits(ctx context.Context, kits []*resolve.Unit, loaded map[string]
 		diffID digest.Digest
 	}
 	cache := map[blobKey][]inventoryEntry{}
-	budget := inventoryBudget{layersLeft: maxInventoryLayers, entriesLeft: maxInventoryEntries, pathBytesLeft: maxInventoryPathBytes, componentsLeft: maxInventoryComponents}
+	budget := inventoryBudget{limits: limits, layersLeft: limits.Layers, entriesLeft: limits.Entries, pathBytesLeft: limits.PathBytes, componentsLeft: limits.Components}
 	inventories := make([]kitInventory, 0, len(kits))
 	for _, kit := range resolution.Ordered() {
 		input := loaded[kit.Reference]

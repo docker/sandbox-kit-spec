@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"io"
@@ -178,4 +179,45 @@ func TestAssembleCustomLayerValidator(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLayerValidatorCustomInventoryLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limits InventoryLimits
+	}{
+		{"entries", InventoryLimits{Entries: 1}},
+		{"path bytes", InventoryLimits{PathBytes: 3}},
+		{"components", InventoryLimits{Components: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := layerFixture(t, spec.KindWorkload, "base", []tar.Header{{Name: "one/file", Mode: 0644}, {Name: "two/file", Mode: 0644}})
+			opts := Options{Loader: fixtureLoader(input), LayerValidator: LayerValidatorWithLimits(tc.limits)}
+			_, err := Assemble(t.Context(), fixtureRequests(1), opts)
+			require.ErrorContains(t, err, "assembly inventory exceeds")
+			opts.LayerValidator = LayerValidatorWithLimits(InventoryLimits{Entries: 2, PathBytes: 16, Components: 4})
+			for range 2 { // The same validator starts with a fresh budget each time.
+				_, err = Assemble(t.Context(), fixtureRequests(1), opts)
+				require.NoError(t, err)
+			}
+		})
+	}
+	for _, limits := range []InventoryLimits{{Layers: -1}, {Entries: -1}, {PathBytes: -1}, {Components: -1}} {
+		input, _ := assemblyFixture(t, spec.KindWorkload, "base", "file")
+		_, err := Assemble(t.Context(), fixtureRequests(1), Options{Loader: fixtureLoader(input), LayerValidator: LayerValidatorWithLimits(limits)})
+		require.ErrorContains(t, err, "nonnegative")
+	}
+}
+
+func TestCustomInventoryLimitsStillCountCacheAndCheckCollisions(t *testing.T) {
+	base, _ := assemblyFixture(t, spec.KindWorkload, "base", "same")
+	base.Manifest.Layers = append(base.Manifest.Layers, base.Manifest.Layers[0])
+	base.Config.RootFS.DiffIDs = append(base.Config.RootFS.DiffIDs, base.Config.RootFS.DiffIDs[0])
+	for _, limits := range []InventoryLimits{{Layers: 1}, {Entries: 1}, {Components: 1}} {
+		_, err := Assemble(t.Context(), fixtureRequests(1), Options{Loader: fixtureLoader(base), LayerValidator: LayerValidatorWithLimits(limits)})
+		require.ErrorContains(t, err, "assembly inventory exceeds")
+	}
+	mixin, _ := assemblyFixture(t, spec.KindMixin, "tool", "same")
+	_, err := Assemble(t.Context(), fixtureRequests(2), Options{Loader: fixtureLoader(base, mixin), LayerValidator: LayerValidatorWithLimits(InventoryLimits{Components: 1_000_000})})
+	require.Error(t, err, "larger budgets must not bypass collision checks")
 }
