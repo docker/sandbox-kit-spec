@@ -485,6 +485,12 @@ const (
 	// absent — the host may refuse.
 	CapabilityPrivileged = "com.docker.sandbox/privileged@1"
 
+	// CapabilityDockerd requests a Docker Engine; config decodes to
+	// Dockerd. The engine needs the same elevation privileged@1 asks for,
+	// so it counts as privileged on the permission surface. It owns
+	// DockerStoragePath.
+	CapabilityDockerd = "com.docker.sandbox/dockerd@1"
+
 	// CapabilityLifecycle asks the engine to execute the kit's setup
 	// across the sandbox's life: install hooks once at create, startup
 	// hooks every boot, files written at start, and the interactive
@@ -546,6 +552,12 @@ const (
 	// grant, not a side effect of network egress. No config.
 	CapabilityKitRegistry = "com.docker.sandbox/kit-registry@1"
 )
+
+// DockerStoragePath is the engine store CapabilityDockerd owns. A volume@1
+// or host-mount@1 at or under it would replace or shadow the private,
+// persistent storage the runtime backs it with, so a composition declaring
+// the engine refuses one.
+const DockerStoragePath = "/var/lib/docker"
 
 // PhasedNetwork is CapabilityNetworkPolicy's config: egress by phase — install
 // is open while the install hooks run and closed before the agent
@@ -948,6 +960,17 @@ type USBDevice struct {
 	ProductID string `json:"productId,omitempty" yaml:"productId,omitempty"`
 	Class     string `json:"class,omitempty" yaml:"class,omitempty"`
 }
+
+// Dockerd is CapabilityDockerd's config.
+type Dockerd struct {
+	// AutoStart defaults to true: the runtime starts the engine before
+	// startup hooks. False leaves starting it to the Kit's own hook; the
+	// elevation and the store are granted either way.
+	AutoStart *bool `json:"autoStart,omitempty" yaml:"autoStart,omitempty"`
+}
+
+// AutoStarts reports whether the runtime starts the engine.
+func (d Dockerd) AutoStarts() bool { return d.AutoStart == nil || *d.AutoStart }
 
 // Resources is CapabilityResources's config: the workload's compute.
 type Resources struct {

@@ -571,8 +571,9 @@ serialization. An empty string is equivalent to an omitted label.
 declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
-`kit-registry@1`, `agent-sessions@1`, `agent-interactive-sessions@1`,
-`lifecycle@1`, `sbx@1`, `long-running@1`, `git-identity@1`.
+`dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
+`agent-interactive-sessions@1`, `lifecycle@1`, `sbx@1`, `long-running@1`,
+`git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -600,8 +601,9 @@ Exact-duplicate entries of any type are rejected.
 Across selected contributions, keys determine which requests reconcile,
 not whether they may merge. Credentials and host mounts have one owner
 and conflict even when their configurations match. Matching volume and
-port requests collapse; differing requests conflict. SSH-agent permissions
-union per phase. [§9.5](#95-merging-a-set) and the capability pages specify
+port requests collapse; differing requests conflict. `dockerd@1` owns
+`/var/lib/docker`, so a `volume@1` or `host-mount@1` at or under that
+path conflicts with it. SSH-agent permissions union per phase. [§9.5](#95-merging-a-set) and the capability pages specify
 the type-specific rules for publication and runtime composition alike.
 
 Composition reconciliation combines the selected requests for one
@@ -764,6 +766,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/usb-device@1` | [usb-device@1](capabilities/com.docker.sandbox/usb-device@1.md) | instance |
 | `com.docker.sandbox/resources@1` | [resources@1](capabilities/com.docker.sandbox/resources@1.md) | singleton |
 | `com.docker.sandbox/privileged@1` | [privileged@1](capabilities/com.docker.sandbox/privileged@1.md) | singleton, config-less |
+| `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
@@ -792,9 +795,11 @@ pages above.
 A descriptor projects onto a **permission surface**: the normalized
 (sorted, deduplicated) set of everything the host must grant — phased
 network allow/deny lists, credentials by phase, what the SSH agent may
-sign by phase, storage paths, skills paths, ports, USB matches,
-privileged, plus one `type+config-digest` entry (the full SHA-256 of the
-canonical config) for every other request. The projection input is the
+sign by phase, storage paths (`dockerd@1` adds `/var/lib/docker`),
+skills paths, ports, USB matches, privileged (which `dockerd@1` also
+sets), plus one `type+config-digest`
+entry (the full SHA-256 of the canonical config) for every other
+request. The projection input is the
 **effective descriptor** — published declarations with this
 installation's create-phase arg values expanded ([§6](#6-args)) — so the
 surface describes the policy actually enforced, and an arg value that
@@ -824,6 +829,13 @@ a Kit's surface in the lock and diff a candidate's against it:
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
+- `dockerd@1` sets the privileged bit and the storage path
+  `/var/lib/docker` rather than a service entry: the engine needs
+  `privileged@1`'s elevation, and its store is persistent storage, as a
+  `volume@1` there would be. Moving from `privileged@1` plus that
+  volume to `dockerd@1` widens nothing; adding `dockerd@1` to a Kit
+  granted `privileged@1` alone widens storage. `autoStart` decides only
+  who starts the engine, so changing it widens nothing.
 
 ---
 
@@ -1004,6 +1016,7 @@ error. In that order they reconcile into one descriptor:
 | `volume@1` | Matching typed storage configurations at one cleaned path collapse; different sizes, modes, or backing kinds conflict. Storage belongs to the sandbox instance, independently of the declaring Kit. |
 | `credential@1` | One owner per (service, phase); overlapping requests conflict even when identical. |
 | `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
+| `dockerd@1` | Presence is the union, and the merged `autoStart` is true when any of them says true or omits it, false only when all say false. It owns `/var/lib/docker`: a `volume@1` or `host-mount@1` at or under that cleaned path conflicts with it, whichever Kit declares either and whether or not the request is optional. |
 | `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
@@ -1222,7 +1235,9 @@ The spec library enforces, beyond per-field rules stated above:
   and pass their per-type rules
   (see the capability pages); **cross-entry**: every credential inject
   domain appears in the matching phase of the network policy's allow list
-  (a bare `*`/`**` allow entry covers every domain). Entries whose config
+  (a bare `*`/`**` allow entry covers every domain); a descriptor
+  declaring `dockerd@1` declares no `volume@1` or `host-mount@1` at or
+  under `/var/lib/docker`. Entries whose config
   references a Kit arg defer their typed and cross-entry checks to the
   **effective form** ([§6](#6-args)), where every placeholder is resolved.
 - **args**: name and env/buildArg charsets; `default`/`required`,

@@ -1,0 +1,8 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Docker Engine probe workload
+description: >-
+  Ships a stand-in dockerd on PATH and requests nothing, so an engine
+  started for this workload alone was started without a request.
+provides: ["kit-tck-docker-workload@1.0.0"]

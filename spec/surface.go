@@ -181,6 +181,12 @@ func SurfaceOf(d *Descriptor) Surface {
 			}
 		case CapabilityPrivileged:
 			s.Privileged = true
+		case CapabilityDockerd:
+			// The engine needs privileged@1's elevation and brings
+			// persistent storage at its store, so it surfaces as
+			// privileged@1 plus a volume@1 there would.
+			s.Privileged = true
+			s.StoragePaths = append(s.StoragePaths, DockerStoragePath)
 		case CapabilityResources:
 			// Resource limits constrain the kit rather than grant it
 			// anything; they are not permission surface.

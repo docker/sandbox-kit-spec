@@ -472,6 +472,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityNetworkPolicyV2:          true,
 	CapabilityResources:                true,
 	CapabilityPrivileged:               true,
+	CapabilityDockerd:                  true,
 	CapabilityKitRegistry:              true,
 	CapabilityAgentSessions:            true,
 	CapabilityAgentInteractiveSessions: true,
@@ -630,6 +631,9 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 	// spellings of one command are equal.
 	var headlessList, interactiveList CommandLine
 	headlessListAt, interactiveListAt := -1, -1
+	// dockerd@1 owns the engine store, so storage another entry asks for
+	// there is refused rather than left for a runtime to choose between.
+	dockerAt, engineStoreAt := -1, -1
 	for i, c := range checks {
 		n := c.entry
 		path := fmt.Sprintf("capabilities[%d]", i)
@@ -707,6 +711,13 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 				if prev, dup := declared.at(other, key); dup && reported.first(ruleConflict, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: %s path %q conflicts with %s at capabilities[%d]", i, label, c.destination, otherLabel, prev))
 				}
+				if _, ok := engineStorePath(key.identity); ok && engineStoreAt == -1 {
+					engineStoreAt = i
+				}
+			}
+		case CapabilityDockerd:
+			if dockerAt == -1 {
+				dockerAt = i
 			}
 		case CapabilityAgentSkill:
 			for _, key := range c.keys {
@@ -778,6 +789,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].type", two),
 			"capabilities[%d]: %s cannot be declared beside %s at capabilities[%d]; a descriptor states one network-policy version",
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
+	}
+
+	if dockerAt >= 0 && engineStoreAt >= 0 && reported.first(ruleEngineStore, checks[engineStoreAt], checks[dockerAt], noKey) {
+		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.path", engineStoreAt),
+			"capabilities[%d]: %s path %q is inside the engine store %s at capabilities[%d] owns",
+			engineStoreAt, checks[engineStoreAt].entry.Type, checks[engineStoreAt].destination, CapabilityDockerd, dockerAt))
 	}
 
 	if !d.declarationsOnly && HasCapability(needs, CapabilityAgentContext) && HasCapability(needs, CapabilityAgentContextV2) {
@@ -1090,6 +1107,22 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		if (u.VendorID != "") != (u.ProductID != "") {
 			c.errs.add(fieldErrorf(path+".config", "capabilities[%d]: vendorId and productId go together", i))
 		}
+	case CapabilityDockerd:
+		// A null would decode as the omitted default, which the schema
+		// refuses.
+		if n.configSet && n.Config == nil {
+			c.errs.add(fieldErrorf(path+".config", "capabilities[%d]: config must be an object", i))
+			return false
+		}
+		if value, stated := n.Config["autoStart"]; stated && hasNull(value) {
+			c.errs.add(fieldErrorf(path+".config.autoStart", "capabilities[%d]: autoStart must be true or false", i))
+			return false
+		}
+		var d Dockerd
+		if err := DecodeCapabilityConfig(n, &d); err != nil {
+			c.errs.add(configErrorf(path, i, err))
+			return false
+		}
 	case CapabilityResources:
 		var r Resources
 		if err := DecodeCapabilityConfig(n, &r); err != nil {
@@ -1254,6 +1287,7 @@ const (
 	ruleInteractive           = "interactive"
 	ruleList                  = "list"
 	ruleNetworkPolicyVersions = "network-policy-versions"
+	ruleEngineStore           = "engine-store"
 )
 
 // noKey stands for the key of a rule that fires at most once per pair.

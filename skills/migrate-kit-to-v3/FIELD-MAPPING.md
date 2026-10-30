@@ -476,6 +476,48 @@ the declared user can execute and declare a non-empty `user` that resolves in
 the capability page rather than a MUST, and `kit-tck` warns rather than failing
 when it is missing.
 
+### dockerd@1
+
+For a v2 kit whose Dockerfile carries
+`LABEL com.docker.sandboxes.start-docker="true"`, declare
+`com.docker.sandbox/dockerd@1` with no `config` (`autoStart` defaults to
+true, so the runtime starts the engine) and drop the label. Some
+runtimes still honor the label as a transition mechanism, but it is not part
+of the v3 specification. A kit that must also run on runtimes that predate
+`dockerd@1` marks it `optional: true` (such a runtime skips it) and keeps the
+label and `privileged@1` for them; `examples/builder` does this. Any kind may
+declare the capability, so a Docker-in-Docker mixin keeps it on its `-mixin`
+variant too.
+
+It replaces the parts a v2 kit assembled by hand, so remove them with a
+`# MIGRATION NOTE:`:
+
+- `privileged@1`: `dockerd@1` grants the same elevation and counts as
+  privileged on the permission surface. Keeping it beside `dockerd@1` is
+  redundant, not refused.
+- a `volume@1` (or `host-mount@1`) at or under `/var/lib/docker`: the runtime
+  backs the engine store with private storage that survives stop and start
+  and recreation, and validation refuses storage at or under that path beside
+  `dockerd@1`. Its size arg goes with it.
+- a startup hook whose only job is starting `dockerd`: the runtime starts the
+  engine before any startup hook runs. Keep hooks that use the engine. A kit
+  whose hook must start the engine itself, with its own flags, keeps that hook
+  and sets `config: {autoStart: false}`; the runtime still grants elevation
+  and the store, and starts nothing. The hook then waits until
+  `GET /_ping` on `/var/run/docker.sock` returns 200 and fixes the socket's
+  permissions itself. When another Kit in the composition leaves `autoStart`
+  true, the runtime starts the engine anyway, so the hook must tolerate one
+  already running: check `GET /_ping` first and do not start a second
+  daemon. Its own daemon flags may not apply then.
+- daemon flags: the engine the runtime starts reads the image's
+  `/etc/docker/daemon.json`, so settings the v2 hook passed as flags move
+  into that file.
+
+The capability asks for a running engine; it does not install one. The
+binaries stay in the recipe, and the runtime starts the `dockerd` the composed
+image config's `PATH` resolves. A mixin relying on the workload's packaged engine keeps
+`requires: ["deb/docker-ce"]`. `examples/builder` is the migrated shape.
+
 ### port@1
 
 One entry per v2 port. `name:` and `container:` carry over; v2 `protocol: tcp`
@@ -558,8 +600,9 @@ combines the sources while honoring access bounds and collision rules.
 
 `privileged@1`, `resources@1`, `kit-registry@1` and `usb-device@1` belong in a
 migrated kit only if the v2 kit declared the equivalent. A v2 Dockerfile's
-`LABEL com.docker.sandboxes.start-docker="true"` stays a label in the recipe —
-it is not a v3 capability.
+`LABEL com.docker.sandboxes.start-docker="true"` is the exception: it maps to
+`dockerd@1` (below), and the label stays in the recipe only as a transition
+for runtimes that predate it.
 
 `ssh-agent@1` has no v2 counterpart to migrate: agent forwarding was a
 runtime setting (`ssh.agentForwardingEnabled`), not something a v2 kit
@@ -677,6 +720,9 @@ Before calling a migration done:
 - [ ] every mixin declaring a context `filename:` also declares its
       explicit discovery `directory:`
 - [ ] no `sbx@1`, `agent-sessions@1` or `agent-interactive-sessions@1` on a mixin
+- [ ] a `start-docker` label became `dockerd@1`, with no storage at or under
+      `/var/lib/docker` and no hook that only starts `dockerd`; the label and
+      `privileged@1` stay only beside an optional `dockerd@1` for older runtimes
 - [ ] the mixin's `ENV` is on the recipe's final stage, and profile.d is used
       only for values that collide or that only a shell needs
 - [ ] entrypoint, env, user and workdir live in the recipe, not the descriptor

@@ -1,0 +1,11 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Storage in the engine store
+description: Declares a volume at /var/lib/docker, which a composition granting dockerd@1 must refuse
+provides: ["kit-tck-dockerd-store-volume@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    description: Storage at the path dockerd@1 owns
+    config:
+      path: /var/lib/docker

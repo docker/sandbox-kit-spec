@@ -343,11 +343,16 @@ says a host binding *should* be loopback — so it stays off unless asked
 for, and is worth turning on only where you know the runtime binds
 loopback.
 
-The in-sandbox BuildKit port is 3330 and the engine-store
-volume defaults to 20 GiB (`--kit-arg volumeSize=…`);
-`--kit-arg buildkitPort=…` moves the port. Raising size does not grow
-an already-formatted volume —
-recreate the builder sandbox once after changing it. When a Kit is ready
+The in-sandbox BuildKit port is 3330; `--kit-arg buildkitPort=…` moves
+it. The builder declares `dockerd@1`, so on a runtime that grants it the
+engine store under `/var/lib/docker` is storage the runtime keeps
+private to the sandbox across restarts and recreation, and it doubles
+as the build cache. The request is optional and the recipe keeps the
+`com.docker.sandboxes.start-docker` label, so a runtime that predates
+`dockerd@1` still starts the engine. On such a runtime the store sits on
+the sandbox's writable layer, so the build cache is lost when the
+sandbox is recreated, and a runtime that honors neither the type nor the
+label starts no engine. When a Kit is ready
 to share, step 3's `task kit:push` is the whole publishing story.
 
 ## Building a Kit

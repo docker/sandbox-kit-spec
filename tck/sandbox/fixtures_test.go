@@ -18,7 +18,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 102, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 106, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {

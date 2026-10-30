@@ -1,0 +1,17 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Docker Engine
+description: Requests the engine, and records at every boot which engine start its startup hook saw
+provides: ["kit-tck-dockerd@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/dockerd@1
+    description: The conformance suite judges the engine the runtime starts
+  # Optional so a runtime without lifecycle@1 still composes; the check
+  # reading this record skips there instead.
+  - type: com.docker.sandbox/lifecycle@1
+    optional: true
+    config:
+      startup:
+        - command: sh -c '{ curl -sf --unix-socket /var/run/docker.sock http://engine/_ping >/dev/null && cat /var/tmp/kit-tck-docker/boot 2>/dev/null || echo missing; } >> /var/tmp/kit-tck-docker-startup'
+          description: Appends the boot id of the engine answering GET /_ping, or missing when none answers
