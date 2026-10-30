@@ -25,15 +25,6 @@ export APP_DB_NAME=${APP_DB_NAME:-mem0_app}
 mkdir -p "$PGDATA"
 chmod 0700 "$PGDATA"
 
-if [ ! -s "$PGDATA/PG_VERSION" ]; then
-    initdb --username="$POSTGRES_USER" --encoding=UTF8 --locale=C.UTF-8 \
-        --auth-local=trust --auth-host=trust
-fi
-
-postgres_log="$data/postgres.log"
-pg_ctl -D "$PGDATA" -l "$postgres_log" \
-    -o "-h 127.0.0.1 -k $data -p $POSTGRES_PORT" start
-
 cleanup() {
     trap - EXIT INT TERM
     [ -z "${api_pid:-}" ] || kill "$api_pid" 2>/dev/null || true
@@ -42,7 +33,20 @@ cleanup() {
     [ -z "${dashboard_pid:-}" ] || wait "$dashboard_pid" 2>/dev/null || true
     pg_ctl -D "$PGDATA" -m fast stop >/dev/null 2>&1 || true
 }
-trap cleanup EXIT INT TERM
+# A signal must exit, even when it interrupts an initialization command
+# that subsequently succeeds. EXIT performs the cleanup exactly once.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+    initdb --username="$POSTGRES_USER" --encoding=UTF8 --locale=C.UTF-8 \
+        --auth-local=trust --auth-host=trust
+fi
+
+postgres_log="$data/postgres.log"
+pg_ctl -D "$PGDATA" -l "$postgres_log" \
+    -o "-h 127.0.0.1 -k $data -p $POSTGRES_PORT" start
 
 for _ in $(seq 1 60); do
     pg_isready -q -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \

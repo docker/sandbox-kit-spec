@@ -150,8 +150,11 @@ task test:mem0 BUILD_ARGS='--build-arg HTTP_PROXY --build-arg HTTPS_PROXY --buil
 
 The image build checks the release source and installed Python package
 versions. The Mem0 test builds the Kit, starts its complete internal
-stack and waits for the API and dashboard. It checks MCP deletion against
+stack and waits for the API and dashboard. The test explicitly loads the
+image into Docker's local store, including with a container-backed builder.
+It checks MCP deletion against
 neighboring scopes containing URL delimiters, UUID validation, shared-lock
 contention before database initialization, a custom database name containing
-SQL punctuation, and restart persistence. Test vectors are seeded locally;
+SQL punctuation, restart persistence, and interruption during migrations.
+Test vectors are seeded locally;
 no OpenAI requests are made.

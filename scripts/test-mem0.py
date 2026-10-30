@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import signal
 import subprocess
 import tempfile
 import time
@@ -103,6 +104,57 @@ def check_deletion():
     assert not present(target)
 
 
+def check_interrupted_migration(log):
+    # Bash defers a signal trap until its foreground child returns. Release
+    # a successful migration after signaling to prove startup cannot resume.
+    with tempfile.TemporaryDirectory() as directory:
+        test_dir = Path(directory)
+        (test_dir / "alembic").write_text(
+            '#!/bin/bash\n: > "$MEM0_TEST_MIGRATING"\n'
+            'while [ ! -e "$MEM0_TEST_RELEASE" ]; do sleep 0.05; done\n'
+        )
+        for command in ("uvicorn", "node"):
+            (test_dir / command).write_text(
+                '#!/bin/bash\n: > "$MEM0_TEST_SERVICE_STARTED"\n'
+            )
+        for command in ("alembic", "uvicorn", "node"):
+            (test_dir / command).chmod(0o755)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            marker = test_dir / f"migrating-{sig}"
+            release = test_dir / f"release-{sig}"
+            service = test_dir / f"service-{sig}"
+            stack = subprocess.Popen(
+                ["/opt/mem0/start.sh"], stdout=log, stderr=log,
+                env={
+                    **os.environ, "PATH": f"{test_dir}:{os.environ['PATH']}",
+                    "MEM0_TEST_MIGRATING": str(marker),
+                    "MEM0_TEST_RELEASE": str(release),
+                    "MEM0_TEST_SERVICE_STARTED": str(service),
+                },
+            )
+            try:
+                for _ in range(100):
+                    assert stack.poll() is None, "startup exited before migration"
+                    if marker.exists():
+                        break
+                    time.sleep(0.1)
+                assert marker.exists(), "migration was not reached"
+                stack.send_signal(sig)
+                release.touch()
+                status = stack.wait(timeout=30)
+                assert not service.exists(), "startup resumed after interruption"
+                assert status == 128 + sig, (sig, status)
+                ready = subprocess.run(
+                    ["pg_isready", "-q", "-h", "127.0.0.1"], check=False,
+                )
+                assert ready.returncode != 0, "interrupted startup left PostgreSQL running"
+            finally:
+                release.touch()
+                if stack.poll() is None:
+                    stack.terminate()
+                    stack.wait(timeout=30)
+
+
 def main():
     subprocess.run(["git", "--version"], check=True)
     # Quotes and SQL punctuation catch both unsafe identifier quoting and
@@ -137,11 +189,12 @@ def main():
                 finally:
                     stack.terminate()
                     stack.wait(timeout=30)
+            check_interrupted_migration(log)
         except BaseException:
             log.seek(0)
             print(log.read())
             raise
-    print("Mem0 stack, scoped deletion, shared lock, custom database and restart checks passed")
+    print("Mem0 stack, scoped deletion, shared lock, database, restart and signal checks passed")
 
 
 if __name__ == "__main__":
