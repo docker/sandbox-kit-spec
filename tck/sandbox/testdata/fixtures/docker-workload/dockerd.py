@@ -19,6 +19,10 @@ import socketserver
 import sys
 import uuid
 
+# A runtime's umask would otherwise decide whether the image user can
+# read the records.
+os.umask(0o022)
+
 RECORDS = "/var/tmp/kit-tck-docker"
 STORE = "/var/lib/docker/kit-tck-storage"
 SOCKET = "/var/run/docker.sock"

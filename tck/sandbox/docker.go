@@ -51,7 +51,7 @@ var (
 var dockerChecks = []check{
 	{requirement: "dockerd@1/elevation-granted", capability: capDockerd, run: dockerElevation},
 	{requirement: "dockerd@1/storage-private-and-persistent", capability: capDockerd, run: dockerStorage},
-	{requirement: "dockerd@1/storage-removed-with-sandbox", capability: capDockerd, run: dockerRemoval},
+	{requirement: "dockerd@1/removed-store-not-reused", capability: capDockerd, run: dockerRemoval},
 	{requirement: "dockerd@1/engine-store-owned", capability: capDockerd, needs: []string{capVolume}, run: dockerStoreOwned},
 	{requirement: "dockerd@1/daemon-json-honored", capability: capDockerd, run: dockerDaemonJSON},
 	{requirement: "dockerd@1/socket-usable-by-image-user", capability: capDockerd, run: dockerSocketUsable},
@@ -221,9 +221,9 @@ func dockerStoreKept(ctx context.Context, e *Env, kits []string, path string) []
 	return nil
 }
 
-// A sandbox created under a removed one's name must find a new store, as
-// volume@1's removal check judges its storage: a store keyed by the alias
-// would survive the removal.
+// A sandbox created under a removed one's name must find a new store: a
+// store keyed by the alias would come back. Whether the old store was
+// deleted is not observable here.
 func dockerRemoval(ctx context.Context, e *Env) []report.Finding {
 	opts := adapter.CreateOptions{Name: "kit-tck-dockerd-" + rand.Text()}
 	id, cleanup, f := dockerSandboxWith(ctx, e, dockerComposition, opts)
@@ -304,6 +304,12 @@ func dockerFailsUnanswered(ctx context.Context, e *Env) []report.Finding {
 	remove()
 	if err == nil {
 		return []report.Finding{report.Failf("create succeeded although the engine never answered")}
+	}
+	// The host already granted the engine above, so refusing it now is a
+	// policy answer to a start that should have failed.
+	var refused *adapter.RefusedError
+	if errors.As(err, &refused) {
+		return []report.Finding{report.Failf("create was refused rather than failed when the engine never answered: %s", refused.Detail)}
 	}
 	return nil
 }

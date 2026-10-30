@@ -61,6 +61,8 @@ A conforming runtime, whatever `autoStart` says:
 - **MUST** delete that storage when the sandbox is removed, as for <!-- tck: dockerd@1/storage-removed-with-sandbox -->
   `volume@1` storage; removing the sandbox is how its build cache is
   reclaimed.
+- **MUST NOT** give a new sandbox the store of a removed one, even <!-- tck: dockerd@1/removed-store-not-reused -->
+  one created under the same name.
 - **MUST NOT** start an engine for a composition that was not granted <!-- tck: dockerd@1/absent-without-grant -->
   `dockerd@1` with `autoStart` true, even when `dockerd` is on `PATH`.
   An optional declaration the runtime refused or skipped is not a

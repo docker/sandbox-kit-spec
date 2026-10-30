@@ -365,20 +365,27 @@ func TestDockerdNullConfig(t *testing.T) {
 	}
 }
 
-// Whatever order the Kits compose in, the merged entry keeps the same
-// name and description.
-func TestDockerdMergedLabelsOrderIndependent(t *testing.T) {
-	first := Capability{Type: CapabilityDockerd, Name: "engine-b", Description: "Builds images"}
-	second := Capability{Type: CapabilityDockerd, Name: "engine-a", Description: "Runs containers", Config: map[string]any{"autoStart": false}}
+// The merged entry keeps the first nonempty name and description in
+// contribution order (SPEC-v3 §9.5), while autoStart is the same either way.
+func TestDockerdMergedLabelsFollowContributionOrder(t *testing.T) {
+	b := Capability{Type: CapabilityDockerd, Name: "engine-b", Description: "Builds images"}
+	a := Capability{Type: CapabilityDockerd, Name: "engine-a", Description: "Runs containers", Config: map[string]any{"autoStart": false}}
 	unnamed := Capability{Type: CapabilityDockerd}
-	for _, order := range [][]Capability{{first, second, unnamed}, {second, unnamed, first}, {unnamed, first, second}} {
+	for _, tc := range []struct {
+		order []Capability
+		want  Capability
+	}{
+		{[]Capability{b, a, unnamed}, Capability{Type: CapabilityDockerd, Name: "engine-b", Description: "Builds images"}},
+		{[]Capability{a, unnamed, b}, Capability{Type: CapabilityDockerd, Name: "engine-a", Description: "Runs containers"}},
+		{[]Capability{unnamed, b, a}, Capability{Type: CapabilityDockerd, Name: "engine-b", Description: "Builds images"}},
+	} {
 		var contributions []Contribution
-		for i, c := range order {
+		for i, c := range tc.order {
 			contributions = append(contributions, Contribution{Reference: fmt.Sprintf("kit-%d", i),
 				Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{c}}})
 		}
 		merged := mergeOK(t, contributions...).Descriptor
-		require.Equal(t, []Capability{{Type: CapabilityDockerd, Name: "engine-a", Description: "Builds images"}}, merged.Capabilities)
+		require.Equal(t, []Capability{tc.want}, merged.Capabilities)
 	}
 }
 

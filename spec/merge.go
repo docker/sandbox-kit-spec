@@ -817,22 +817,17 @@ func (m *capabilityMerge) addDockerd(reference string, n Capability) error {
 	if !sameRequest(held, n) {
 		held.Config, held.configSet = nil, false
 	}
-	held.Name = lesserNonEmpty(held.Name, n.Name)
-	held.Description = lesserNonEmpty(held.Description, n.Description)
+	if held.Name == "" {
+		held.Name = n.Name
+	}
+	if held.Description == "" {
+		held.Description = n.Description
+	}
 	m.byKey[CapabilityDockerd] = keyed{reference: m.docker.reference, capability: held}
 	if !n.Optional {
 		m.optional[CapabilityDockerd] = false
 	}
 	return nil
-}
-
-// lesserNonEmpty picks the label a merged entry keeps so that the order
-// Kits compose in cannot change it.
-func lesserNonEmpty(a, b string) string {
-	if a == "" || (b != "" && b < a) {
-		return b
-	}
-	return a
 }
 
 // engineStorePath reports the cleaned path a storage key identity claims

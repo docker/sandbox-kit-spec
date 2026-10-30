@@ -138,10 +138,11 @@ func TestMergeCapabilityNames(t *testing.T) {
 		{"ssh agent", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime}", ""},
 		{"bounded ssh agent", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime, unrestricted: false, sign: [git]}", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime, unrestricted: false, sign: [file]}"},
 		{"configless", "type: com.docker.sandbox/privileged@1", ""},
+		{"dockerd", "type: com.docker.sandbox/dockerd@1\n    config: {autoStart: false}", "type: com.docker.sandbox/dockerd@1\n    config: {autoStart: true}"},
 		{"unknown", "type: example.com/service@1\n    config: {mode: read}", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, names := range [][]string{{"", "", ""}, {"First label", "Second label", "Third label"}, {"", "Second label", "Third label"}, {"", "", "Third label"}} {
+			for _, names := range [][]string{{"", "", ""}, {"First label", "Second label", "Third label"}, {"", "Second label", "Third label"}, {"", "", "Third label"}, {"Zeta label", "Alpha label", "Mid label"}} {
 				var inputs []Contribution
 				wantName := ""
 				for i, name := range names {

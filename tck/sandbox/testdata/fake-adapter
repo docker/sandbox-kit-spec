@@ -425,6 +425,10 @@ create)
   fi
   # This workload's engine never answers, so a runtime starting it fails.
   for kit in "${kits[@]}"; do
+    if [ "${kit##*/}" = docker-workload-unanswered ] && [ "$engine_asked" = yes ] && [ "$broken" = docker-refuses-unanswered ]; then
+      echo "refusing: the engine did not answer" >&2
+      exit 2
+    fi
     if [ "${kit##*/}" = docker-workload-unanswered ] && [ "$engine_asked" = yes ] && [ "$broken" != docker-runs-without-engine ]; then
       echo "dockerd did not answer GET /_ping on /var/run/docker.sock within 60s" >&2
       exit 1

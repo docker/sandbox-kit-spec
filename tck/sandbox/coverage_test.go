@@ -358,6 +358,7 @@ var waived = map[string]string{
 
 	"dockerd@1/explicit-consent":                "SHOULD; consent flows are host UX the adapter hides",
 	"dockerd@1/widening-gates":                  "gate semantics are surface diffs, judged by TestDockerSurface and TestDockerdAutoStartSurface",
+	"dockerd@1/storage-removed-with-sandbox":    "no adapter verb observes storage outside a live sandbox for the engine store, so deletion after removal is unobservable; removed-store-not-reused judges what a new sandbox can see",
 	"dockerd@1/unanswered-bound-named":          "the failure's wording is the runtime's own, and the bound it names is one no adapter verb reports, so the suite has nothing to compare it against",
 	"dockerd@1/manual-tolerates-running-engine": "kit-author obligation, not runtime behavior: neither suite runs a Kit's own start hook against an engine another Kit had started",
 
