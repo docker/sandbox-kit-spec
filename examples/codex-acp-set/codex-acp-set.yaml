@@ -12,7 +12,7 @@ sourceUrl: https://github.com/docker/sandbox-kit-spec
 licenses: [Apache-2.0]
 
 kind: set
-version: "1.0.6"
+version: "1.0.7"
 
 args:
   # The kits below are published references, so the namespace they live
@@ -34,9 +34,9 @@ kits:
 
   # Codex itself: the binary at /usr/local/bin/codex, OpenAI egress and
   # credential, configuration hooks, and shared skills integration.
-  # codex-acp 2.5.0 requires 0.165.x; keep this set on that release
-  # while the standalone codex kits track the newer upstream CLI.
-  - ref: ${{ kit.args.registry }}/sbx-kit-codex-mixin:0.165.0
+  # The codex-acp kit admits 0.165.x and 0.166.x; keep this set inside
+  # that range when the standalone codex kits move past it.
+  - ref: ${{ kit.args.registry }}/sbx-kit-codex-mixin:0.166.0
 
   # The ACP adapter. Its codex requirement is answered by the mixin
   # above, which also orders the pair regardless of list order.

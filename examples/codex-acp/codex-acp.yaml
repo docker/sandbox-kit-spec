@@ -44,8 +44,10 @@ provides: ["codex-acp@${{ kit.args.version }}"]
 #
 # codex-acp 2.5.0 declares @openai/codex ^0.165.0. With the bundled
 # binary removed, the composed codex must satisfy this range instead.
-# Keep both bounds aligned with the adapter's declared dependency.
-requires: ["codex >= 0.165.0, < 0.166.0"]
+# The upper bound reaches past the adapter's declaration to 0.166.x,
+# which was tested composed with this adapter before the range was
+# widened; widen it again only after the same test.
+requires: ["codex >= 0.165.0, < 0.167.0"]
 
 # No network policy and no credential: the adapter opens no sockets of
 # its own. Its egress and auth are whatever the codex it execs already
