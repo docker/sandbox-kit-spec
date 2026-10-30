@@ -79,13 +79,16 @@ sbx run claude --name my-agent --static-mcp memory
 
 Calls without an entity filter use the `mem0-mcp` user scope. Change it
 with the Kit's `defaultUserId` argument, or pass `user_id`, `agent_id`,
-or `run_id` to a tool. The endpoint implements `add_memory`,
+or `run_id` directly to `add_memory` or the bulk deletion tools. For
+`search_memories` and `get_memories`, put those IDs inside `filters`.
+Single-memory tools take a `memory_id` UUID retrieved from that scope.
+The endpoint implements `add_memory`,
 `search_memories`, `get_memories`, `get_memory`, `update_memory`,
 `delete_memory`, `delete_all_memories`, `delete_entities`, and
 `list_entities`.
 
-Like the REST API, MCP is reachable without transport authentication on
-the published loopback port. Do not publish port 8000 on a non-loopback
+MCP is reachable without transport authentication on the published
+loopback port. Do not publish port 8000 on a non-loopback
 host address.
 
 The dashboard contains `127.0.0.1:8000` as its browser-facing API URL.
@@ -112,15 +115,15 @@ shared by sandboxes with the same Kit identity:
 | `history.db` | Mem0 memory history |
 | `jwt-secret` | Generated dashboard session-signing secret |
 | `postgres.log` | PostgreSQL startup and server log |
-
-The prior example implementation stored vectors under `qdrant/` and its
-entity registry in `service.db`. The official server cannot import those
-files directly; they remain untouched after this upgrade. Export old
-memories before switching when that data must be retained.
+| `server.lock` | Lifetime lock serializing use of the shared store |
 
 Only one Mem0 sandbox should use a given host directory at a time. The
-startup hook holds `/tmp/mem0-server.lock`, and PostgreSQL also refuses a
-second server against the same data directory.
+startup script holds `/var/lib/mem0/server.lock` on that shared mount for
+the stack's lifetime, before inspecting or initializing the database.
+A concurrent startup exits without starting services; connect to the
+running sandbox instead. The backing filesystem must support cross-sandbox
+`flock` locks and PostgreSQL's filesystem requirements. PostgreSQL also
+refuses a second server against the same data directory.
 
 PostgreSQL major-version upgrades require `pg_dump`/`pg_restore`; do not
 point a newer major version at an older data directory. Stop the sandbox
@@ -138,7 +141,17 @@ the server and dashboard sources, the Kit version, and its provide.
 Refresh it with `task versions:update KIT=mem0`. The `model` create
 argument selects the default extraction model.
 
+When building behind an intercepting proxy, forward the proxy build args
+and supply a trusted CA bundle through the optional `build-ca` secret:
+
+```sh
+task test:mem0 BUILD_ARGS='--build-arg HTTP_PROXY --build-arg HTTPS_PROXY --build-arg NO_PROXY --secret id=build-ca,src=/path/to/ca-bundle.pem'
+```
+
 The image build checks the release source and installed Python package
 versions. The Mem0 test builds the Kit, starts its complete internal
-stack, waits for the API and dashboard, and calls `get_memories` through
-MCP.
+stack and waits for the API and dashboard. It checks MCP deletion against
+neighboring scopes containing URL delimiters, UUID validation, shared-lock
+contention before database initialization, a custom database name containing
+SQL punctuation, and restart persistence. Test vectors are seeded locally;
+no OpenAI requests are made.

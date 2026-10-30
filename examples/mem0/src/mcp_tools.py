@@ -2,6 +2,7 @@
 
 import os
 from typing import Annotated
+from uuid import UUID
 
 import httpx
 from mcp.server.mcpserver import MCPServer
@@ -125,13 +126,13 @@ def create_mcp_app():
         )
 
     @server.tool()
-    async def get_memory(memory_id: Text) -> dict:
+    async def get_memory(memory_id: UUID) -> dict:
         """Retrieve one memory by its exact ID."""
         return await request("GET", f"/memories/{memory_id}")
 
     @server.tool()
     async def update_memory(
-        memory_id: Text, text: Text | None = None, metadata: dict | None = None
+        memory_id: UUID, text: Text | None = None, metadata: dict | None = None
     ) -> dict:
         """Update the text and/or metadata of one memory."""
         if text is None and metadata is None:
@@ -143,7 +144,7 @@ def create_mcp_app():
         )
 
     @server.tool()
-    async def delete_memory(memory_id: Text) -> dict:
+    async def delete_memory(memory_id: UUID) -> dict:
         """Delete one memory after confirming its exact ID."""
         return await request("DELETE", f"/memories/{memory_id}")
 
@@ -171,7 +172,7 @@ def create_mcp_app():
     ) -> dict:
         """Delete explicitly named entities and their memories."""
         scope = {
-            key.removesuffix("_id"): value
+            key: value
             for key, value in zip(
                 ENTITY_FIELDS, (user_id, agent_id, run_id), strict=True
             )
@@ -179,8 +180,10 @@ def create_mcp_app():
         }
         if not scope:
             raise ToolError("Provide user_id, agent_id, or run_id")
-        for kind, value in scope.items():
-            await request("DELETE", f"/entities/{kind}/{value}")
+        for field, value in scope.items():
+            # Query encoding preserves delimiters in entity IDs. Each request
+            # deletes one entity, matching the upstream entity endpoint.
+            await request("DELETE", "/memories", params={field: value})
         return {"message": "Entities deleted"}
 
     @server.tool()

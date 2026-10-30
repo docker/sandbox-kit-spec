@@ -2,6 +2,19 @@
 set -euo pipefail
 
 data=${MEM0_DIR:-/var/lib/mem0}
+mkdir -p "$data"
+# Hold the shared mount's lock until every service stops. Lock before
+# inspecting PG_VERSION: PostgreSQL's own lock comes too late for initdb.
+exec 9>"$data/server.lock"
+flock --nonblock --conflict-exit-code 75 9 || {
+    status=$?
+    if [ "$status" -eq 75 ]; then
+        printf 'Mem0 is already running against %s\n' "$data" >&2
+        exit 0
+    fi
+    exit "$status"
+}
+
 export PGDATA=${PGDATA:-"$data/postgres"}
 export POSTGRES_HOST=${POSTGRES_HOST:-127.0.0.1}
 export POSTGRES_PORT=${POSTGRES_PORT:-5432}
@@ -25,6 +38,8 @@ cleanup() {
     trap - EXIT INT TERM
     [ -z "${api_pid:-}" ] || kill "$api_pid" 2>/dev/null || true
     [ -z "${dashboard_pid:-}" ] || kill "$dashboard_pid" 2>/dev/null || true
+    [ -z "${api_pid:-}" ] || wait "$api_pid" 2>/dev/null || true
+    [ -z "${dashboard_pid:-}" ] || wait "$dashboard_pid" 2>/dev/null || true
     pg_ctl -D "$PGDATA" -m fast stop >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -38,10 +53,10 @@ pg_isready -q -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
     -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 
 psql -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
-    -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v app_db="$APP_DB_NAME" <<'SQL'
 CREATE EXTENSION IF NOT EXISTS vector;
-SELECT 'CREATE DATABASE mem0_app'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'mem0_app')\gexec
+SELECT format('CREATE DATABASE %I', :'app_db')
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'app_db')\gexec
 SQL
 
 jwt_file="$data/jwt-secret"

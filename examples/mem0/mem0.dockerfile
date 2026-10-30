@@ -4,19 +4,31 @@
 FROM node:24-trixie-slim AS upstream
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 ARG MEM0_VERSION=2.2.1
-RUN git clone --branch "v${MEM0_VERSION}" --depth 1 \
-      https://github.com/mem0ai/mem0.git /src \
+# Optional build-time trust for an intercepting corporate proxy. The CA
+# stays in a secret mount rather than becoming part of the workload.
+RUN --mount=type=secret,id=build-ca \
+    if [ -f /run/secrets/build-ca ]; then export CURL_CA_BUNDLE=/run/secrets/build-ca; fi \
+    && curl -fSL --retry 3 \
+      "https://api.github.com/repos/mem0ai/mem0/tarball/v${MEM0_VERSION}" \
+      -o /tmp/mem0.tar.gz \
+    && mkdir /src \
+    && tar -xzf /tmp/mem0.tar.gz --strip-components=1 -C /src \
+    && rm /tmp/mem0.tar.gz \
     && test "$(sed -n 's/^version = "\(.*\)"/\1/p' /src/pyproject.toml)" = "${MEM0_VERSION}"
 WORKDIR /src/server/dashboard
-RUN npm install --global pnpm@10.34.2 \
+RUN --mount=type=secret,id=build-ca \
+    if [ -f /run/secrets/build-ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build-ca; fi \
+    && npm install --global pnpm@10.34.2 \
     && pnpm install --frozen-lockfile
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NEXT_PUBLIC_API_URL=NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_INSTANCE_NAME=NEXT_PUBLIC_INSTANCE_NAME
-RUN pnpm build
+RUN --mount=type=secret,id=build-ca \
+    if [ -f /run/secrets/build-ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build-ca; fi \
+    && pnpm build
 
 # A service needs Python, PostgreSQL and Node, not an agent or Docker
 # engine. Keep all three in one image because a Kit has one workload.
@@ -26,7 +38,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       bsdextrautils hostname \
     && apt-get install -y --no-install-recommends \
-      bash ca-certificates curl nodejs passwd postgresql-17 \
+      bash ca-certificates curl git nodejs passwd postgresql-17 \
       postgresql-17-pgvector util-linux \
     && rm -rf /var/lib/apt/lists/* \
     # The minimal image omits generated common-* files, but the runtime
@@ -43,7 +55,9 @@ ARG MEM0_VERSION=2.2.1
 ENV PATH=/opt/mem0/venv/bin:/usr/lib/postgresql/17/bin:${PATH}
 RUN python -m venv /opt/mem0/venv
 COPY --from=upstream /src/server/requirements.txt /tmp/mem0-requirements.txt
-RUN sed -i '/^pydantic\[/d' /tmp/mem0-requirements.txt \
+RUN --mount=type=secret,id=build-ca \
+    if [ -f /run/secrets/build-ca ]; then export PIP_CERT=/run/secrets/build-ca; fi \
+    && sed -i '/^pydantic\[/d' /tmp/mem0-requirements.txt \
     # MCP 2.3 needs Pydantic 2.12; the server's FastAPI and Mem0 ranges
     # support it, despite upstream requirements pinning 2.10.4 exactly.
     && pip install --no-cache-dir \

@@ -99,30 +99,9 @@ tasks:
       - task: kit:build
         vars: {KIT: mem0, TAG: "{{.MEM0_VERSION}}"}
       - |
-        docker run --rm --entrypoint bash \
+        docker run --rm -i --network none --entrypoint python \
           -e OPENAI_API_KEY=offline-test-key \
-          mem0-kit:{{.MEM0_VERSION}} -c '
-            set -eu
-            /opt/mem0/start.sh &
-            stack=$!
-            trap "kill $stack 2>/dev/null || true; wait $stack 2>/dev/null || true" EXIT
-            for _ in $(seq 1 90); do
-              curl -fs http://127.0.0.1:8000/openapi.json >/dev/null &&
-                curl -fs http://127.0.0.1:3000/api/health >/dev/null &&
-                curl -fs http://127.0.0.1:3000/setup >/dev/null &&
-                response=$(curl -fs http://127.0.0.1:8000/mcp \
-                  -H "Accept: application/json, text/event-stream" \
-                  -H "Content-Type: application/json" \
-                  -H "MCP-Protocol-Version: 2025-03-26" \
-                  -H "Host: localhost:8000" \
-                  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_memories\",\"arguments\":{}}}") &&
-                printf "%s" "$response" | grep -q "\"isError\":false" &&
-                exit 0
-              kill -0 $stack 2>/dev/null || exit 1
-              sleep 1
-            done
-            exit 1
-          '
+          mem0-kit:{{.MEM0_VERSION}} < scripts/test-mem0.py
 
   test:e2e:
     desc: >-

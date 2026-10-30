@@ -36,11 +36,8 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       startup:
-        # PostgreSQL, the API and the dashboard share one workload. flock
-        # makes repeated startup hooks harmless.
-        - command: >-
-            exec flock --nonblock --conflict-exit-code 0 --no-fork
-            /tmp/mem0-server.lock /opt/mem0/start.sh
+        # start.sh holds a lock on the shared mount for the stack's lifetime.
+        - command: exec /opt/mem0/start.sh
           user: agent
           background: true
           env:
