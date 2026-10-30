@@ -1,0 +1,8 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Docker Engine probe workload whose engine never answers
+description: >-
+  Ships a stand-in dockerd that runs but never binds its socket, so a
+  runtime starting it for dockerd@1 has to fail the start.
+provides: ["kit-tck-docker-workload-unanswered@1.0.0"]

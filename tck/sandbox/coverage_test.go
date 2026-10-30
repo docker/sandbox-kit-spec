@@ -358,8 +358,7 @@ var waived = map[string]string{
 
 	"dockerd@1/explicit-consent":                "SHOULD; consent flows are host UX the adapter hides",
 	"dockerd@1/widening-gates":                  "gate semantics are surface diffs, judged by TestDockerSurface and TestDockerdAutoStartSurface",
-	"dockerd@1/socket-usable-by-image-user":     "a stand-in engine ignores the flags a runtime uses to set socket ownership, so a probe would judge the fixture rather than the runtime",
-	"dockerd@1/fails-when-engine-unanswered":    "needs an engine that never answers, and the bound is the runtime's own with no adapter verb that reads it, so the suite cannot know how long to wait before a start still waiting counts as one that should have failed",
+	"dockerd@1/unanswered-bound-named":          "the failure's wording is the runtime's own, and the bound it names is one no adapter verb reports, so the suite has nothing to compare it against",
 	"dockerd@1/manual-tolerates-running-engine": "kit-author obligation, not runtime behavior: neither suite runs a Kit's own start hook against an engine another Kit had started",
 
 	"resources@1/no-silent-truncation": "truncation and a smaller honest limit are indistinguishable from inside; the limit check reports mismatches",

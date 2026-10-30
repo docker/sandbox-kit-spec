@@ -420,28 +420,38 @@ func TestDockerEngineStoreDeferredAutoStart(t *testing.T) {
 // Kits decoded from a document carry whether they stated config, so the
 // merged default must drop that too, or it reads as a stated null.
 func TestDockerdMergeOfDecodedAsks(t *testing.T) {
-	for _, format := range []string{"yaml", "json"} {
-		t.Run(format, func(t *testing.T) {
-			decode := func(kind string, auto bool) *Descriptor {
-				raw := fmt.Sprintf("schemaVersion: \"3\"\nkind: %s\ncapabilities:\n  - type: %s\n    config:\n      autoStart: %t\n", kind, CapabilityDockerd, auto)
-				if format == "json" {
-					raw = fmt.Sprintf(`{"schemaVersion":"3","kind":%q,"capabilities":[{"type":%q,"config":{"autoStart":%t}}]}`, kind, CapabilityDockerd, auto)
+	decode := func(t *testing.T, format, kind, config string) *Descriptor {
+		raw := fmt.Sprintf("schemaVersion: \"3\"\nkind: %s\ncapabilities:\n  - type: %s\n    config: %s\n", kind, CapabilityDockerd, config)
+		if format == "json" {
+			raw = fmt.Sprintf(`{"schemaVersion":"3","kind":%q,"capabilities":[{"type":%q,"config":%s}]}`, kind, CapabilityDockerd, config)
+		}
+		d, err := Decode([]byte(raw))
+		require.NoError(t, err)
+		return d
+	}
+	for _, pair := range [][2]string{
+		{`{"autoStart": false}`, `{"autoStart": true}`},
+		{`{"autoStart": false}`, `{}`},
+	} {
+		for _, format := range []string{"yaml", "json"} {
+			t.Run(format+" "+pair[0]+" "+pair[1], func(t *testing.T) {
+				for _, order := range [][2]string{{pair[0], pair[1]}, {pair[1], pair[0]}} {
+					contributions := []Contribution{
+						{Reference: "workload", Descriptor: decode(t, format, KindWorkload, order[0])},
+						{Reference: "mixin", Descriptor: decode(t, format, KindMixin, order[1])},
+					}
+					published := mergeOK(t, contributions...).Descriptor
+					composed, err := Compose(contributions)
+					require.NoError(t, err)
+					for _, merged := range []*Descriptor{published, composed} {
+						_, err := Validate(merged)
+						require.NoError(t, err)
+						d, err := DockerdOf(merged.Capabilities)
+						require.NoError(t, err)
+						require.True(t, d.AutoStarts())
+					}
 				}
-				d, err := Decode([]byte(raw))
-				require.NoError(t, err)
-				return d
-			}
-			for _, order := range [][2]bool{{false, true}, {true, false}} {
-				merged := mergeOK(t,
-					Contribution{Reference: "workload", Descriptor: decode(KindWorkload, order[0])},
-					Contribution{Reference: "mixin", Descriptor: decode(KindMixin, order[1])},
-				).Descriptor
-				_, err := Validate(merged)
-				require.NoError(t, err)
-				d, err := DockerdOf(merged.Capabilities)
-				require.NoError(t, err)
-				require.True(t, d.AutoStarts())
-			}
-		})
+			})
+		}
 	}
 }

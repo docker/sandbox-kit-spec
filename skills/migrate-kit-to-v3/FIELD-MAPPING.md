@@ -601,7 +601,7 @@ combines the sources while honoring access bounds and collision rules.
 `privileged@1`, `resources@1`, `kit-registry@1` and `usb-device@1` belong in a
 migrated kit only if the v2 kit declared the equivalent. A v2 Dockerfile's
 `LABEL com.docker.sandboxes.start-docker="true"` is the exception: it maps to
-`dockerd@1` (below), and the label stays in the recipe only as a transition
+`dockerd@1` (above), and the label stays in the recipe only as a transition
 for runtimes that predate it.
 
 `ssh-agent@1` has no v2 counterpart to migrate: agent forwarding was a

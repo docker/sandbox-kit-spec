@@ -165,7 +165,7 @@ func TestDockerNeedsNoHelperCapabilities(t *testing.T) {
 			clean++
 		}
 	}
-	require.Equal(t, 7, clean, "elevation, storage, removal, daemon.json and absence, and manual elevation and absence, run and pass")
+	require.Equal(t, 9, clean, "elevation, storage, removal, daemon.json, socket, unanswered engine and absence, and manual elevation and absence, run and pass")
 }
 
 // The refusal duty covers well-known types too: a runtime omitting a type
@@ -672,6 +672,9 @@ var mutations = map[string][]string{
 	"docker-config-file-elsewhere":           {"dockerd@1/daemon-json-honored"},
 	"docker-joined-host-flag":                {"dockerd@1/daemon-json-honored"},
 	"docker-socket-group-flag":               {"dockerd@1/daemon-json-honored"},
+	"docker-socket-unfixed":                  {"dockerd@1/socket-usable-by-image-user"},
+	"docker-runs-without-engine":             {"dockerd@1/fails-when-engine-unanswered"},
+	"docker-store-lost-on-kit-update":        {"dockerd@1/storage-private-and-persistent", "dockerd@1/manual-storage-private-and-persistent"},
 	"docker-manual-autostarts":               {"dockerd@1/manual-engine-not-started"},
 	"docker-manual-autostarts-later":         {"dockerd@1/manual-engine-not-started"},
 	"ignores-skills":                         {"agent-skills@1/store-mounted-at-declared-path"},

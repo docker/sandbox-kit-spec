@@ -14,4 +14,7 @@ capabilities:
     config:
       startup:
         - command: sh -c '{ curl -sf --unix-socket /var/run/docker.sock http://engine/_ping >/dev/null && cat /var/tmp/kit-tck-docker/boot 2>/dev/null || echo missing; } >> /var/tmp/kit-tck-docker-startup'
+          # As root, so this judges when the engine answers, apart from
+          # whether the runtime made the socket the image user's.
+          user: "0"
           description: Appends the boot id of the engine answering GET /_ping, or missing when none answers

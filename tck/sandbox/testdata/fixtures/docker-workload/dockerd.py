@@ -5,7 +5,9 @@ A fresh boot id on every start, published once the socket is bound, lets
 the suite tell an engine answering this boot from one started before it.
 The token kept in /var/lib/docker lets it tell retained storage from a new
 or shared store. Records and the token are readable by the image user,
-because the suite reads them as that user. Flags a runtime passes are
+because the suite reads them as that user. The socket is left root's
+and 0600, as a real engine without a group leaves it, so making it usable
+by the image user is the runtime's job. Flags a runtime passes are
 recorded, so the suite can judge them against the image's daemon.json,
 and otherwise ignored.
 """
@@ -62,6 +64,6 @@ if not os.path.exists(STORE):
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 with Server(SOCKET, Ping) as server:
-    os.chmod(SOCKET, 0o666)
+    os.chmod(SOCKET, 0o600)
     publish("boot", uuid.uuid4().hex)
     server.serve_forever()

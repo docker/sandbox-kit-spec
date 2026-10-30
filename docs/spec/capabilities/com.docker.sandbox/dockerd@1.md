@@ -80,8 +80,9 @@ With `autoStart` true or omitted, the runtime:
 - **MUST** start the engine so that it answers before any `startup` <!-- tck: dockerd@1/engine-before-startup -->
   hook runs, on every boot, so a hook can use it without waiting.
 - **MUST** fail the start when the engine does not answer within a <!-- tck: dockerd@1/fails-when-engine-unanswered -->
-  bound the runtime chooses, and name that bound in the failure, rather
-  than run hooks and the workload against an engine that is not there.
+  bound the runtime chooses, rather than run hooks and the workload
+  against an engine that is not there.
+- **MUST** name that bound in the failure. <!-- tck: dockerd@1/unanswered-bound-named -->
 - **MUST** make `/var/run/docker.sock` usable by the user the image <!-- tck: dockerd@1/socket-usable-by-image-user -->
   config declares.
 - **MUST** leave the engine reading the composed image's <!-- tck: dockerd@1/daemon-json-honored -->
@@ -143,7 +144,9 @@ entry sits in a group, or the storage path references an arg, the pair
 is refused no later than create, once the args are expanded and
 selection has settled the groups, as `volume@1` judges its own
 conflicts. An arg in `autoStart` defers nothing here: it decides who
-starts the engine, not who owns the store.
+starts the engine, not who owns the store. Validation accepts an arg
+reference in `autoStart`, but a merge that has to read the value
+refuses it until the arg is pinned in `kits[].args`.
 
 ## Gate
 

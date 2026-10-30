@@ -33,7 +33,7 @@ if [ "$verb" = create ]; then
       exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
     esac
   done
-elif [ -f "$state/host-port/${1:-}.json" ] || { [ "$verb" = exec ] && { [ "${3:-}" = curl ] || [ "${3:-}" = kit-tck-host-port-udp ] || [ "${3:-}" = kit-tck-host-port-tcp ]; }; }; then
+elif [ -f "$state/host-port/${1:-}.json" ] || { [ "$verb" = exec ] && { { [ "${3:-}" = curl ] && [ "${4:-}" != --unix-socket ]; } || [ "${3:-}" = kit-tck-host-port-udp ] || [ "${3:-}" = kit-tck-host-port-tcp ]; }; }; then
   exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 
@@ -423,6 +423,13 @@ create)
     echo "refusing: dockerd-store-volume declares com.docker.sandbox/volume@1 at /var/lib/docker, inside the engine store com.docker.sandbox/dockerd@1 owns" >&2
     exit 2
   fi
+  # This workload's engine never answers, so a runtime starting it fails.
+  for kit in "${kits[@]}"; do
+    if [ "${kit##*/}" = docker-workload-unanswered ] && [ "$engine_asked" = yes ] && [ "$broken" != docker-runs-without-engine ]; then
+      echo "dockerd did not answer GET /_ping on /var/run/docker.sock within 60s" >&2
+      exit 1
+    fi
+  done
 
   # Which phase, if any, asks for the SSH agent, and whether the ask can
   # be dropped. A required ask the host cannot answer is refused before
@@ -716,8 +723,10 @@ create)
     esac
   done
   if [ "$docker_requested" = yes ]; then : >"$dir/docker" && rm -f "$dir/docker-unrequested"; fi
+  for kit in "${kits[@]}"; do echo "${kit##*/}"; done | sort >"$dir/docker-kits"
   if [ "$docker_engine" = yes ]; then
     echo "$id-boot-1" >"$dir/docker-boot"
+    if [ "$broken" != docker-socket-unfixed ]; then : >"$dir/docker-socket-fixed"; fi
     case "$broken" in
     docker-flags-beside-daemon-json) echo '["--host=unix:///var/run/docker.sock"]' >"$dir/docker-argv" ;;
     docker-config-file-elsewhere) echo '["--config-file","/run/kit/daemon.json"]' >"$dir/docker-argv" ;;
@@ -1028,6 +1037,16 @@ exec)
     ;;
   kit-tck-bundled)
     KIT_TCK_BUNDLE_ROOT="$dir" sh "$dir/bundle-probe" "$2"
+    ;;
+  # The image user pinging the engine: 200 once the runtime fixed the
+  # socket, curl's connection failure otherwise.
+  curl)
+    if [ -f "$dir/docker-boot" ] && [ -f "$dir/docker-socket-fixed" ]; then
+      printf 200
+    else
+      printf 000
+      exit 7
+    fi
     ;;
   kit-tck-git-identity)
     case "$2" in
@@ -1510,6 +1529,17 @@ recreate)
   # A store kept in the writable layer goes with it.
   if [ "$broken" = docker-storage-lost-on-recreate ] && [ -f "$dir/docker-store" ]; then echo "$1-store-recreated" >"$dir/docker-store"; fi
   if [ "$broken" = docker-manual-storage-lost-on-recreate ] && [ -f "$dir/docker-manual-store" ]; then echo "$1-manual-store-recreated" >"$dir/docker-manual-store"; fi
+  # A store keyed by the composition is lost when a Kit update changes it.
+  if [ $# -gt 1 ] && [ -f "$dir/docker-kits" ]; then
+    replacement="$(shift; for kit in "$@"; do case "$kit" in --*) break ;; *) echo "${kit##*/}" ;; esac; done | sort)"
+    if [ "$replacement" != "$(cat "$dir/docker-kits")" ]; then
+      if [ "$broken" = docker-store-lost-on-kit-update ]; then
+        if [ -f "$dir/docker-store" ]; then echo "$1-store-updated" >"$dir/docker-store"; fi
+        if [ -f "$dir/docker-manual-store" ]; then echo "$1-manual-store-updated" >"$dir/docker-manual-store"; fi
+      fi
+      printf '%s\n' "$replacement" >"$dir/docker-kits"
+    fi
+  fi
   if [ "$broken" = "loses-volume" ]; then rm -rf "$dir/volume" && mkdir -p "$dir/volume"; fi
   ;;
 

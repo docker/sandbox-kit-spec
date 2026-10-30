@@ -1,0 +1,6 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Engine store companion
+description: Asks for nothing, so adding it to a composition is a Kit update that must keep the engine store
+provides: ["kit-tck-dockerd-companion@1.0.0"]

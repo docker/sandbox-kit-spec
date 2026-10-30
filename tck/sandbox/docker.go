@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 
@@ -26,6 +27,11 @@ const (
 	fixtureDockerManual = "dockerd-manual"
 	// fixtureDockerStoreVolume asks for a volume at the engine store.
 	fixtureDockerStoreVolume = "dockerd-store-volume"
+	// fixtureDockerCompanion asks for nothing; adding it to a composition
+	// is a Kit update.
+	fixtureDockerCompanion = "dockerd-companion"
+	// fixtureDockerUnanswered ships a stand-in dockerd that never answers.
+	fixtureDockerUnanswered = "docker-workload-unanswered"
 
 	// What the stand-in engine publishes each time it starts, the token it
 	// keeps in its store, and what the startup hook appends once per boot.
@@ -48,6 +54,8 @@ var dockerChecks = []check{
 	{requirement: "dockerd@1/storage-removed-with-sandbox", capability: capDockerd, run: dockerRemoval},
 	{requirement: "dockerd@1/engine-store-owned", capability: capDockerd, needs: []string{capVolume}, run: dockerStoreOwned},
 	{requirement: "dockerd@1/daemon-json-honored", capability: capDockerd, run: dockerDaemonJSON},
+	{requirement: "dockerd@1/socket-usable-by-image-user", capability: capDockerd, run: dockerSocketUsable},
+	{requirement: "dockerd@1/fails-when-engine-unanswered", capability: capDockerd, run: dockerFailsUnanswered},
 	{requirement: "dockerd@1/engine-before-startup", capability: capDockerd, needs: []string{capLifecycle}, run: dockerBeforeStartup},
 	{requirement: "dockerd@1/absent-without-grant", capability: capDockerd, run: dockerAbsentWithoutGrant},
 	{requirement: "dockerd@1/manual-elevation-granted", capability: capDockerd, run: func(ctx context.Context, e *Env) []report.Finding {
@@ -171,6 +179,33 @@ func dockerStoreKept(ctx context.Context, e *Env, kits []string, path string) []
 		return []report.Finding{report.Failf("the engine store did not survive recreation: it held %q, then %q", token, got)}
 	}
 
+	// A Kit update recreates with another composition, which must find
+	// the same store.
+	if _, f := execOutput(ctx, e, id, "kit-tck-docker", "mark"); f != nil {
+		return []report.Finding{*f}
+	}
+	updated := make([]string, 0, len(kits)+1)
+	for _, name := range append(slices.Clone(kits), fixtureDockerCompanion) {
+		updated = append(updated, e.Fixtures(name))
+	}
+	if err := e.Adapter.RecreateWith(ctx, id, updated, nil); err != nil {
+		return []report.Finding{report.Failf("recreate with an updated composition: %v", err)}
+	}
+	marked, err = e.Adapter.Exec(ctx, id, "kit-tck-docker", "marked")
+	if err != nil {
+		return []report.Finding{report.Failf("probe scratch: %v", err)}
+	}
+	if marked.ExitCode == 0 {
+		return []report.Finding{report.Failf("the writable layer survived the Kit update, so the engine store's survival is unattributable")}
+	}
+	got, f = dockerRecord(ctx, e, id, path)
+	if f != nil {
+		return f
+	}
+	if got != token {
+		return []report.Finding{report.Failf("the engine store did not survive a Kit update: it held %q, then %q", token, got)}
+	}
+
 	otherID, otherCleanup, f := dockerSandbox(ctx, e, kits)
 	defer otherCleanup()
 	if f != nil {
@@ -220,6 +255,9 @@ func dockerRemoval(ctx context.Context, e *Env) []report.Finding {
 // Another Kit's volume at the engine store is refused at create, as
 // host-mount@1 judges a volume at a mount's path.
 func dockerStoreOwned(ctx context.Context, e *Env) []report.Finding {
+	if f := dockerGranted(ctx, e); f != nil {
+		return f
+	}
 	_, remove, err := e.sandbox(ctx, []string{fixtureDockerWorkload, fixtureDockerStoreVolume, fixtureDocker}, nil)
 	remove()
 	var refused *adapter.RefusedError
@@ -229,9 +267,50 @@ func dockerStoreOwned(ctx context.Context, e *Env) []report.Finding {
 	return nil
 }
 
-// A flag for any directive daemon.json can set is one a real engine
-// refuses once the image's file sets it too, and a config file elsewhere
-// is one that never reads the image's.
+// dockerGranted skips a check whose judgment is a refusal when the host
+// refuses the engine on its own, which would pass for the wrong reason.
+func dockerGranted(ctx context.Context, e *Env) []report.Finding {
+	_, cleanup, f := dockerSandbox(ctx, e, dockerComposition)
+	cleanup()
+	return f
+}
+
+// The stand-in leaves its socket root's alone, so only a runtime that
+// fixes it once the engine answers lets the image user through.
+func dockerSocketUsable(ctx context.Context, e *Env) []report.Finding {
+	id, cleanup, f := dockerSandbox(ctx, e, dockerComposition)
+	defer cleanup()
+	if f != nil {
+		return f
+	}
+	res, err := e.Adapter.Exec(ctx, id, "curl", "--unix-socket", "/var/run/docker.sock", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://engine/_ping")
+	if err != nil {
+		return []report.Finding{report.Failf("ping the engine: %v", err)}
+	}
+	if code := strings.TrimSpace(res.Stdout); res.ExitCode != 0 || code != "200" {
+		return []report.Finding{report.Failf("as the image user, GET /_ping on /var/run/docker.sock answered %q (curl exit %d)", code, res.ExitCode)}
+	}
+	return nil
+}
+
+// The stand-in on this workload never binds its socket, so create has to
+// fail; a runtime still waiting holds the run until the harness's own
+// deadline, which is the only bound the suite has.
+func dockerFailsUnanswered(ctx context.Context, e *Env) []report.Finding {
+	if f := dockerGranted(ctx, e); f != nil {
+		return f
+	}
+	_, remove, err := e.sandbox(ctx, []string{fixtureDockerUnanswered, fixtureDocker}, nil)
+	remove()
+	if err == nil {
+		return []report.Finding{report.Failf("create succeeded although the engine never answered")}
+	}
+	return nil
+}
+
+// dockerd takes no positional arguments and every setting it reads has a
+// daemon.json key, so an argument is either the image's own config file
+// or a setting a real engine refuses once that file sets it too.
 func dockerDaemonJSON(ctx context.Context, e *Env) []report.Finding {
 	id, cleanup, f := dockerSandbox(ctx, e, dockerComposition)
 	defer cleanup()
@@ -252,48 +331,21 @@ func dockerDaemonJSON(ctx context.Context, e *Env) []report.Finding {
 	return nil
 }
 
-// daemonFileFlags are dockerd flags whose directive has a daemon.json
-// key, as dockerd's reference documents the file. Short forms take their
-// value joined as well as separate.
-var (
-	daemonFileFlags = map[string]bool{
-		"--group": true, "--host": true, "--data-root": true,
-		"--storage-driver": true, "--storage-opt": true,
-		"--log-level": true, "--log-driver": true, "--log-opt": true,
-		"--iptables": true, "--ip6tables": true, "--bridge": true, "--bip": true,
-		"--default-address-pool": true, "--dns": true, "--dns-search": true, "--dns-opt": true,
-		"--insecure-registry": true, "--registry-mirror": true, "--mtu": true,
-		"--userns-remap": true, "--live-restore": true, "--features": true,
-		"--exec-opt": true, "--default-runtime": true, "--containerd": true,
-		"--tls": true, "--tlsverify": true, "--tlscacert": true, "--tlscert": true, "--tlskey": true,
-		"--debug": true, "--experimental": true, "--pidfile": true,
-	}
-	daemonFileShortFlags = []string{"-G", "-H", "-b", "-s", "-l", "-D", "-p"}
-)
-
-// daemonJSONViolation names the first argument that sets a directive
-// daemon.json can also set, or points dockerd at another config file.
-// Pointing --config-file at the image's own file is still reading it.
+// daemonJSONViolation names the first argument other than --config-file
+// naming the image's own daemon.json, in either spelling.
 func daemonJSONViolation(argv []string) string {
-	for i, arg := range argv {
-		flag, value, joined := strings.Cut(arg, "=")
-		if !strings.HasPrefix(arg, "--") {
-			for _, short := range daemonFileShortFlags {
-				if strings.HasPrefix(arg, short) {
-					return fmt.Sprintf("the runtime passed dockerd %q, a directive daemon.json can also set", arg)
-				}
-			}
+	for i := 0; i < len(argv); i++ {
+		arg := argv[i]
+		value, joined := strings.CutPrefix(arg, "--config-file=")
+		if !joined && arg == "--config-file" && i+1 < len(argv) {
+			value, joined = argv[i+1], true
+			i++
 		}
-		if daemonFileFlags[flag] {
-			return fmt.Sprintf("the runtime passed dockerd %q, a directive daemon.json can also set", arg)
+		if !joined {
+			return fmt.Sprintf("the runtime passed dockerd %q; the engine takes its settings from the image's %s", arg, dockerDaemonConfig)
 		}
-		if flag == "--config-file" {
-			if !joined && i+1 < len(argv) {
-				value = argv[i+1]
-			}
-			if path.Clean(value) != dockerDaemonConfig {
-				return fmt.Sprintf("the runtime passed dockerd --config-file %q, so the image's %s is not the one it reads", value, dockerDaemonConfig)
-			}
+		if path.Clean(value) != dockerDaemonConfig {
+			return fmt.Sprintf("the runtime passed dockerd --config-file %q, so the image's %s is not the one it reads", value, dockerDaemonConfig)
 		}
 	}
 	return ""
