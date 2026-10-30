@@ -181,7 +181,10 @@ capabilities:
         # writer cannot replace, and an overwrite guard would silently skip,
         # leaving Claude Code prompting "Is this a project you trust?" instead
         # of rendering its TUI. Content is deterministic for a WORKSPACE_DIR,
-        # so the rewrite is idempotent.
+        # so the rewrite is idempotent. hasSeenAutoDefaultNudge skips the
+        # "Make auto mode your default permission mode?" prompt: the kit
+        # already picks bypassPermissions, and this file is rewritten on
+        # every (re)create, so an answer would never stick.
         - command: |
             set -e
             ws="${WORKSPACE_DIR:-/}"
@@ -191,6 +194,7 @@ capabilities:
             printf '%s\n' "{
               \"bypassPermissionsModeAccepted\": true,
               \"hasCompletedOnboarding\": true,
+              \"hasSeenAutoDefaultNudge\": true,
               \"projects\": { $projects }
             }" > /home/agent/.claude.json
             chown agent:agent /home/agent/.claude.json

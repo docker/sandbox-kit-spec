@@ -119,7 +119,10 @@ capabilities:
         # credential-independent. Seeded as root and chowned: a base image
         # may ship its own ~/.claude.json an agent-uid writer cannot
         # replace. Content is deterministic for a WORKSPACE_DIR, so the
-        # rewrite is idempotent.
+        # rewrite is idempotent. hasSeenAutoDefaultNudge skips the "Make
+        # auto mode your default permission mode?" prompt: the kit already
+        # picks bypassPermissions, and this file is rewritten on every
+        # (re)create, so an answer would never stick.
         - command: |
             set -e
             ws="${WORKSPACE_DIR:-/}"
@@ -129,6 +132,7 @@ capabilities:
             printf '%s\n' "{
               \"bypassPermissionsModeAccepted\": true,
               \"hasCompletedOnboarding\": true,
+              \"hasSeenAutoDefaultNudge\": true,
               \"projects\": { $projects }
             }" > /home/agent/.claude.json
             chown agent:agent /home/agent/.claude.json
