@@ -1,0 +1,21 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+args:
+  host_port:
+    default: "18431"
+  container_port:
+    default: "18432"
+capabilities:
+  - type: com.docker.sandbox/host-port@1
+    config:
+      host: "${{ kit.args.host_port }}"
+      transport: udp
+      container: "${{ kit.args.container_port }}"
+  - type: com.docker.sandbox/lifecycle@1
+    optional: true
+    config:
+      install:
+        - command: "kit-tck-host-port-udp ${{ kit.args.container_port }} single > /var/tmp/kit-tck-host-port-udp-install"
+      startup:
+        - command: "kit-tck-host-port-udp ${{ kit.args.container_port }} single > /var/tmp/kit-tck-host-port-udp-startup"

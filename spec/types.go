@@ -460,6 +460,10 @@ const (
 	// Port. Instance-shaped, keyed by container port/transport.
 	CapabilityPort = "com.docker.sandbox/port@1"
 
+	// CapabilityHostPort grants a host loopback TCP or UDP service at a sandbox
+	// loopback port. Instance-shaped, keyed by effective container port/transport.
+	CapabilityHostPort = "com.docker.sandbox/host-port@1"
+
 	// CapabilityAgentSkills declares one discovery path for bundled and
 	// available host-shared skills; config decodes to AgentSkills.
 	// Instance-shaped, keyed by path: a composition hosting two agents
@@ -898,6 +902,43 @@ type Port struct {
 	Container int    `json:"container" yaml:"container"`
 	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
 	Family    string `json:"family,omitempty" yaml:"family,omitempty"`
+}
+
+// HostPort grants one host loopback TCP or UDP endpoint inside the sandbox.
+type HostPort struct {
+	Family    string `json:"family,omitempty" yaml:"family,omitempty"`
+	Host      int    `json:"host" yaml:"host"`
+	Container int    `json:"container,omitempty" yaml:"container,omitempty"`
+	Transport string `json:"transport,omitempty" yaml:"transport,omitempty"`
+}
+
+// ContainerPort returns the sandbox endpoint after applying the default.
+func (p HostPort) ContainerPort() int {
+	if p.Container == 0 {
+		return p.Host
+	}
+	return p.Container
+}
+
+// EffectiveTransport returns the transport after applying the TCP default.
+func (p HostPort) EffectiveTransport() string {
+	if p.Transport == "" {
+		return "tcp"
+	}
+	return p.Transport
+}
+
+// EffectiveFamily returns the host address family after applying the IPv4 default.
+func (p HostPort) EffectiveFamily() string {
+	if p.Family == "" {
+		return PortFamilyIPv4
+	}
+	return p.Family
+}
+
+// Key identifies a sandbox listener by port and transport.
+func (p HostPort) Key() string {
+	return fmt.Sprintf("%d/%s", p.ContainerPort(), p.EffectiveTransport())
 }
 
 // USBDevice is CapabilityUSBDevice's config: one passthrough match by

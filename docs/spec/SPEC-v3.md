@@ -585,6 +585,8 @@ participating independently, `volume@1` and `host-mount@1` on a shared
 cleaned storage path key,
 `agent-skills@1` on path, `acp@1` on normalized agent name,
 `agent-skill@1` on effective name, `port@1` on (container, transport),
+`host-port@1` on (effective container port, transport), with host address
+family part of the grant rather than the key,
 `ssh-agent@1` on each phase it names, `agent-context@1` on its explicit
 profile destination (`directory` plus `filename`), with at most one
 entry without a directory and at most one carrying a body per
@@ -758,6 +760,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/volume@1` | [volume@1](capabilities/com.docker.sandbox/volume@1.md) | per path |
 | `com.docker.sandbox/host-mount@1` | [host-mount@1](capabilities/com.docker.sandbox/host-mount@1.md) | per path; shared storage key with volume@1 |
 | `com.docker.sandbox/port@1` | [port@1](capabilities/com.docker.sandbox/port@1.md) | per (container, transport) |
+| `com.docker.sandbox/host-port@1` | [host-port@1](capabilities/com.docker.sandbox/host-port@1.md) | per (effective container port, transport) |
 | `com.docker.sandbox/usb-device@1` | [usb-device@1](capabilities/com.docker.sandbox/usb-device@1.md) | instance |
 | `com.docker.sandbox/resources@1` | [resources@1](capabilities/com.docker.sandbox/resources@1.md) | singleton |
 | `com.docker.sandbox/privileged@1` | [privileged@1](capabilities/com.docker.sandbox/privileged@1.md) | singleton, config-less |

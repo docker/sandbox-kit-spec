@@ -156,7 +156,7 @@ func Supported(types ...string) SelectCapability {
 // Understanding a schema is not a claim that a runtime implements it.
 func KnownCapabilities() []string {
 	return []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
-		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityUSBDevice, CapabilityResources,
+		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort, CapabilityUSBDevice, CapabilityResources,
 		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry}
 }
@@ -541,10 +541,10 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 			if item.Type == CapabilityAgentContextV2 {
 				return true
 			}
-			// A set may re-export storage destinations or settings. Keep
+			// A set may re-export storage or host-port settings. Keep
 			// their requests separate until create expands the values:
 			// instance keys and equivalence cannot judge placeholders.
-			if (item.Type == CapabilityVolume || item.Type == CapabilityHostMount) && capabilityIsParameterized(item) {
+			if (item.Type == CapabilityVolume || item.Type == CapabilityHostMount || item.Type == CapabilityHostPort) && capabilityIsParameterized(item) {
 				return true
 			}
 			// A port's family is reconciled, not keyed, so a placeholder

@@ -1,0 +1,19 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+args:
+  host_port:
+    default: "18431"
+  family:
+    default: ipv6
+    enum: [ipv4, ipv6, dual]
+  transport:
+    default: tcp
+    enum: [tcp, udp]
+capabilities:
+  - type: com.docker.sandbox/host-port@1
+    config:
+      host: "${{ kit.args.host_port }}"
+      container: 18432
+      family: "${{ kit.args.family }}"
+      transport: "${{ kit.args.transport }}"

@@ -69,6 +69,7 @@ type InstanceKey struct {
 	//   - volume@1, host-mount@1: the path, cleaned by path.Clean
 	//   - agent-skills@1: the path, which validation holds to canonical form
 	//   - agent-skill@1: the effective name, as AgentSkillName gives it
+	//   - host-port@1: HostPort.Key, the effective container port and transport
 	//   - port@1: PortKey, the container port and transport, tcp when
 	//     omitted (8080/tcp)
 	//   - agent-context@1, agent-context@2: the profile destination,
@@ -156,6 +157,9 @@ var instanceKeys = map[string]keyDefinition{
 	CapabilityAgentSkills: keyOn([]string{"path"}, func(s AgentSkills) ([]string, error) {
 		return []string{s.Path}, nil
 	}),
+	CapabilityHostPort: keyOn([]string{"host", "container", "transport"}, func(p HostPort) ([]string, error) {
+		return []string{p.Key()}, nil
+	}).defaulting("container", "transport"),
 	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
 	}).defaulting("transport"),

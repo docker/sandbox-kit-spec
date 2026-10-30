@@ -50,6 +50,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityVolume:                   reflect.TypeFor[Volume](),
 	CapabilityHostMount:                reflect.TypeFor[HostMount](),
 	CapabilityPort:                     reflect.TypeFor[Port](),
+	CapabilityHostPort:                 reflect.TypeFor[HostPort](),
 	CapabilityAgentSkills:              reflect.TypeFor[AgentSkills](),
 	CapabilityAgentSkill:               reflect.TypeFor[AgentSkill](),
 	CapabilityUSBDevice:                reflect.TypeFor[USBDevice](),

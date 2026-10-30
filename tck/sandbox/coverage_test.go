@@ -28,6 +28,15 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"host-port@1/family-honored":                  {"host-port@1/permission-surface", "host-port@1/conflict"},
+	"host-port@1/tcp-bytes":                       {"host-port@1/forwarded"},
+	"host-port@1/udp-datagrams":                   {"host-port@1/forwarded"},
+	"host-port@1/udp-client-isolation":            {"host-port@1/forwarded"},
+	"host-port@1/udp-composition":                 {"host-port@1/composition", "host-port@1/conflict"},
+	"host-port@1/udp-before-hooks":                {"host-port@1/before-hooks"},
+	"host-port@1/udp-no-extra-access":             {"host-port@1/no-extra-access"},
+	"host-port@1/udp-on-demand":                   {"host-port@1/on-demand"},
+	"host-port@1/udp-permission-surface":          {"host-port@1/permission-surface"},
 	"agent-context@2/materialized":                {"agent-context@2/complete-content", "agent-context@2/expansion", "agent-context@2/profile-precedence", "agent-context@2/existing-content-preserved"},
 	"host-mount@1/isolated-by-kit":                {"host-mount@1/identity-not-self-declared"},
 	"host-mount@1/host-volume-conflict":           {"host-mount@1/no-silent-merge"},
@@ -108,6 +117,8 @@ var kitCovers = map[string][]string{
 	// decodes, and refuses the authoring-only kind: set — a published
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
+		"host-port@1/config-valid",
+		"host-port@1/published-port-conflict",
 		"agent-context@2/inline-only",
 		"host-mount@1/runtime-owned-location",
 		"agent-skill@1/name-valid",
@@ -178,9 +189,13 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
-	"agent-context@2/publication-inline": "publisher contract; TestAgentContextV2PublishedSelection and frontend end-to-end publication tests judge retention; the artifact suite cannot infer guidance a publisher omitted without the original declarations",
-	"agent-context@2/size-budget":        "descriptor-valid enforces the published hard budget; expansion, effective composition, and advisory warnings are judged by TestAgentContextV2Expansion, TestAgentContextV2CompositionSize, and fetch tests, rather than a large runtime fixture",
-	"agent-context@2/content-untrusted":  "non-observable: runtime trust has no in-sandbox symptom and runtime-management delimiters are not standardized",
+	"host-port@1/no-egress-widening":        "selection checks the declared surface, but the adapter has no host interface inventory or controlled external destination to prove no incidental network access",
+	"host-port@1/runtime-listener-conflict": "the adapter does not expose runtime-owned listener addresses; a portable fixture cannot arrange a collision",
+	"host-port@1/loopback-only":             "the adapter has no sandbox interface inventory or host destination trace; loopback reachability alone cannot establish listener binding or arbitrary-destination confinement",
+	"host-port@1/withdrawn":                 "exec requires a running sandbox; observing relay resources after stop needs a host-side endpoint inventory",
+	"agent-context@2/publication-inline":    "publisher contract; TestAgentContextV2PublishedSelection and frontend end-to-end publication tests judge retention; the artifact suite cannot infer guidance a publisher omitted without the original declarations",
+	"agent-context@2/size-budget":           "descriptor-valid enforces the published hard budget; expansion, effective composition, and advisory warnings are judged by TestAgentContextV2Expansion, TestAgentContextV2CompositionSize, and fetch tests, rather than a large runtime fixture",
+	"agent-context@2/content-untrusted":     "non-observable: runtime trust has no in-sandbox symptom and runtime-management delimiters are not standardized",
 	// ACP launch configuration is judged by the spec package tests.
 	"acp@1/optional-for-compatibility": "authoring recommendation, judged for the shipped ACP examples by TestACPExamples",
 	"acp@1/config-valid":               "grammar rule, judged by TestACPValidation and TestACPSchema",
