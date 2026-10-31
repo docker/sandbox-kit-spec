@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -33,7 +33,7 @@ if [ "$verb" = create ]; then
       exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
     esac
   done
-elif [ -f "$state/host-port/${1:-}.json" ] || { [ "$verb" = exec ] && { [ "${3:-}" = curl ] || [ "${3:-}" = kit-tck-host-port-udp ] || [ "${3:-}" = kit-tck-host-port-tcp ]; }; }; then
+elif [ -f "$state/host-port/${1:-}.json" ] || { [ "$verb" = exec ] && { { [ "${3:-}" = curl ] && [ "${4:-}" != --unix-socket ]; } || [ "${3:-}" = kit-tck-host-port-udp ] || [ "${3:-}" = kit-tck-host-port-tcp ]; }; }; then
   exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 
@@ -215,8 +215,13 @@ create)
   identity_config=""
   group_rejected=no
   lifecycle_rejected=no
+  sandbox_name=""
   while [ $# -gt 0 ]; do
     case "$1" in
+    --name)
+      sandbox_name="$2"
+      shift 2
+      ;;
     --arg)
       case "$2" in mount_path=*) mount_path="${2#mount_path=}" ;; mount_mode=*) mount_mode="${2#mount_mode=}" ;; directory=*) context_directory="${2#directory=}" ;; greeting=*) greeting="${2#greeting=}" ;; group_path=*) group_path="${2#group_path=}" ;; env_group_path=*) env_group_path="${2#env_group_path=}" ;; esac
       shift 2
@@ -356,6 +361,8 @@ create)
       # contain a capability name (for example, git-identity).
       case "${kit##*/}" in
       acp) need="com.docker.sandbox/acp@1" ;;
+      dockerd | dockerd-manual) need="com.docker.sandbox/dockerd@1" ;;
+      docker-workload) ;;
       bundled-optional | bundled-existing) ;;
       bundled-reader) need="com.docker.sandbox/agent-skills@1" ;;
       bundled-skill | bundled-host-conflict) need="com.docker.sandbox/agent-skill@1" ;;
@@ -403,6 +410,30 @@ create)
     echo "refusing: this runtime declines every composition" >&2
     exit 2
   fi
+
+  # dockerd@1 owns /var/lib/docker, so another Kit's volume there is refused.
+  engine_asked=no engine_store_volume=no
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in
+    dockerd | dockerd-manual) engine_asked=yes ;;
+    dockerd-store-volume) engine_store_volume=yes ;;
+    esac
+  done
+  if [ "$engine_asked" = yes ] && [ "$engine_store_volume" = yes ] && [ "$broken" != docker-accepts-store-volume ]; then
+    echo "refusing: dockerd-store-volume declares com.docker.sandbox/volume@1 at /var/lib/docker, inside the engine store com.docker.sandbox/dockerd@1 owns" >&2
+    exit 2
+  fi
+  # This workload's engine never answers, so a runtime starting it fails.
+  for kit in "${kits[@]}"; do
+    if [ "${kit##*/}" = docker-workload-unanswered ] && [ "$engine_asked" = yes ] && [ "$broken" = docker-refuses-unanswered ]; then
+      echo "refusing: the engine did not answer" >&2
+      exit 2
+    fi
+    if [ "${kit##*/}" = docker-workload-unanswered ] && [ "$engine_asked" = yes ] && [ "$broken" != docker-runs-without-engine ]; then
+      echo "dockerd did not answer GET /_ping on /var/run/docker.sock within 60s" >&2
+      exit 1
+    fi
+  done
 
   # Which phase, if any, asks for the SSH agent, and whether the ask can
   # be dropped. A required ask the host cannot answer is refused before
@@ -668,6 +699,62 @@ create)
   for kit in "${kits[@]}"; do
     if [[ "$kit" == */long-running ]]; then : >"$dir/long-running-mixin"; fi
   done
+  # The engine dockerd@1 starts publishes a boot id and keeps a token in
+  # its store; the startup hook appends the boot id it saw. With autoStart
+  # false no engine starts, and the Kit's root hook keeps its own token in
+  # the store. The standard workload's image carries the start-docker label.
+  docker_requested=no
+  docker_engine=no
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in
+    dockerd) docker_requested=yes docker_engine=yes ;;
+    dockerd-manual)
+      docker_requested=yes
+      : >"$dir/docker-manual"
+      token="$id-manual-store"
+      if [ "$broken" = docker-manual-storage-shared ]; then
+        if [ -f "$state/docker-manual-shared-store" ]; then token="$(cat "$state/docker-manual-shared-store")"; fi
+        echo "$token" >"$state/docker-manual-shared-store"
+      fi
+      echo "$token" >"$dir/docker-manual-store"
+      if [ "$broken" = docker-manual-autostarts ]; then docker_engine=yes; fi
+      ;;
+    docker-workload)
+      : >"$dir/docker-unrequested"
+      if [ "$broken" = docker-starts-unrequested ]; then docker_engine=yes; fi
+      ;;
+    workload) : >"$dir/start-docker-label" ;;
+    esac
+  done
+  if [ "$docker_requested" = yes ]; then : >"$dir/docker" && rm -f "$dir/docker-unrequested"; fi
+  for kit in "${kits[@]}"; do echo "${kit##*/}"; done | sort >"$dir/docker-kits"
+  if [ "$docker_engine" = yes ]; then
+    echo "$id-boot-1" >"$dir/docker-boot"
+    if [ "$broken" != docker-socket-unfixed ]; then : >"$dir/docker-socket-fixed"; fi
+    case "$broken" in
+    docker-flags-beside-daemon-json) echo '["--host=unix:///var/run/docker.sock"]' >"$dir/docker-argv" ;;
+    docker-config-file-elsewhere) echo '["--config-file","/run/kit/daemon.json"]' >"$dir/docker-argv" ;;
+    docker-joined-host-flag) echo '["-Hunix:///var/run/docker.sock"]' >"$dir/docker-argv" ;;
+    docker-socket-group-flag) echo '["--group","docker"]' >"$dir/docker-argv" ;;
+    *) echo '[]' >"$dir/docker-argv" ;;
+    esac
+    token="$id-store"
+    if [ "$broken" = docker-storage-shared ]; then
+      if [ -f "$state/docker-shared-store" ]; then token="$(cat "$state/docker-shared-store")"; fi
+      echo "$token" >"$state/docker-shared-store"
+    fi
+    # A store keyed by the alias outlives the sandbox it belonged to.
+    if [ "$broken" = docker-store-keyed-by-name ] && [ -n "$sandbox_name" ]; then
+      if [ -f "$state/docker-named-store-$sandbox_name" ]; then token="$(cat "$state/docker-named-store-$sandbox_name")"; fi
+      echo "$token" >"$state/docker-named-store-$sandbox_name"
+    fi
+    echo "$token" >"$dir/docker-store"
+    if [ "$broken" = docker-engine-after-startup ]; then
+      echo missing >"$dir/docker-startup"
+    else
+      cat "$dir/docker-boot" >"$dir/docker-startup"
+    fi
+  fi
   printf '%s' "1" >"$dir/install.count"
   printf '%s' "1" >"$dir/startup.count"
   # The install phase could reach its install-only domain; the boundary
@@ -955,6 +1042,16 @@ exec)
   kit-tck-bundled)
     KIT_TCK_BUNDLE_ROOT="$dir" sh "$dir/bundle-probe" "$2"
     ;;
+  # The image user pinging the engine: 200 once the runtime fixed the
+  # socket, curl's connection failure otherwise.
+  curl)
+    if [ -f "$dir/docker-boot" ] && [ -f "$dir/docker-socket-fixed" ]; then
+      printf 200
+    else
+      printf 000
+      exit 7
+    fi
+    ;;
   kit-tck-git-identity)
     case "$2" in
     defaults) cat "$dir/git-identity" ;;
@@ -1006,6 +1103,11 @@ exec)
       fi
       ;;
     /var/tmp/install-egress) cat "$dir/install-egress" ;;
+    /var/tmp/kit-tck-docker/boot) cat "$dir/docker-boot" ;;
+    /var/tmp/kit-tck-docker/argv) cat "$dir/docker-argv" ;;
+    /var/lib/docker/kit-tck-storage) cat "$dir/docker-store" ;;
+    /var/lib/docker/kit-tck-manual-storage) cat "$dir/docker-manual-store" ;;
+    /var/tmp/kit-tck-docker-startup) cat "$dir/docker-startup" ;;
     /var/tmp/hook.env) cat "$dir/hook.env" ;;
     /var/tmp/credential-at-install) cat "$dir/credential-at-install" ;;
     /var/tmp/kit-tck-workload-credential) cat "$dir/workload-credential" ;;
@@ -1346,7 +1448,19 @@ exec)
     run_ssh_probe "$dir" "$(cat "$dir/ssh-agent")" "$broken" "$@"
     ;;
   kit-tck-privileged)
-    if [ "$broken" = "ignores-privileged" ]; then echo "no"; else echo "yes"; fi
+    if [ "$broken" = "ignores-privileged" ]; then echo "no"
+    elif [ "$broken" = "docker-ignores-privilege" ] && [ -f "$dir/docker" ]; then echo "no"
+    elif [ "$broken" = "docker-elevates-on-label-only" ] && [ ! -f "$dir/start-docker-label" ]; then echo "no"
+    elif [ "$broken" = "docker-manual-ignores-privilege" ] && [ -f "$dir/docker-manual" ]; then echo "no"
+    else echo "yes"; fi
+    ;;
+  kit-tck-docker)
+    case "$2" in
+    started) test -f "$dir/docker-boot" ;;
+    mark) : >"$dir/docker-scratch" ;;
+    marked) test -f "$dir/docker-scratch" ;;
+    *) exit 1 ;;
+    esac
     ;;
   *)
     echo "unsupported command: $*" >&2
@@ -1415,7 +1529,21 @@ recreate)
   fi
   # A fresh container: the writable layer goes, declared volumes stay.
   dir="$state/$1"
-  if [ "$broken" != "keeps-writable-layer" ]; then rm -f "$dir/scratch"; fi
+  if [ "$broken" != "keeps-writable-layer" ]; then rm -f "$dir/scratch" "$dir/docker-scratch"; fi
+  # A store kept in the writable layer goes with it.
+  if [ "$broken" = docker-storage-lost-on-recreate ] && [ -f "$dir/docker-store" ]; then echo "$1-store-recreated" >"$dir/docker-store"; fi
+  if [ "$broken" = docker-manual-storage-lost-on-recreate ] && [ -f "$dir/docker-manual-store" ]; then echo "$1-manual-store-recreated" >"$dir/docker-manual-store"; fi
+  # A store keyed by the composition is lost when a Kit update changes it.
+  if [ $# -gt 1 ] && [ -f "$dir/docker-kits" ]; then
+    replacement="$(shift; for kit in "$@"; do case "$kit" in --*) break ;; *) echo "${kit##*/}" ;; esac; done | sort)"
+    if [ "$replacement" != "$(cat "$dir/docker-kits")" ]; then
+      if [ "$broken" = docker-store-lost-on-kit-update ]; then
+        if [ -f "$dir/docker-store" ]; then echo "$1-store-updated" >"$dir/docker-store"; fi
+        if [ -f "$dir/docker-manual-store" ]; then echo "$1-manual-store-updated" >"$dir/docker-manual-store"; fi
+      fi
+      printf '%s\n' "$replacement" >"$dir/docker-kits"
+    fi
+  fi
   if [ "$broken" = "loses-volume" ]; then rm -rf "$dir/volume" && mkdir -p "$dir/volume"; fi
   ;;
 
@@ -1438,6 +1566,22 @@ start)
   if [ "$broken" = "ssh-agent-first-boot-only" ]; then rm -f "$dir/ssh-agent"; fi
   if [ -f "$dir/ssh-agent" ] && [ "$broken" != ssh-agent-stale-boot-proofs ]; then record_ssh_processes "$dir" restart; fi
   if [ "$broken" = "loses-volume-on-restart" ]; then rm -rf "$dir/volume" && mkdir -p "$dir/volume"; fi
+  if [ "$broken" = docker-manual-storage-lost-on-restart ] && [ -f "$dir/docker-manual-store" ]; then echo "$1-manual-store-new" >"$dir/docker-manual-store"; fi
+  if [ -f "$dir/docker-boot" ]; then
+    if [ "$broken" != docker-engine-first-boot-only ]; then
+      boot=$(($(wc -l <"$dir/docker-startup") + 1))
+      echo "$1-boot-$boot" >"$dir/docker-boot"
+    fi
+    if [ "$broken" = docker-storage-lost-on-restart ]; then echo "$1-store-new" >"$dir/docker-store"; fi
+    cat "$dir/docker-boot" >>"$dir/docker-startup"
+  fi
+  # An engine started in the background after the first boot's probe.
+  if [ "$broken" = docker-starts-unrequested-later ] && [ -f "$dir/docker-unrequested" ]; then
+    echo "$1-boot-late" >"$dir/docker-boot"
+  fi
+  if [ "$broken" = docker-manual-autostarts-later ] && [ -f "$dir/docker-manual" ]; then
+    echo "$1-boot-late" >"$dir/docker-boot"
+  fi
   if [ "$broken" != "no-startup" ]; then
     count=$(cat "$dir/startup.count")
     printf '%s' "$((count + 1))" >"$dir/startup.count"

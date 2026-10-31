@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/dockerd@1",
+  "description": "Config schema for the Docker Engine request. Singleton; the host may refuse it. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "autoStart": {
+      "default": true,
+      "description": "When true (the default), the runtime starts the engine before startup hooks run. Set false to start it from the Kit's own hook; elevation and the engine store are granted either way.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/whole"
+        }
+      ]
+    }
+  }
+}

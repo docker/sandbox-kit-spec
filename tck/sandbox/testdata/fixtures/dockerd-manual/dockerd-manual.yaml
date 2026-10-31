@@ -1,0 +1,22 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Docker Engine, started by the Kit
+description: Requests the engine without having the runtime start it, and keeps a token in the engine store from a root startup hook
+provides: ["kit-tck-dockerd-manual@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/dockerd@1
+    description: The conformance suite judges what the runtime grants without starting the engine
+    config:
+      autoStart: false
+  # Optional so a runtime without lifecycle@1 still composes; the check
+  # reading the token skips there instead. The token is written only when
+  # absent, so a store the runtime lost reads as a new one, and readable
+  # by the image user, as the stand-in engine leaves its own.
+  - type: com.docker.sandbox/lifecycle@1
+    optional: true
+    config:
+      startup:
+        - command: sh -c 'chmod 0711 /var/lib/docker && f=/var/lib/docker/kit-tck-manual-storage; [ -e "$f" ] || { cat /proc/sys/kernel/random/uuid >"$f.tmp" && chmod 0644 "$f.tmp" && mv "$f.tmp" "$f"; }'
+          user: "0"
+          description: Keeps a token in the engine store, as root because the store is root's

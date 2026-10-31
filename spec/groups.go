@@ -157,7 +157,7 @@ func Supported(types ...string) SelectCapability {
 func KnownCapabilities() []string {
 	return []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort, CapabilityUSBDevice, CapabilityResources,
-		CapabilityPrivileged, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP,
+		CapabilityPrivileged, CapabilityDockerd, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityGitIdentity, CapabilityKitRegistry}
 }
 
@@ -613,6 +613,12 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 					volumes = append(volumes, claim{key, reference})
 				}
 				return
+			case item.Type == CapabilityDockerd:
+				// An arg in autoStart decides who starts the engine, not
+				// who owns its store.
+				standIn := item
+				standIn.Config, standIn.configSet = nil, false
+				d.Capabilities = append(d.Capabilities, standIn)
 			}
 			if item.Type == CapabilityHostMount {
 				for _, key := range literalInstanceKeys(item) {
@@ -640,6 +646,23 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 	}
 	if _, _, err := mergeCapabilities(concrete); err != nil {
 		return err
+	}
+	// A volume whose settings wait for create still names its path, and
+	// dockerd@1 owns the engine store whatever the volume would ask there.
+	var docker *keyed
+	for _, c := range concrete {
+		for _, n := range c.Descriptor.Capabilities {
+			if n.Type == CapabilityDockerd && docker == nil {
+				docker = &keyed{reference: fmt.Sprintf("%s (%s %s)", c.Reference, n.Source.Kit, n.Source.Path), capability: n}
+			}
+		}
+	}
+	for _, volume := range volumes {
+		if at, ok := engineStorePath(volume.key.identity()); ok {
+			if err := docker.engineStoreConflict(keyed{reference: volume.reference, capability: Capability{Type: CapabilityVolume}}, at); err != nil {
+				return err
+			}
+		}
 	}
 	for _, volume := range volumes {
 		for _, mount := range hostMounts {

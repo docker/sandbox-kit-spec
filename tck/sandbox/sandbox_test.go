@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,41 @@ func TestLongRunningNeedsNoHelperCapabilities(t *testing.T) {
 		require.NotContains(t, f.Requirement, "long-running",
 			"long-running checks must run clean, not skip: %s", f)
 	}
+}
+
+// The engine checks other than the two reading what a startup hook wrote,
+// and the one composing a volume, observe through exec alone, so a
+// runtime claiming only dockerd@1 is still judged on them.
+func TestDockerNeedsNoHelperCapabilities(t *testing.T) {
+	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+	a.Env = []string{
+		"KIT_TCK_FAKE_STATE=" + t.TempDir(),
+		"KIT_TCK_FAKE_CLAIMS=" + capDockerd,
+		"KIT_TCK_FAKE_BROKEN=",
+	}
+	rep, err := Run(context.Background(), &Env{Adapter: a, Fixtures: Fixtures(FixtureDir)})
+	require.NoError(t, err)
+	require.False(t, rep.Failed(), "dockerd@1 alone must be testable:\n%s", rep)
+	judged := map[string]bool{}
+	for _, f := range rep.Findings {
+		judged[f.Check] = true
+		if f.Requirement == "dockerd@1/engine-before-startup" || f.Requirement == "dockerd@1/manual-storage-private-and-persistent" {
+			require.Equal(t, report.Skip, f.Severity, "the hook record needs lifecycle@1")
+			continue
+		}
+		if f.Requirement == "dockerd@1/engine-store-owned" {
+			require.Equal(t, report.Skip, f.Severity, "the refused pair needs volume@1")
+			continue
+		}
+		require.NotContains(t, f.Requirement, "dockerd@1", "docker checks must run clean, not skip: %s", f)
+	}
+	clean := 0
+	for _, c := range rep.Checks {
+		if strings.HasPrefix(c.Requirement, "dockerd@1/") && !judged[c.Name] {
+			clean++
+		}
+	}
+	require.Equal(t, 9, clean, "elevation, storage, removal, daemon.json, socket, unanswered engine and absence, and manual elevation and absence, run and pass")
 }
 
 // The refusal duty covers well-known types too: a runtime omitting a type
@@ -573,82 +609,107 @@ var mutations = map[string][]string{
 		"network-policy@1/install-phase-scoped",
 		"network-policy@2/install-phase-scoped",
 	},
-	"leaks-undeclared-env":                  {"lifecycle@1/hook-env-restricted"},
-	"copies-host-baseline":                  {"lifecycle@1/hook-env-restricted"},
-	"copies-host-hostname":                  {"lifecycle@1/hook-env-restricted"},
-	"copies-host-home":                      {"lifecycle@1/hook-env-restricted"},
-	"copies-host-pwd":                       {"lifecycle@1/hook-env-restricted"},
-	"leaks-secret-elsewhere":                {"credential@1/secret-absent-in-sandbox"},
-	"leaks-secret":                          {"credential@1/secret-absent-in-sandbox"},
-	"leaks-secret-decorated":                {"credential@1/secret-absent-in-sandbox"},
-	"credential-first-phase-only":           {"credential@1/sentinel-phase-scoped"},
-	"credential-last-phase-only":            {"credential@1/sentinel-phase-scoped"},
-	"credential-install-at-runtime":         {"credential@1/sentinel-phase-scoped"},
-	"credential-runtime-at-install":         {"credential@1/sentinel-phase-scoped"},
-	"credential-phase-leaks-secret":         {"credential@1/sentinel-phase-scoped"},
-	"credential-install-at-entrypoint":      {"credential@1/sentinel-phase-scoped"},
-	"credential-missing-at-entrypoint":      {"credential@1/sentinel-phase-scoped"},
-	"no-credential":                         {"credential@1/secret-absent-in-sandbox"},
-	"leaks-inject-only-env":                 {"credential@1/inject-only-no-env"},
-	"hides-inject-only-in-existing-env":     {"credential@1/inject-only-no-env"},
-	"hides-inject-only-in-token":            {"credential@1/inject-only-no-env"},
-	"leaks-plain-inject-only-env":           {"credential@1/inject-only-no-env"},
-	"exposes-install-inject-only":           {"credential@1/inject-only-no-env"},
-	"hides-install-inject-only-in-declared": {"credential@1/inject-only-no-env"},
-	"hides-inject-only-in-export":           {"credential@1/inject-only-no-env"},
-	"assumes-uid-1000":                      {"sbx@1/honors-image-user"},
-	"runs-image-entrypoint":                 {"sbx@1/entrypoint-not-pid-one"},
-	"workspace-at-fixed-path":               {"sbx@1/workspace-at-workdir"},
-	"accept-unknown":                        {"SPEC-v3 §7.3/unknown-required-refused"},
-	"refuses-everything":                    {"conformance.md §2.1/baseline-create-succeeds"},
-	"no-context":                            {"agent-context@1/body-readable", "agent-context@1/directory-honored"},
-	"ignores-context-directory":             {"agent-context@1/directory-honored"},
-	"ignores-profile-filename":              {"agent-context@1/directory-honored"},
-	"workload-profile-wins":                 {"agent-context@1/directory-honored"},
-	"overwrites-context-profile":            {"agent-context@1/directory-honored"},
-	"refuses-second-profile":                {"agent-context@1/every-explicit-profile"},
-	"drops-second-profile":                  {"agent-context@1/every-explicit-profile"},
-	"omits-other-agent-index":               {"agent-context@1/every-explicit-profile"},
-	"keys-profiles-by-directory":            {"agent-context@1/every-explicit-profile"},
-	"keys-profiles-by-filename":             {"agent-context@1/every-explicit-profile"},
-	"context-at-fixed-directory":            {"agent-context@1/directory-honored"},
-	"loses-volume":                          {"volume@1/persists-across-recreate"},
-	"loses-volume-on-restart":               {"volume@1/persists-across-recreate"},
-	"keeps-writable-layer":                  {"volume@1/persists-across-recreate"},
-	"drops-context-body":                    {"agent-context@1/body-readable"},
-	"ignores-privileged":                    {"privileged@1/elevation-granted"},
-	"ignores-skills":                        {"agent-skills@1/store-mounted-at-declared-path"},
-	"empty-skills":                          {"agent-skills@1/store-mounted-at-declared-path"},
-	"wrong-skill":                           {"agent-skills@1/store-mounted-at-declared-path"},
-	"first-skills-only":                     {"agent-skills@1/store-mounted-at-declared-path"},
-	"writable-decoy":                        {"agent-skills@1/readwrite-granted-when-both-allow"},
-	"mounts-skills-late":                    {"agent-skills@1/mounted-before-hooks"},
-	"narrows-shared-path":                   {"agent-skills@1/shared-path-widest-mode"},
-	"ignores-host-readonly":                 {"agent-skills@1/host-readonly-narrows"},
-	"refuses-missing-required-skills":       {"agent-skills@1/host-store-missing"},
-	"refuses-missing-optional-skills":       {"agent-skills@1/host-store-missing"},
-	"skips-missing-required-skills":         {"agent-skills@1/host-store-missing"},
-	"skips-missing-optional-skills":         {"agent-skills@1/host-store-missing"},
-	"bundle-missing-drops-required":         {"agent-skills@1/bundled-with-missing-store"},
-	"bundle-missing-drops-optional":         {"agent-skills@1/bundled-with-missing-store"},
-	"bundle-missing-late":                   {"agent-skills@1/bundled-with-missing-store"},
-	"refuses-empty-required-skills":         {"agent-skills@1/host-store-empty"},
-	"refuses-empty-optional-skills":         {"agent-skills@1/host-store-empty"},
-	"skips-empty-required-skills":           {"agent-skills@1/host-store-empty"},
-	"skips-empty-optional-skills":           {"agent-skills@1/host-store-empty"},
-	"bundle-empty-drops-required":           {"agent-skills@1/bundled-with-empty-store"},
-	"bundle-empty-drops-optional":           {"agent-skills@1/bundled-with-empty-store"},
-	"bundle-empty-late":                     {"agent-skills@1/bundled-with-empty-store"},
-	"refuses-required-skills":               {"agent-skills@1/host-store-optional"},
-	"ignores-host-off":                      {"agent-skills@1/host-store-optional"},
-	"skips-required-skills":                 {"agent-skills@1/host-store-optional"},
-	"skips-optional-skills":                 {"agent-skills@1/host-off-keeps-optional"},
-	"refuses-optional-skills":               {"agent-skills@1/host-off-keeps-optional"},
-	"mounts-optional-despite-off":           {"agent-skills@1/host-off-keeps-optional"},
-	"mounts-later-skills-late":              {"agent-skills@1/mounted-before-hooks"},
-	"separate-stores":                       {"agent-skills@1/same-store-at-every-path"},
-	"ignores-readonly":                      {"agent-skills@1/readonly-default-honored"},
-	"ignores-readwrite":                     {"agent-skills@1/readwrite-granted-when-both-allow"},
+	"leaks-undeclared-env":                   {"lifecycle@1/hook-env-restricted"},
+	"copies-host-baseline":                   {"lifecycle@1/hook-env-restricted"},
+	"copies-host-hostname":                   {"lifecycle@1/hook-env-restricted"},
+	"copies-host-home":                       {"lifecycle@1/hook-env-restricted"},
+	"copies-host-pwd":                        {"lifecycle@1/hook-env-restricted"},
+	"leaks-secret-elsewhere":                 {"credential@1/secret-absent-in-sandbox"},
+	"leaks-secret":                           {"credential@1/secret-absent-in-sandbox"},
+	"leaks-secret-decorated":                 {"credential@1/secret-absent-in-sandbox"},
+	"credential-first-phase-only":            {"credential@1/sentinel-phase-scoped"},
+	"credential-last-phase-only":             {"credential@1/sentinel-phase-scoped"},
+	"credential-install-at-runtime":          {"credential@1/sentinel-phase-scoped"},
+	"credential-runtime-at-install":          {"credential@1/sentinel-phase-scoped"},
+	"credential-phase-leaks-secret":          {"credential@1/sentinel-phase-scoped"},
+	"credential-install-at-entrypoint":       {"credential@1/sentinel-phase-scoped"},
+	"credential-missing-at-entrypoint":       {"credential@1/sentinel-phase-scoped"},
+	"no-credential":                          {"credential@1/secret-absent-in-sandbox"},
+	"leaks-inject-only-env":                  {"credential@1/inject-only-no-env"},
+	"hides-inject-only-in-existing-env":      {"credential@1/inject-only-no-env"},
+	"hides-inject-only-in-token":             {"credential@1/inject-only-no-env"},
+	"leaks-plain-inject-only-env":            {"credential@1/inject-only-no-env"},
+	"exposes-install-inject-only":            {"credential@1/inject-only-no-env"},
+	"hides-install-inject-only-in-declared":  {"credential@1/inject-only-no-env"},
+	"hides-inject-only-in-export":            {"credential@1/inject-only-no-env"},
+	"assumes-uid-1000":                       {"sbx@1/honors-image-user"},
+	"runs-image-entrypoint":                  {"sbx@1/entrypoint-not-pid-one"},
+	"workspace-at-fixed-path":                {"sbx@1/workspace-at-workdir"},
+	"accept-unknown":                         {"SPEC-v3 §7.3/unknown-required-refused"},
+	"refuses-everything":                     {"conformance.md §2.1/baseline-create-succeeds"},
+	"no-context":                             {"agent-context@1/body-readable", "agent-context@1/directory-honored"},
+	"ignores-context-directory":              {"agent-context@1/directory-honored"},
+	"ignores-profile-filename":               {"agent-context@1/directory-honored"},
+	"workload-profile-wins":                  {"agent-context@1/directory-honored"},
+	"overwrites-context-profile":             {"agent-context@1/directory-honored"},
+	"refuses-second-profile":                 {"agent-context@1/every-explicit-profile"},
+	"drops-second-profile":                   {"agent-context@1/every-explicit-profile"},
+	"omits-other-agent-index":                {"agent-context@1/every-explicit-profile"},
+	"keys-profiles-by-directory":             {"agent-context@1/every-explicit-profile"},
+	"keys-profiles-by-filename":              {"agent-context@1/every-explicit-profile"},
+	"context-at-fixed-directory":             {"agent-context@1/directory-honored"},
+	"loses-volume":                           {"volume@1/persists-across-recreate"},
+	"loses-volume-on-restart":                {"volume@1/persists-across-recreate"},
+	"keeps-writable-layer":                   {"volume@1/persists-across-recreate", "dockerd@1/storage-private-and-persistent", "dockerd@1/manual-storage-private-and-persistent"},
+	"drops-context-body":                     {"agent-context@1/body-readable"},
+	"ignores-privileged":                     {"privileged@1/elevation-granted"},
+	"docker-ignores-privilege":               {"dockerd@1/elevation-granted"},
+	"docker-elevates-on-label-only":          {"dockerd@1/elevation-granted", "dockerd@1/manual-elevation-granted"},
+	"docker-storage-lost-on-recreate":        {"dockerd@1/storage-private-and-persistent"},
+	"docker-storage-lost-on-restart":         {"dockerd@1/storage-private-and-persistent"},
+	"docker-storage-shared":                  {"dockerd@1/storage-private-and-persistent"},
+	"docker-engine-after-startup":            {"dockerd@1/engine-before-startup"},
+	"docker-engine-first-boot-only":          {"dockerd@1/engine-before-startup"},
+	"docker-starts-unrequested":              {"dockerd@1/absent-without-grant"},
+	"docker-starts-unrequested-later":        {"dockerd@1/absent-without-grant"},
+	"docker-manual-ignores-privilege":        {"dockerd@1/manual-elevation-granted"},
+	"docker-manual-storage-lost-on-recreate": {"dockerd@1/manual-storage-private-and-persistent"},
+	"docker-manual-storage-shared":           {"dockerd@1/manual-storage-private-and-persistent"},
+	"docker-manual-storage-lost-on-restart":  {"dockerd@1/manual-storage-private-and-persistent"},
+	"docker-store-keyed-by-name":             {"dockerd@1/removed-store-not-reused"},
+	"docker-accepts-store-volume":            {"dockerd@1/engine-store-owned"},
+	"docker-flags-beside-daemon-json":        {"dockerd@1/daemon-json-honored"},
+	"docker-config-file-elsewhere":           {"dockerd@1/daemon-json-honored"},
+	"docker-joined-host-flag":                {"dockerd@1/daemon-json-honored"},
+	"docker-socket-group-flag":               {"dockerd@1/daemon-json-honored"},
+	"docker-socket-unfixed":                  {"dockerd@1/socket-usable-by-image-user"},
+	"docker-runs-without-engine":             {"dockerd@1/fails-when-engine-unanswered"},
+	"docker-refuses-unanswered":              {"dockerd@1/fails-when-engine-unanswered"},
+	"docker-store-lost-on-kit-update":        {"dockerd@1/storage-private-and-persistent", "dockerd@1/manual-storage-private-and-persistent"},
+	"docker-manual-autostarts":               {"dockerd@1/manual-engine-not-started"},
+	"docker-manual-autostarts-later":         {"dockerd@1/manual-engine-not-started"},
+	"ignores-skills":                         {"agent-skills@1/store-mounted-at-declared-path"},
+	"empty-skills":                           {"agent-skills@1/store-mounted-at-declared-path"},
+	"wrong-skill":                            {"agent-skills@1/store-mounted-at-declared-path"},
+	"first-skills-only":                      {"agent-skills@1/store-mounted-at-declared-path"},
+	"writable-decoy":                         {"agent-skills@1/readwrite-granted-when-both-allow"},
+	"mounts-skills-late":                     {"agent-skills@1/mounted-before-hooks"},
+	"narrows-shared-path":                    {"agent-skills@1/shared-path-widest-mode"},
+	"ignores-host-readonly":                  {"agent-skills@1/host-readonly-narrows"},
+	"refuses-missing-required-skills":        {"agent-skills@1/host-store-missing"},
+	"refuses-missing-optional-skills":        {"agent-skills@1/host-store-missing"},
+	"skips-missing-required-skills":          {"agent-skills@1/host-store-missing"},
+	"skips-missing-optional-skills":          {"agent-skills@1/host-store-missing"},
+	"bundle-missing-drops-required":          {"agent-skills@1/bundled-with-missing-store"},
+	"bundle-missing-drops-optional":          {"agent-skills@1/bundled-with-missing-store"},
+	"bundle-missing-late":                    {"agent-skills@1/bundled-with-missing-store"},
+	"refuses-empty-required-skills":          {"agent-skills@1/host-store-empty"},
+	"refuses-empty-optional-skills":          {"agent-skills@1/host-store-empty"},
+	"skips-empty-required-skills":            {"agent-skills@1/host-store-empty"},
+	"skips-empty-optional-skills":            {"agent-skills@1/host-store-empty"},
+	"bundle-empty-drops-required":            {"agent-skills@1/bundled-with-empty-store"},
+	"bundle-empty-drops-optional":            {"agent-skills@1/bundled-with-empty-store"},
+	"bundle-empty-late":                      {"agent-skills@1/bundled-with-empty-store"},
+	"refuses-required-skills":                {"agent-skills@1/host-store-optional"},
+	"ignores-host-off":                       {"agent-skills@1/host-store-optional"},
+	"skips-required-skills":                  {"agent-skills@1/host-store-optional"},
+	"skips-optional-skills":                  {"agent-skills@1/host-off-keeps-optional"},
+	"refuses-optional-skills":                {"agent-skills@1/host-off-keeps-optional"},
+	"mounts-optional-despite-off":            {"agent-skills@1/host-off-keeps-optional"},
+	"mounts-later-skills-late":               {"agent-skills@1/mounted-before-hooks"},
+	"separate-stores":                        {"agent-skills@1/same-store-at-every-path"},
+	"ignores-readonly":                       {"agent-skills@1/readonly-default-honored"},
+	"ignores-readwrite":                      {"agent-skills@1/readwrite-granted-when-both-allow"},
 }
 
 func TestEachCheckFailsWhenItsBehaviorIsAbsent(t *testing.T) {

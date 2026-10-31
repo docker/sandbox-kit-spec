@@ -10,13 +10,9 @@ sourceUrl: https://github.com/docker/sandbox-kit-spec
 
 kind: workload
 provides: ["kit-builder"]
-version: "1.1.0"
+version: "2.0.0"
 
 args:
-  volumeSize:
-    default: "20g"
-    pattern: '^[0-9]+(\.[0-9]+)?\s*([kKmMgGtT]i?[bB]?)?$'
-    description: Capacity of the /var/lib/docker engine-store volume (build cache)
   # BuildKit's TCP listener is off unless asked for. The API behind it
   # builds as root and takes no credential, so reaching it is reaching
   # the daemon: port@1 only says the host binding SHOULD be loopback
@@ -43,24 +39,29 @@ args:
 # grants, refuses, or prompts. A host refuses a required type it does not
 # provide by name, never by silently dropping it.
 capabilities:
-  # DinD: dockerd needs real privilege; the microVM is the boundary.
+  # The engine, started before the startup hooks below use it, with its
+  # store at /var/lib/docker kept private to this sandbox across restarts
+  # and recreation. The store doubles as the kit build cache; removing the
+  # sandbox is cache GC. dockerd itself comes from this image's docker-ce
+  # package. Optional so a runtime that predates the type skips it and
+  # starts the engine for the recipe's start-docker label instead, which
+  # is also why privileged@1 stays: such a runtime elevates only for it.
+  # What that fallback loses: without the type, /var/lib/docker sits on
+  # the writable layer, so images and build cache are lost on recreate,
+  # and a runtime that honors neither the type nor the label starts no
+  # engine at all.
+  - type: com.docker.sandbox/dockerd@1
+    optional: true
+    description: Builds kit images with Docker-in-Docker
+
   - type: com.docker.sandbox/privileged@1
+    description: Elevation for the engine on runtimes without dockerd@1
 
   # The runtime's kit registry: where builds push results and pull the
   # kit frontend. Declared — not smuggled in through network egress —
   # because engine image-store access is a grant of its own.
   - type: com.docker.sandbox/kit-registry@1
     description: Push built kit images into the runtime's image store
-
-  # The engine store doubles as the kit build cache; removing the sandbox
-  # is cache GC. Sized for multi-arch host-attached builds; override with
-  # --kit-arg volumeSize=100g. To increase size, remove the sandbox and
-  # create a new instance with the larger request. Removal deletes this
-  # cache and all other instance volume data. Recreation with a changed
-  # size is refused; wiping files neither resets the retained request
-  # nor grows the allocation.
-  - type: com.docker.sandbox/volume@1
-    config: {path: /var/lib/docker, size: "${{ kit.args.volumeSize }}"}
 
   # BuildKit's gRPC API for the host's docker buildx remote driver, read
   # from `sbx kit builder status` (or the sandbox's published-port list).
@@ -95,22 +96,6 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       startup:
-        # The runtime starts dockerd for templates labeled start-docker; this
-        # guard makes the kit self-sufficient when it does not. `docker info`
-        # succeeding means something already started the engine.
-        - command:
-            - sh
-            - -c
-            - |
-              set -eu
-              if docker info >/dev/null 2>&1; then exit 0; fi
-              if ! pgrep -x dockerd >/dev/null 2>&1; then
-                dockerd >/var/log/dockerd.log 2>&1 &
-              fi
-          user: "0"
-          background: true
-          description: Start dockerd unless the runtime already did
-
         # QEMU binfmt emulators: kernel-side work, so root. Runs every boot;
         # registrations are kernel-global and survive restarts, so the guard
         # skips the network-heavy install when they are already present.
@@ -148,8 +133,8 @@ capabilities:
         # works either way. The listen address is fixed when the builder
         # container is created, so changing buildkitExpose or buildkitPort
         # on an existing sandbox needs `docker buildx rm -f sbx-builder`
-        # (or a volume wipe) once — the inspect guard below skips create
-        # for a builder that is already there.
+        # once, because the inspect guard below skips create for a builder
+        # that is already there.
         #
         # The builder runs through the sandbox's egress proxy end to end: the
         # proxy env rides driver-opts (the kit-registry alias has no DNS
@@ -216,8 +201,7 @@ capabilities:
           `docker buildx build --platform linux/amd64,linux/arm64 .`
         - Export for the host: add `--output type=oci,dest=out.tar`.
         - The engine store under /var/lib/docker persists across restarts and
-          serves as the build cache (default 20g; override with
-          `--kit-arg volumeSize=…` at create).
+          serves as the build cache.
 
         ### Attach from the host
 

@@ -443,10 +443,10 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // Instance-shaped types union on their own key. Policy-shaped types
 // admit one entry, so each has a rule for what several contributors
 // asking at once means: network policies union, lifecycle hooks
-// concatenate, and the types that describe the whole sandbox rather
-// than a grant to it — resources, agent-sessions,
-// agent-interactive-sessions — admit one author, because two different
-// answers cannot both be the sandbox's.
+// concatenate, the engine starts if any asker wants it, and the types
+// that describe the whole sandbox rather than a grant to it (resources,
+// agent-sessions, agent-interactive-sessions) admit one author, because
+// two different answers cannot both be the sandbox's.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
 		byKey:    map[string]keyed{},
@@ -565,6 +565,10 @@ type capabilityMerge struct {
 
 	resources *keyed
 	sessions  *keyed
+
+	// docker is the first dockerd@1 request, named when another
+	// contribution's storage claims the engine store it owns.
+	docker *keyed
 
 	interactiveSessions *keyed
 	newSession          []string
@@ -685,6 +689,9 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		// Composed as the original Capability, kept as authored rather
 		// than re-rendered from the struct.
 		return mergeSole(&m.interactiveSessions, reference, n, "agent-interactive-sessions")
+
+	case CapabilityDockerd:
+		return m.addDockerd(reference, n)
 	}
 
 	// Instance-shaped entries reconcile on their type's key. Some
@@ -786,6 +793,63 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		m.optional[key] = false
 	}
 	return nil
+}
+
+// addDockerd unions engine requests in place, at the first one's
+// position. The engine starts when any asker wants it started: a Kit
+// starting it from its own hook still finds it running, while a Kit
+// relying on the runtime would find none if false won.
+func (m *capabilityMerge) addDockerd(reference string, n Capability) error {
+	if err := decodeForMerge(reference, n, &Dockerd{}); err != nil {
+		return err
+	}
+	if m.docker == nil {
+		m.docker = &keyed{reference: reference, capability: n}
+		m.order = append(m.order, CapabilityDockerd)
+		m.byKey[CapabilityDockerd] = *m.docker
+		m.optional[CapabilityDockerd] = n.Optional
+		return nil
+	}
+	held := m.byKey[CapabilityDockerd].capability
+	// The only config is autoStart, so two different asks have at least
+	// one true between them. Spelled as the default, the merged entry
+	// reads the same whichever order the Kits come in.
+	if !sameRequest(held, n) {
+		held.Config, held.configSet = nil, false
+	}
+	if held.Name == "" {
+		held.Name = n.Name
+	}
+	if held.Description == "" {
+		held.Description = n.Description
+	}
+	m.byKey[CapabilityDockerd] = keyed{reference: m.docker.reference, capability: held}
+	if !n.Optional {
+		m.optional[CapabilityDockerd] = false
+	}
+	return nil
+}
+
+// engineStorePath reports the cleaned path a storage key identity claims
+// when that path is DockerStoragePath or lies under it. volume@1 and
+// host-mount@1 share volume@1's key space. Compared by path component, so
+// /var/lib/docker2 is ordinary storage.
+func engineStorePath(identity string) (string, bool) {
+	p, ok := strings.CutPrefix(identity, CapabilityVolume+"\x00")
+	if !ok || (p != DockerStoragePath && !strings.HasPrefix(p, DockerStoragePath+"/")) {
+		return "", false
+	}
+	return p, true
+}
+
+// engineStoreConflict refuses storage in the engine store a dockerd@1
+// request owns. Either side may be absent.
+func (docker *keyed) engineStoreConflict(storage keyed, at string) error {
+	if docker == nil || storage.reference == "" {
+		return nil
+	}
+	return fmt.Errorf("merge: %s declares %s at %s, inside the engine store %s at %s owns",
+		storage.reference, storage.capability.Type, at, CapabilityDockerd, docker.reference)
 }
 
 // mergeSole holds a whole-sandbox type to one author, tolerating an
@@ -907,6 +971,14 @@ func describeCapability(n Capability) string {
 
 func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 	var out []Capability
+
+	for _, key := range m.order {
+		if at, ok := engineStorePath(key); ok {
+			if err := m.docker.engineStoreConflict(m.byKey[key], at); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 
 	if network, err := m.mergedNetwork(); err != nil {
 		return nil, nil, err

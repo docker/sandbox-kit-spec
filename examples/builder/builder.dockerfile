@@ -184,6 +184,7 @@ paths:
 annotations:
     org.opencontainers.image.description: DHI-based Docker-in-Docker builder for sandbox kits
 
+# Transition: runtimes that predate dockerd@1 start the engine for this label.
 labels:
     com.docker.sandboxes.start-docker: "true"
 

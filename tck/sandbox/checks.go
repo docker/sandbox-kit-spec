@@ -217,6 +217,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capVolume, fixtureVolume, false},
 				{capResources, fixtureResources, false},
 				{capPrivileged, fixturePrivileged, false},
+				{capDockerd, fixtureDocker, false},
 				{capAgentSkills, fixtureSkills, false},
 				{capAgentSkill, fixtureBundledSkill, false},
 				{capPort, fixturePort, false},

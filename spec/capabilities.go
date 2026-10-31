@@ -55,6 +55,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityAgentSkill:               reflect.TypeFor[AgentSkill](),
 	CapabilityUSBDevice:                reflect.TypeFor[USBDevice](),
 	CapabilityResources:                reflect.TypeFor[Resources](),
+	CapabilityDockerd:                  reflect.TypeFor[Dockerd](),
 	CapabilityLifecycle:                reflect.TypeFor[Lifecycle](),
 	CapabilityAgentContext:             reflect.TypeFor[AgentContext](),
 	CapabilityAgentContextV2:           reflect.TypeFor[AgentContextV2](),
@@ -302,9 +303,9 @@ func HasCapability(needs []Capability, typ string) bool {
 }
 
 // PrivilegedOf reports whether the descriptor requests privileged
-// execution.
+// execution, which dockerd@1 does too.
 func PrivilegedOf(needs []Capability) bool {
-	return HasCapability(needs, CapabilityPrivileged)
+	return HasCapability(needs, CapabilityPrivileged) || HasCapability(needs, CapabilityDockerd)
 }
 
 // NetworkPolicyOf returns the network-policy@1 request's config, or nil
@@ -578,6 +579,22 @@ func USBDevicesOf(needs []Capability) ([]USBDeviceCapability, error) {
 		out = append(out, USBDeviceCapability{USBDevice: u, Optional: n.Optional, Name: n.Name, Description: n.Description})
 	}
 	return out, nil
+}
+
+// DockerdOf returns the engine request's config, or nil when none is
+// declared.
+func DockerdOf(needs []Capability) (*Dockerd, error) {
+	for _, n := range needs {
+		if n.Type != CapabilityDockerd {
+			continue
+		}
+		var d Dockerd
+		if err := DecodeCapabilityConfig(n, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	}
+	return nil, nil
 }
 
 // ResourcesOf returns the resources request's config, or nil when none

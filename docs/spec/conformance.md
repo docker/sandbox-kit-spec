@@ -68,7 +68,7 @@ An adapter **MUST NOT** require interactive input.
 | `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
-| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container within the same instance, preserving block-volume storage |
+| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container within the same instance, preserving block-volume storage and the `dockerd@1` engine store |
 | `rm` | `<id>` | — | End the instance and delete all its volume storage |
 | `volume-paths` | `<id>` | JSON array of cleaned destination paths | Observe allocated block storage, including unmounted destinations |
 | `wait-idle` | `<id>` | — | Disconnect the final client session and wait beyond the normal auto-stop grace period |
