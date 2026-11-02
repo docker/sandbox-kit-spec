@@ -144,34 +144,6 @@ capabilities:
       resume: ["--resume", "{{.SessionID}}"]
       sessionPicker: ["--resume"]
 
-  # Volumes persist when recreating the same sandbox instance, so session
-  # state survives kit changes. Removing the instance deletes its volume
-  # data; creating another under the same name starts with fresh storage.
-  # Mount subdirectories rather than all of ~/.claude/, so kit-managed
-  # files (settings.json, .credentials.json) keep coming from the image
-  # and hooks on every create.
-  #
-  # Every volume sets a size: sbx formats an unsized kit volume at
-  # 512 MiB, so a path that outgrows that fails with ENOSPC mid-session
-  # rather than at create. 512m is also the floor worth stating — below
-  # it mke2fs switches to the "small" profile and spends as much on
-  # inode tables as a volume a quarter the size.
-  - type: com.docker.sandbox/volume@1
-    description: Conversation history; grows without bound, gets the headroom
-    config: {path: /home/agent/.claude/projects, size: 2g}
-  - type: com.docker.sandbox/volume@1
-    description: Per-session state; load-bearing for `claude -c`
-    config: {path: /home/agent/.claude/sessions, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: TodoWrite state
-    config: {path: /home/agent/.claude/todos, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: Bash state snapshots across sessions
-    config: {path: /home/agent/.claude/shell-snapshots, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: Local feature-flag cache
-    config: {path: /home/agent/.claude/statsig, size: 512m}
-
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
@@ -202,7 +174,7 @@ capabilities:
           env: [WORKSPACE_DIR]
           description: Seed Claude bypass/trust flags (root; overwrites image-shipped file)
 
-        # Volumes and agent-skills mount under ~/.claude/ before install
+        # Agent-skills mount under ~/.claude/ before install
         # runs, so the runtime creates that parent root-owned when the
         # image does not ship it. Re-own here so the agent-uid settings
         # seed below can write into it (same pattern as cursor/gemini).
@@ -300,15 +272,6 @@ capabilities:
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
           description: Register the sandbox MCP gateway (install-time, race-free)
       startup:
-        # Block volumes mount with a root-owned root (formatted ext4 shadows
-        # the image's directory ownership) and the entrypoint runs as the
-        # agent user, so its own chown would be a no-op. Running as root here,
-        # after mount and before agent activity, is what makes ~/.claude
-        # writable — including for the swapped container a kit change creates.
-        - command: [sh, -c, "chown -R agent:agent /home/agent/.claude/projects /home/agent/.claude/sessions /home/agent/.claude/todos /home/agent/.claude/shell-snapshots /home/agent/.claude/statsig 2>/dev/null || true"]
-          user: "0"
-          description: Re-own claude session-state volume mount roots to agent
-
         - command: [sh, -c, "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true)"]
           user: "0"
           background: true
@@ -326,7 +289,7 @@ capabilities:
           description: Register the sandbox MCP gateway (startup fallback)
 
   # Where claude reads shared skills, so the host's store reaches it. A
-  # subdirectory of ~/.claude the volumes above leave alone, and one the
+  # subdirectory of ~/.claude that session storage leaves alone, and one the
   # settings.json hook does not write, so the mount lands on a path no
   # other mount declaration of this kit claims.
   # The runtime also exposes selected agent-skill@1 bundles here, even

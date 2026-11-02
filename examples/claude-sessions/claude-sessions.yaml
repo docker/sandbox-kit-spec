@@ -1,0 +1,46 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: mixin
+displayName: Claude host sessions
+description: Retain Claude session state on the host across sandbox removal
+requires: ["claude"]
+
+capabilities:
+  - type: com.docker.sandbox/host-mount@1
+    config:
+      path: /home/agent/claude-history
+      mode: "0700"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        # One mount keeps renames between state directories on one filesystem.
+        # Config and credentials stay in the agent Kit's managed directory.
+        - command: |
+            set -eu
+            state="/home/agent/.claude"
+            history="/home/agent/claude-history"
+            mkdir -p "$state"
+            for name in projects sessions todos shell-snapshots statsig; do
+              link="$state/$name"
+              target="$history/$name"
+              mkdir -p "$target"
+              if [ -L "$link" ]; then
+                if [ "$(readlink "$link")" != "$target" ]; then
+                  printf 'Refusing to replace unexpected symlink: %s\n' "$link" >&2
+                  exit 1
+                fi
+                continue
+              fi
+              # rmdir preserves existing sessions and refuses mounted volumes.
+              if [ -e "$link" ]; then
+                if ! rmdir "$link"; then
+                  printf 'Cannot replace %s; move existing state to the host directory first.\n' "$link" >&2
+                  exit 1
+                fi
+              fi
+              ln -s "$target" "$link"
+            done
+          user: agent
+          description: Link Claude session state to the host-shared directory
