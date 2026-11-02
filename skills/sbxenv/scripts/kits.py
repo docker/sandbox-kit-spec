@@ -21,15 +21,18 @@ nothing is cached, because the kit catalog, tags and digests change daily.
            (default linux/<this machine's arch>, as the fetcher in fetch/
            defaults); a missing platform is an error, not a guess.
   tags     REF
-           Every tag of the repository with its digest, newest first.
+           Every tag of the repository with its digest, Hub last-updated
+           first. Listing order is not version order; use update to pick
+           a release.
   pin      REF [REF ...]
            The digest REF's tag points to now, as TAG@DIGEST. The tag is
            kept exactly as written: pinning never changes the release.
   update   REF [REF ...] [--pin]
-           The reference each kit entry should move to: the newest release
-           tag (or the same moving tag), carrying the digest when REF is
+           The reference each kit entry should move to: the highest
+           version release tag (numeric dotted order, not push time), or
+           the same moving tag, carrying the digest when REF is
            digest-pinned or --pin is given. A digest-only REF moves to the
-           newest release's digest and stays digest-only.
+           highest release's digest and stays digest-only.
 
 Output is JSON on stdout. describe and update report a failed lookup in
 that reference's entry, keep the other results, and exit 1 if any lookup
@@ -207,7 +210,7 @@ def manifest(ref, reference, method="GET"):
 
 
 def list_tags(ref):
-    """Tags newest first, as [{tag, digest, updated}]."""
+    """Tags by Hub last-updated (not version order), as [{tag, digest, updated}]."""
     if ref.hub:
         ns, repo = ref.repo.split("/", 1)
         url = f"{HUB}/v2/namespaces/{ns}/repositories/{repo}/tags?page_size=100&ordering=last_updated"

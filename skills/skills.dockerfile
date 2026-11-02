@@ -26,8 +26,10 @@ RUN set -eux; \
     cd /out/usr/share/kit-skills; \
     test -f create-kit-v3/SKILL.md; \
     test -f migrate-kit-to-v3/SKILL.md; \
+    test -f sbxenv/SKILL.md; \
+    test -f sbxenv/REFERENCE.md; \
+    test -f sbxenv/scripts/kits.py; \
     test ! -e README.md; \
-    test ! -e sbxenv; \
     test ! -e skills.yaml; \
     test ! -e .dockerignore
 

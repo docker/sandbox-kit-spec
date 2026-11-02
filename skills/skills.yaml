@@ -1,5 +1,5 @@
 # syntax=docker/sandbox-kit:3
-# This repository's kit-authoring skills, shipped into a sandbox.
+# This repository's kit and sbxenv skills, shipped into a sandbox.
 #
 # Also a small example of a content-first mixin: layers, a context entry, and
 # one narrowly bounded grant. No hooks, no credentials — everything it installs
@@ -7,9 +7,9 @@
 schemaVersion: "3"
 displayName: Kit authoring skills
 description: >-
-  The v3 kit authoring and migration skills from docker/sandbox-kit-spec, on
-  disk at /usr/share/kit-skills, with an agent-context entry pointing the agent
-  at them. Layer it onto any workload.
+  The v3 kit authoring, migration, and sbxenv skills from
+  docker/sandbox-kit-spec, on disk at /usr/share/kit-skills, with an
+  agent-context entry pointing the agent at them. Layer it onto any workload.
 sourceUrl: https://github.com/docker/sandbox-kit-spec
 licenses: [Apache-2.0]
 
@@ -38,6 +38,10 @@ capabilities:
     optional: true
     config:
       path: /usr/share/kit-skills/migrate-kit-to-v3
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/kit-skills/sbxenv
 
   # Offer both versions during the runtime rollout; select one.
   - type: com.docker.sandbox/agent-context@1
@@ -55,6 +59,8 @@ capabilities:
         | `/usr/share/kit-skills/create-kit-v3/RECIPES.md` | Writing a kit's content recipe, and the ownership rules an overlay has to satisfy. |
         | `/usr/share/kit-skills/migrate-kit-to-v3/SKILL.md` | Porting a kit from the v2 `spec.yaml` grammar. |
         | `/usr/share/kit-skills/migrate-kit-to-v3/FIELD-MAPPING.md` | The field-by-field v2 → v3 mapping, and the gotcha list. |
+        | `/usr/share/kit-skills/sbxenv/SKILL.md` | Creating or updating an `sbxenv.yaml`, including live Hub lookups via `scripts/kits.py`. |
+        | `/usr/share/kit-skills/sbxenv/REFERENCE.md` | Field-by-field rules for `sbxenv.yaml`. |
 
         Start with the `SKILL.md` for the task at hand; each links to its own
         reference files.
@@ -118,15 +124,18 @@ capabilities:
 
   # The skills link out to the spec, the capability pages and the example
   # kits, and none of that is on disk here — so without this the agent is
-  # told to go read something it cannot reach.
+  # told to go read something it cannot reach. The sbxenv skill's kits.py
+  # likewise needs Hub and the registry, or every catalog lookup fails at
+  # the boundary rather than with a useful Hub error.
   #
-  # Bounded rather than a bare `github.com`, which is what a mixin granting
-  # egress for its READER rather than for its own content has to do. Allow
-  # entries union per phase when kits compose (see network-policy@2.md,
-  # "Composition"), so this kit's grant is added to whatever it is layered
-  # onto: on codex or opencode a bare host would be a no-op, but on claude or
-  # cursor — scoped to their vendor endpoints on purpose — it would quietly
-  # open all of GitHub, and the base ships git to use it.
+  # Bounded rather than a bare `github.com` / `hub.docker.com`, which is
+  # what a mixin granting egress for its READER rather than for its own
+  # content has to do. Allow entries union per phase when kits compose
+  # (see network-policy@2.md, "Composition"), so this kit's grant is added
+  # to whatever it is layered onto: on codex or opencode a bare host would
+  # be a no-op, but on claude or cursor — scoped to their vendor endpoints
+  # on purpose — it would quietly open all of GitHub, and the base ships
+  # git to use it.
   # Split by method rather than one GET+POST entry, because smart-HTTP puts
   # read and write behind the same path prefix: a POST to */git-upload-pack
   # is a fetch, a POST to */git-receive-pack is a PUSH. Granting POST across
@@ -138,6 +147,10 @@ capabilities:
   # Both spellings are listed because GitHub serves the repository with and
   # without the `.git` suffix and neither redirects to the other, so a glob
   # written for one silently refuses clones of the other.
+  #
+  # Hub and the registry are GET-only and path-bounded to what kits.py
+  # actually hits: search, tag listing, anonymous bearer tokens, and
+  # manifest pulls. No push endpoints, no org-wide Hub write surface.
   - type: com.docker.sandbox/network-policy@2
     config:
       runtime:
@@ -152,3 +165,16 @@ capabilities:
             paths:
               - /docker/sandbox-kit-spec/git-upload-pack
               - /docker/sandbox-kit-spec.git/git-upload-pack
+          - hosts: [hub.docker.com]
+            methods: [GET]
+            paths:
+              - /api/search/**
+              - /v2/namespaces/**
+          - hosts: [registry-1.docker.io]
+            methods: [GET]
+            paths:
+              - /v2/**
+          - hosts: [auth.docker.io]
+            methods: [GET]
+            paths:
+              - /token

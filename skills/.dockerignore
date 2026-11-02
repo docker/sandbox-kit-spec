@@ -9,12 +9,6 @@ skills.dockerfile
 # inside a sandbox would try to reproduce a layout that does not exist there.
 README.md
 
-# Host-side authoring, not kit authoring. sbxenv writes the file the host's
-# sbx CLI reads, which a sandbox sees read-only inside its mount, and its
-# helper queries Docker Hub, which this kit's network policy does not reach.
-# Shipping it would teach an agent a job it cannot do from in here.
-sbxenv
-
 # This file. Build wiring, not reference material.
 .dockerignore
 

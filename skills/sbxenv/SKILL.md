@@ -6,8 +6,8 @@ description: >-
   and suggests v3 kits from the live Docker Hub catalog (sbx and docker
   orgs), sets kit args and environment args, sets up credential bindings,
   secrets and registry credentials, and refreshes kit references to the
-  latest tags (and digests when pinned). Use when asked to create, write,
-  scaffold, update, upgrade, bump, pin or review an sbxenv.yaml or
+  highest version tags (and digests when pinned). Use when asked to create,
+  write, scaffold, update, upgrade, bump, pin or review an sbxenv.yaml or
   ~/.sbxenv.yaml, or to set up a project for `sbx env`.
 ---
 
@@ -25,6 +25,14 @@ you are not sure about, because decoding is strict.
   `scripts/kits.py` in this run. Never take them from memory, from an
   earlier conversation, or from the examples in these files. If Hub is
   unreachable, say so and stop suggesting kits. Do not guess.
+- **Pick the highest version tag, not the one pushed last.** A republish
+  of an older release, or a moving tag such as `latest`, can be newer on
+  Hub's timeline than the highest version. Resolve the release with
+  `kits.py update <repo>` (or `update` on the current ref) and take
+  `newestRelease` / `suggested` — that helper ranks dotted version tags,
+  not push time. Do not take the first row of `kits.py tags`: that list
+  is ordered by Hub's `last_updated`. Do not write a bare untagged ref or
+  `:latest` when a release tag exists.
 - **Suggest v3 kits.** Search results are v3-only by default. If the file
   uses a v2 kit (often a `-kit` suffix) and a v3 sibling exists, offer the
   move.
@@ -50,9 +58,9 @@ published before descriptors switched to JSON need PyYAML to describe.
 |---|---|
 | `kits.py search [TERM …]` | v3 kits under `sbx/` and `docker/`, ranked by pulls. Each term is a separate Hub search, merged. No terms lists the whole catalog for those orgs. `--orgs a,b` changes the orgs. `--include-v2` adds v2 kits. |
 | `kits.py describe REF … [--arg [HANDLE.]NAME=VALUE …] [--platform OS/ARCH]` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `buildArgs` (fixed by the tag; the defaults shown are declarations, not what was built), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). Requests inside capability groups are included and take the group's optionality; `group` names the group. Kit-arg references in a credential resolve from arg defaults and `--arg` (a `HANDLE.` prefix scopes it to one kit); any left over are listed in `unresolved`, and that credential gets no `suggestedBinding`. When the descriptor is only on the platform manifests, the one for `--platform` is read (default `linux/<this machine's arch>`); `platform` says which was used. Pass the architecture of the machine that runs `sbx`, if it differs from the one you are on. |
-| `kits.py update REF … [--pin]` | `suggested` is the reference to move to: the newest release tag, or the same moving tag. It carries the new digest when REF was pinned or `--pin` is given; a digest-only REF moves to the newest release's digest and stays digest-only. Also reports `newestRelease` and notes (major bumps, moving tags). Local and git sources are skipped. |
+| `kits.py update REF … [--pin]` | `suggested` is the reference to move to: the highest version release tag (numeric dotted order, not Hub push time), or the same moving tag. It carries the new digest when REF was pinned or `--pin` is given; a digest-only REF moves to the highest release's digest and stays digest-only. Also reports `newestRelease` and notes (major bumps, moving tags). Local and git sources are skipped. |
 | `kits.py pin REF …` | The digest the reference's tag points to now, as `suggested` (`TAG@DIGEST`). It keeps the release exactly as written and never upgrades. |
-| `kits.py tags REF` | All tags with digests, newest first. |
+| `kits.py tags REF` | All tags with digests, ordered by Hub's last-updated time. Use this to inspect what exists; do not pick a release from the top of the list — use `update` for that. |
 
 ## Step 1: Decide what you're doing
 
@@ -111,8 +119,13 @@ mixins.
   `-mixin` layers that agent onto another workload. Use the mixin only when
   the user wants a different base.
 
-Present the proposal as a short table (kit, kind, why) and ask the user to
-confirm, add or remove kits.
+For each OCI kit you keep, run `kits.py update <org>/<name>` (no tag) and
+use `newestRelease` as the tag in the file. That is the highest version,
+not the tag Hub lists first. Skip this for local `./path` and `git+`
+sources.
+
+Present the proposal as a short table (kit, kind, tag, why) and ask the
+user to confirm, add or remove kits.
 
 ### C3. Kit args and environment args
 
@@ -203,10 +216,10 @@ this skill can refresh it later. To pin, run `kits.py pin <each OCI ref>`
 and use `suggested` as each entry's reference. `pin` keeps the tag chosen
 in C2 and C3, whose args and credentials you already inspected.
 
-Do not use `update` here: it moves a tag to the newest release, which can
-undo a version chosen on purpose (for example to satisfy another kit's
-`requires`). If `update` shows a newer release, offer it separately, and
-`describe` the new reference again before adopting it.
+Do not use `update` here: it moves a tag to the highest version release,
+which can undo a version chosen on purpose (for example to satisfy
+another kit's `requires`). If `update` shows a higher version, offer it
+separately, and `describe` the new reference again before adopting it.
 
 ### C7. Write, then check
 
@@ -227,9 +240,10 @@ Write `sbxenv.yaml` in this style:
    `kits.py update <refs…>`. Pinned refs (`@sha256:`) come back with new
    digests automatically.
 3. **Present** a table: current → suggested, plus notes. Flag major
-   version jumps. For moving tags (`latest`, `edge`), show `newestRelease`
-   and offer to switch to a fixed release. For unpinned refs, offer
-   `--pin`.
+   version jumps. Trust `suggested` / `newestRelease` over any
+   last-pushed ordering you see elsewhere. For moving tags (`latest`,
+   `edge`), show `newestRelease` and offer to switch to that fixed
+   release. For unpinned refs, offer `--pin`.
 4. **Diff what changes.** For each kit the user accepts, `describe` the old
    and new refs and compare:
    - **args**: an arg the file sets that the new version no longer declares
