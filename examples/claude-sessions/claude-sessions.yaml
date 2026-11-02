@@ -33,8 +33,15 @@ capabilities:
                 fi
                 continue
               fi
-              # rmdir preserves existing sessions and refuses mounted volumes.
+              # rmdir preserves existing sessions. A mount point means the
+              # agent kit still declares a private volume here — this mixin
+              # needs one that does not (local examples/claude after the
+              # sessions split; published tags may still ship the volumes).
               if [ -e "$link" ]; then
+                if awk -v p="$link" '$5 == p { found=1 } END { exit !found }' /proc/self/mountinfo 2>/dev/null; then
+                  printf '%s is a volume mount from the agent kit; compose this mixin with a Claude kit that declares no session volumes.\n' "$link" >&2
+                  exit 1
+                fi
                 if ! rmdir "$link"; then
                   printf 'Cannot replace %s; move existing state to the host directory first.\n' "$link" >&2
                   exit 1

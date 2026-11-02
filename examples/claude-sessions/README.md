@@ -8,6 +8,12 @@ workload plus `claude-mixin`:
 sbx run ./examples/claude --kit ./examples/claude-sessions .
 ```
 
+Compose with a Claude kit that declares **no** private session volumes
+(this repository's `examples/claude` after the sessions split). A
+published `sbx/claude` tag that still mounts `~/.claude/projects` and
+siblings will fail the install hook: those mounts occupy the paths the
+mixin needs to replace with symlinks.
+
 The required `host-mount@1` request mounts one directory at
 `/home/agent/claude-history`. An install hook runs as `agent` after the
 Claude Kit's hooks and links these directories under `~/.claude`:
