@@ -18,7 +18,8 @@ Three things that move together:
 
 Plus `examples/` (every descriptor must decode and validate against the
 current grammar; tests enforce it), `skills/` (tool-agnostic agent skills
-for authoring and migrating Kits; nothing tests them), and
+for authoring and migrating Kits and composing them into an
+`sbxenv.yaml`; nothing tests them), and
 `scripts/kit-version.sh` (the map of which example Kits track an upstream
 release).
 
