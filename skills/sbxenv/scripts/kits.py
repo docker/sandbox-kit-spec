@@ -8,7 +8,7 @@ nothing is cached, because the kit catalog, tags and digests change daily.
            v3 kits published under the given orgs. Each QUERY runs as a
            separate Hub search and the results are merged; no QUERY lists
            the whole catalog for those orgs.
-  describe REF [REF ...] [--arg [HANDLE.]NAME=VALUE ...]
+  describe REF [REF ...] [--arg [HANDLE.]NAME=VALUE ...] [--platform OS/ARCH]
            Resolve each kit reference and summarize its published v3
            descriptor: kind, handle, version, the args an sbxenv can set,
            the credentials it needs (with the binding they imply), and the
@@ -16,9 +16,15 @@ nothing is cached, because the kit catalog, tags and digests change daily.
            groups. Create-arg references in a credential resolve from the
            arg defaults and any --arg (HANDLE. scopes it to one kit, as
            sbx's --kit-arg does); one that cannot resolve is listed under
-           `unresolved` and suggests no binding.
+           `unresolved` and suggests no binding. When the index carries no
+           descriptor, the platform manifest for --platform is read
+           (default linux/<this machine's arch>, as the fetcher in fetch/
+           defaults); a missing platform is an error, not a guess.
   tags     REF
            Every tag of the repository with its digest, newest first.
+  pin      REF [REF ...]
+           The digest REF's tag points to now, as TAG@DIGEST. The tag is
+           kept exactly as written: pinning never changes the release.
   update   REF [REF ...] [--pin]
            The reference each kit entry should move to: the newest release
            tag (or the same moving tag), carrying the digest when REF is
@@ -34,6 +40,7 @@ current kits publish JSON and need nothing beyond the standard library.
 
 import argparse
 import json
+import platform as host_platform
 import re
 import sys
 import urllib.error
@@ -56,7 +63,10 @@ CAP_PREFIX = "com.docker.sandbox/"
 MAX_INDEX_DEPTH = 4
 MAX_TAG_PAGES = 100
 KIT_REF = re.compile(r"\$\{\{\s*kit\.(args|env)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-SEMVER = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?$")
+# A release tag: dotted numeric segments, as many as the Kit version
+# grammar allows (SPEC-v3 §5.2), with an optional `v` (the grammar has none,
+# but tags often do) and an optional SemVer-style prerelease.
+RELEASE_TAG = re.compile(r"^(v?)(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?$")
 
 
 class Fail(Exception):
@@ -385,76 +395,117 @@ def _is_index(media_type):
                           "application/vnd.docker.distribution.manifest.list.v2+json")
 
 
-def _find_descriptor(ref, man, depth=0):
-    """The manifest carrying the descriptor annotation, or None.
+def default_platform():
+    machine = host_platform.machine().lower()
+    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
+    return f"linux/{arch}"
+
+
+def _matches(plat, want):
+    os_, _, arch = want.partition("/")
+    arch, _, variant = arch.partition("/")
+    return (plat.get("os") == os_ and plat.get("architecture") == arch
+            and (not variant or plat.get("variant") == variant))
+
+
+def _find_descriptor(ref, man, want, depth=0):
+    """(manifest carrying the descriptor annotation, platform it was read
+    from), or (None, None).
 
     The frontend promotes the annotation onto the index only when the
-    export shape allows it; the platform manifest always carries it
-    (SPEC-v3 §9.3). Every platform carries the same descriptor, so the
-    first image manifest that has it will do. An image manifest marked
-    os=unknown is an attestation and is skipped; a nested index is
-    followed whatever its platform says, because os=unknown is also how
-    an index with no platform of its own is published.
+    export shape allows it, while every platform manifest carries its own
+    (SPEC-v3 §9.3). Those can differ, so without an index annotation the
+    manifest for `want` is read, as the fetcher in fetch/ does: an image
+    manifest marked os=unknown is an attestation and is skipped, a sole
+    manifest naming no platform is accepted, one naming another platform
+    is not a guess, and a nested index is followed whatever its platform
+    says, because os=unknown is also how an index with no platform of its
+    own is published.
     """
     if DESCRIPTOR_ANNOTATION in (man.get("annotations") or {}):
-        return man
-    if depth >= MAX_INDEX_DEPTH or not _is_index(man.get("mediaType", "")) and "manifests" not in man:
-        return None
+        return man, ("index" if depth == 0 and "manifests" in man else want)
+    if depth >= MAX_INDEX_DEPTH or "manifests" not in man:
+        return None, None
     children = man.get("manifests") or []
     images = [m for m in children if not _is_index(m.get("mediaType", ""))
               and (m.get("platform") or {}).get("os") != "unknown"]
     nested = [m for m in children if _is_index(m.get("mediaType", ""))]
-    for m in images + nested:
+    chosen = [m for m in images if _matches(m.get("platform") or {}, want)]
+    if not chosen and len(images) == 1 and not images[0].get("platform"):
+        chosen = images
+    for m in chosen + nested:
         _, child = manifest(ref, m["digest"])
-        found = _find_descriptor(ref, child, depth + 1)
+        found, where = _find_descriptor(ref, child, want, depth + 1)
         if found:
-            return found
-    return None
+            return found, where
+    return None, None
 
 
-def describe_one(text, scoped=None, unscoped=None):
+def _platforms(man):
+    return sorted({"/".join(x for x in (p.get("os"), p.get("architecture"), p.get("variant")) if x)
+                   for m in man.get("manifests") or [] for p in [m.get("platform") or {}]
+                   if p and p.get("os") != "unknown"})
+
+
+def describe_one(text, scoped=None, unscoped=None, want=None):
     ref = Ref(text)
+    want = want or default_platform()
     target = ref.digest or ref.tag or "latest"
     digest, man = manifest(ref, target)
     if ref.digest and digest and digest != ref.digest:
         raise Fail(f"{text}: registry returned digest {digest}")
-    return summarize(ref, digest or ref.digest, _find_descriptor(ref, man) or man, scoped, unscoped)
+    found, where = _find_descriptor(ref, man, want)
+    if found is None and "manifests" in man:
+        offered = _platforms(man)
+        if offered and not any(_matches(dict(zip(("os", "architecture", "variant"), p.split("/"))), want)
+                               for p in offered):
+            raise Fail(f"{text}: no manifest for {want} (published for {', '.join(offered)}); pass --platform")
+    summary = summarize(ref, digest or ref.digest, found or man, scoped, unscoped)
+    summary["platform"] = where
+    return summary
 
 
 # --------------------------------------------------------------------------
 # Updates
 
 
-def _semver(tag):
-    m = SEMVER.match(tag)
+def _version(tag):
+    """(core, prerelease, v-prefixed) for a release tag, else None."""
+    m = RELEASE_TAG.match(tag)
     if not m:
         return None
-    major, minor, patch, pre = m.groups()
-    return (int(major), int(minor), int(patch or 0), pre)
+    prefix, core, pre = m.groups()
+    return tuple(int(x) for x in core.split(".")), pre, bool(prefix)
 
 
 def _sort_key(v):
-    """SemVer precedence: a release sorts after its prereleases, and
-    prerelease identifiers compare one by one, numeric ones numerically and
-    below alphanumeric ones, with a shorter run of equal identifiers first."""
-    major, minor, patch, pre = v
+    """Release order. The core compares segment by segment, numerically, and
+    a version that is a prefix of a longer one sorts first, as the Kit
+    version grammar orders them (1.2 < 1.2.0 < 1.2.3 < 1.2.3.4). A release
+    sorts after its prereleases, whose identifiers follow SemVer precedence:
+    numeric ones numerically and below alphanumeric ones, a shorter run of
+    equal identifiers first. The `v` prefix is not part of the version."""
+    core, pre, _ = v
     ids = tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")) if pre else ()
-    return (major, minor, patch, pre is None, ids)
+    return (core, pre is None, ids)
 
 
 def _newest_release(tags, like=None):
-    """The highest semver tag, matching the prerelease and v-prefix style of like."""
-    allow_pre = bool(like and like[1][3] is not None)
-    prefixed = bool(like and like[0].startswith("v"))
-    candidates = [(t["tag"], _semver(t["tag"])) for t in tags]
-    candidates = [(t, v) for t, v in candidates if v and (allow_pre or v[3] is None)]
-    candidates = [c for c in candidates if c[0].startswith("v") == prefixed] or candidates
-    return max(candidates, key=lambda c: _sort_key(c[1]), default=None)
+    """The highest release tag. Prereleases count only when like (the
+    current tag) is one. The v-prefix style of like only breaks a tie
+    between two spellings of one version: a repository that switched from
+    1.x to v2.x still offers v2.x."""
+    current = _version(like) if like else None
+    allow_pre = bool(current and current[1] is not None)
+    prefixed = bool(current and current[2])
+    candidates = [(t["tag"], _version(t["tag"])) for t in tags]
+    candidates = [(t, v) for t, v in candidates if v and (allow_pre or v[1] is None)]
+    return max(candidates, key=lambda c: (_sort_key(c[1]), c[1][2] == prefixed), default=None)
 
 
 def update_one(text, pin):
     ref = Ref(text)
-    cur_v = _semver(ref.tag) if ref.tag else None
+    cur_v = _version(ref.tag) if ref.tag else None
     pinned = bool(ref.digest) or pin
     newest, note = None, None
 
@@ -469,10 +520,10 @@ def update_one(text, pin):
             pass
     elif ref.tag or not ref.digest:
         tags = list_tags(ref)
-        newest = _newest_release(tags, (ref.tag, cur_v) if cur_v else None)
+        newest = _newest_release(tags, ref.tag if cur_v else None)
         if cur_v:
             target = newest[0] if newest and _sort_key(newest[1]) > _sort_key(cur_v) else ref.tag
-            if newest and newest[1][0] > cur_v[0]:
+            if newest and newest[1][0][:1] > cur_v[0][:1]:
                 note = f"major version change {ref.tag} -> {target}; check the kit's args and capabilities"
         elif newest:
             target = newest[0]
@@ -503,6 +554,24 @@ def update_one(text, pin):
         "changed": suggested != ref.format(ref.tag, ref.digest),
         "note": note,
     }
+
+
+def pin_one(text):
+    """Pin the release REF already names; never move it to another one."""
+    ref = Ref(text)
+    tag = ref.tag or ("latest" if not ref.digest else None)
+    if tag is None:
+        return {"ref": text, "suggested": text, "changed": False, "note": "already digest-only"}
+    digest = manifest(ref, tag, method="HEAD")[0]
+    suggested = ref.format(ref.tag, digest)
+    note = None
+    if not ref.tag:
+        note = "the reference names no tag; pinned the digest latest points to now, digest-only"
+        suggested = ref.format(None, digest)
+    elif ref.digest and ref.digest != digest:
+        note = f"tag {tag} has moved since this pin; the new digest is what {tag} points to now"
+    return {"ref": text, "tag": tag, "digest": digest, "suggested": suggested,
+            "changed": suggested != ref.format(ref.tag, ref.digest), "note": note}
 
 
 # --------------------------------------------------------------------------
@@ -558,6 +627,10 @@ def main():
     d.add_argument("refs", nargs="+")
     d.add_argument("--arg", action="append", default=[], metavar="[HANDLE.]NAME=VALUE",
                    help="create-phase arg value for resolving credentials (repeatable)")
+    d.add_argument("--platform", default=None, metavar="OS/ARCH[/VARIANT]",
+                   help=f"platform whose descriptor to read when the index has none (default {default_platform()})")
+    pn = sub.add_parser("pin")
+    pn.add_argument("refs", nargs="+")
     t = sub.add_parser("tags")
     t.add_argument("ref")
     u = sub.add_parser("update")
@@ -582,7 +655,9 @@ def main():
                 def fn(r):
                     handle = Ref(r).handle
                     return describe_one(r, {n: v for h, n, v in pairs if h == handle},
-                                        {n: v for h, n, v in pairs if h == ""})
+                                        {n: v for h, n, v in pairs if h == ""}, a.platform)
+            elif a.cmd == "pin":
+                fn = pin_one
             else:
                 def fn(r):
                     return update_one(r, a.pin)
