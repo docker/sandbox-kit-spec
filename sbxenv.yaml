@@ -70,42 +70,15 @@ kits:
   # (see prerequisite 4 above). Without the grant the sandbox never
   # sees the agent even when one is running.
   - ./examples/github-ssh
+  # Host-owned transcript storage, shared across sandboxes of this mixin.
+  # The Kit mounts it and creates symlinks before the agent first launches.
+  - ./examples/codex-sessions
 
 # The repository itself, mounted read/write. A relative path resolves
 # against this file's directory, so this mounts the repository wherever
 # `sbx env` is invoked from. This file is bound read-only inside the mount
 # because it decides what later invocations run on the host.
 workspace: .
-
-# Session transcripts survive sandbox removal in one shared host mount.
-# Archiving renames files between sessions and archived_sessions, which
-# fails across separate mounts. Symlinks keep both on the shared mount
-# while config.toml and auth.json remain managed by the Codex kit.
-lifecycle:
-  postCreate:
-    - name: Preserve Codex sessions on the host
-      command: |
-        set -eu
-        session_root="$HOME/.sandbox-state/$SBX_SANDBOX_NAME/codex"
-        mkdir -p "$session_root/sessions" "$session_root/archived_sessions"
-        sbx mount "$SBX_SANDBOX_NAME" \
-          "$session_root:/home/agent/codex-history:rw"
-        sbx exec "$SBX_SANDBOX_NAME" sh -eu -c '
-          mkdir -p /home/agent/.codex
-          for name in sessions archived_sessions; do
-            link="/home/agent/.codex/$name"
-            target="/home/agent/codex-history/$name"
-            if [ -L "$link" ]; then
-              test "$(readlink "$link")" = "$target"
-              continue
-            fi
-            # Refuse to replace a directory containing local sessions.
-            if [ -e "$link" ]; then
-              rmdir "$link"
-            fi
-            ln -s "$target" "$link"
-          done
-        '
 
 env:
   # The template sets GODEBUG=tarinsecurepath=0,zipinsecurepath=0, which

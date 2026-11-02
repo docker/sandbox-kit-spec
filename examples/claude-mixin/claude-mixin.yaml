@@ -91,27 +91,6 @@ capabilities:
               scopes: "{{.Scopes}}"
             primaryApiKey: "{{.PrimaryApiKey}}"
 
-  # Session state persists across container recreation; subdirectories
-  # rather than all of ~/.claude/, so kit-managed files (settings.json,
-  # .credentials.json) keep coming from the hooks on every create. Every
-  # volume sets a size: sbx formats an unsized kit volume at 512 MiB, and
-  # a path that outgrows it fails with ENOSPC mid-session.
-  - type: com.docker.sandbox/volume@1
-    description: Conversation history; grows without bound, gets the headroom
-    config: {path: /home/agent/.claude/projects, size: 2g}
-  - type: com.docker.sandbox/volume@1
-    description: Per-session state; load-bearing for `claude -c`
-    config: {path: /home/agent/.claude/sessions, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: TodoWrite state
-    config: {path: /home/agent/.claude/todos, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: Bash state snapshots across sessions
-    config: {path: /home/agent/.claude/shell-snapshots, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: Local feature-flag cache
-    config: {path: /home/agent/.claude/statsig, size: 512m}
-
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
@@ -140,7 +119,7 @@ capabilities:
           env: [WORKSPACE_DIR]
           description: Seed Claude bypass and trust flags
 
-        # Volumes and agent-skills mount under ~/.claude/ before install
+        # Agent-skills mount under ~/.claude/ before install
         # runs, so the runtime creates that parent root-owned when the
         # image (shell base + mixin overlay) does not ship it. Re-own
         # here so the agent-uid settings seed below can write into it.
@@ -234,13 +213,6 @@ capabilities:
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
           description: Register the sandbox MCP gateway at install
       startup:
-        # Block volumes mount with a root-owned root and the entrypoint
-        # runs as the agent user, so root re-owns the mount roots here,
-        # after mount and before agent activity.
-        - command: [sh, -c, "chown -R agent:agent /home/agent/.claude/projects /home/agent/.claude/sessions /home/agent/.claude/todos /home/agent/.claude/shell-snapshots /home/agent/.claude/statsig 2>/dev/null || true"]
-          user: "0"
-          description: Re-own claude session-state volume mount roots to agent
-
         # MCP registration fallback for the rare create where the
         # install-time seed could not run. Non-destructive on purpose:
         # startup hooks run concurrently with the live session, so no
