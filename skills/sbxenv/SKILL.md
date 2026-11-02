@@ -42,12 +42,14 @@ you are not sure about, because decoding is strict.
 it as `<skill-dir>/scripts/kits.py`; substitute the path this `SKILL.md`
 was loaded from. It uses only the standard library, writes JSON, and
 needs only anonymous access to public repositories. Run it with
-`python3 -I`.
+`python3 -I`. A nonzero exit means at least one reference failed; its
+entry carries `error` and the other entries are still valid. Kits
+published before descriptors switched to JSON need PyYAML to describe.
 
 | Command | Use |
 |---|---|
 | `kits.py search [TERM …]` | v3 kits under `sbx/` and `docker/`, ranked by pulls. Each term is a separate Hub search, merged. No terms lists the whole catalog for those orgs. `--orgs a,b` changes the orgs. `--include-v2` adds v2 kits. |
-| `kits.py describe REF …` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `bakedArgs` (fixed by the tag), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). |
+| `kits.py describe REF …` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `buildArgs` (fixed by the tag; the defaults shown are declarations, not what was built), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). Requests inside capability groups are included and take the group's optionality; `group` names the group. |
 | `kits.py update REF … [--pin]` | `suggested` is the reference to move to: the newest release tag, or the same moving tag. It carries the new digest when REF was pinned or `--pin` is given. Also reports `newestRelease` and notes (major bumps, moving tags). Local and git sources are skipped. |
 | `kits.py tags REF` | All tags with digests, newest first. |
 
@@ -118,8 +120,9 @@ For every chosen kit, take `args` from `describe`:
 - `required: true` → must be set. Ask for the value.
 - Optional args → set one only when the user wants a non-default value.
   Show the `description`, plus the `enum` or `pattern` the value must match.
-- `bakedArgs` (usually `version`) cannot be set on a published kit. Choose
-  a different tag instead.
+- `buildArgs` (usually `version`) cannot be set on a published kit. Choose
+  a different tag instead. Read the installed release from `version`, not
+  from a build arg's default.
 
 Put the value directly in the kit entry's `args:` when it is a project
 decision. Declare an **environment arg** and reference it as
@@ -141,6 +144,9 @@ For each entry in `credentials` from `describe`:
    one the user will use. Subscription logins (Claude, ChatGPT) usually mean
    `oauth`, and tokens mean `apiKey`. Write a `bindings.<service>` block
    with only that mechanism, copying its domains from `suggestedBinding`.
+   An `apiKey` with no inject rules (only `apiKeyEnv`) yields an empty
+   domain list: the kit reads the key from an environment variable, and
+   the binding approves that with nothing injected outbound.
 2. **Secret source (apiKey only).** Ask the user to run `sbx secret ls` on
    the host.
    - If the service is already in the global store, the binding is enough.

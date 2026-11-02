@@ -12,7 +12,8 @@ nothing is cached, because the kit catalog, tags and digests change daily.
            Resolve each kit reference and summarize its published v3
            descriptor: kind, handle, version, the args an sbxenv can set,
            the credentials it needs (with the binding they imply), and the
-           host grants it asks for.
+           host grants it asks for, including those inside capability
+           groups.
   tags     REF
            Every tag of the repository with its digest, newest first.
   update   REF [REF ...] [--pin]
@@ -20,8 +21,11 @@ nothing is cached, because the kit catalog, tags and digests change daily.
            tag (or the same moving tag), carrying the digest when REF is
            digest-pinned or --pin is given.
 
-Output is JSON on stdout; errors go to stderr with a nonzero exit.
-Only public repositories are supported (anonymous registry access).
+Output is JSON on stdout. describe and update report a failed lookup in
+that reference's entry, keep the other results, and exit 1 if any lookup
+failed. Only public repositories are supported (anonymous registry access).
+Descriptors published as YAML (earlier v3 kits) need PyYAML installed;
+current kits publish JSON and need nothing beyond the standard library.
 """
 
 import argparse
@@ -214,30 +218,61 @@ def list_tags(ref):
 # Descriptor summary
 
 
-def _creds(cap):
+def _creds(cap, optional, group):
     cfg = cap.get("config") or {}
     service = cfg.get("service")
-    api = cfg.get("apiKey") or {}
-    oauth = cfg.get("oauth") or {}
-    api_domains = sorted({i["domain"] for i in api.get("inject") or [] if i.get("domain")})
-    oauth_domains = []
-    if oauth:
-        host = (oauth.get("tokenEndpoint") or {}).get("host")
-        oauth_domains = sorted({d for d in [host, *(oauth.get("resourceHosts") or [])] if d})
+    # A mechanism is declared by its block being present, not by it naming
+    # domains: an apiKey with only `name` (an env var, no inject rules) is
+    # valid, and still needs a binding before the runtime will supply it.
+    api = cfg.get("apiKey")
+    oauth = cfg.get("oauth")
     binding = {}
-    if api_domains:
-        binding["apiKey"] = {"domains": api_domains}
-    if oauth_domains:
-        binding["oauth"] = {"domains": oauth_domains}
+    if api is not None:
+        binding["apiKey"] = {"domains": sorted({i["domain"] for i in api.get("inject") or [] if i.get("domain")})}
+    if oauth is not None:
+        host = (oauth.get("tokenEndpoint") or {}).get("host")
+        binding["oauth"] = {"domains": sorted({d for d in [host, *(oauth.get("resourceHosts") or [])] if d})}
     return {
         "service": service,
-        "name": cap.get("name"),
+        "name": cap.get("name") or group,
         "phase": cfg.get("phase"),
-        "optional": bool(cap.get("optional")),
-        "apiKeyEnv": api.get("name"),
+        "optional": optional,
+        "apiKeyEnv": (api or {}).get("name"),
         "mechanisms": sorted(binding),
         "suggestedBinding": {service: binding} if service and binding else None,
     }
+
+
+def _decode_descriptor(raw):
+    """Published descriptors are compact JSON; earlier kits published YAML,
+    which SPEC-v3 §9.3 keeps readable. JSON is a subset of YAML, so a YAML
+    parser reads both, but the standard library only has the JSON one."""
+    try:
+        return json.loads(raw)
+    except ValueError:
+        pass
+    try:
+        import yaml
+    except ImportError:
+        raise Fail("descriptor annotation is YAML (a kit published before descriptors "
+                   "switched to JSON); install PyYAML to read it")
+    try:
+        return yaml.safe_load(raw)
+    except yaml.YAMLError as e:
+        raise Fail(f"descriptor annotation does not decode: {e}")
+
+
+def _capabilities(d):
+    """Yield (capability, optional, group name) for every request, including
+    the members of capability groups (SPEC-v3 §7.1.1). A member carries no
+    optionality of its own; it takes its group's."""
+    for item in d.get("capabilities") or []:
+        group = item.get("group")
+        if group is None:
+            yield item, bool(item.get("optional")), None
+            continue
+        for member in group.get("capabilities") or []:
+            yield member, bool(group.get("optional")), group.get("name")
 
 
 def summarize(ref, digest, man):
@@ -252,23 +287,27 @@ def summarize(ref, digest, man):
             "note": "no v3 descriptor annotation; this is not a published v3 kit "
                     f"(artifactType: {kind or 'none'})",
         }
-    d = json.loads(raw)
-    args, baked = {}, {}
+    d = _decode_descriptor(raw)
+    args, build_args = {}, {}
     for name, decl in (d.get("args") or {}).items():
         if decl.get("buildArg"):
-            baked[name] = decl.get("default")
+            # Fixed when the kit was published, so an sbxenv cannot set it.
+            # The descriptor keeps the declared default, not the value the
+            # publisher built with (a build can override it), so this is no
+            # evidence of what the kit contains; `version` is.
+            build_args[name] = {k: decl[k] for k in ("description", "default") if k in decl}
             continue
         args[name] = {k: decl[k] for k in ("description", "default", "required", "enum", "pattern", "env") if k in decl}
     creds, grants, types = [], [], []
-    for cap in d.get("capabilities") or []:
+    for cap, optional, group in _capabilities(d):
         t = cap.get("type", "")
         short = t[len(CAP_PREFIX):] if t.startswith(CAP_PREFIX) else t
         types.append(short)
         if short.startswith("credential@"):
-            creds.append(_creds(cap))
+            creds.append(_creds(cap, optional, group))
         elif short.split("@")[0] in ("ssh-agent", "host-port", "host-mount", "privileged", "dockerd",
                                     "git-identity", "usb-device", "port", "resources", "long-running"):
-            grants.append({"type": short, "optional": bool(cap.get("optional")), "config": cap.get("config")})
+            grants.append({"type": short, "optional": optional, "group": group, "config": cap.get("config")})
     provides = [p for p in d.get("provides") or [] if not p.startswith(("deb/", "apk/", "rpm/"))]
     return {
         "ref": ref.text,
@@ -279,10 +318,13 @@ def summarize(ref, digest, man):
         "agent": "sbx@1" in types,
         "displayName": d.get("displayName"),
         "description": d.get("description"),
-        "version": d.get("version") or baked.get("version") or annotations.get("org.opencontainers.image.version"),
+        # The published descriptor is the expanded document, so its version
+        # is the built one. Without it, the frontend derives the OCI version
+        # annotation from the provides entries when they agree.
+        "version": d.get("version") or annotations.get("org.opencontainers.image.version"),
         "sourceUrl": d.get("sourceUrl"),
         "args": args,
-        "bakedArgs": baked,
+        "buildArgs": build_args,
         "credentials": creds,
         "hostGrants": grants,
         "capabilities": sorted(set(types)),
@@ -321,9 +363,12 @@ def _semver(tag):
 
 
 def _sort_key(v):
+    """SemVer precedence: a release sorts after its prereleases, and
+    prerelease identifiers compare one by one, numeric ones numerically and
+    below alphanumeric ones, with a shorter run of equal identifiers first."""
     major, minor, patch, pre = v
-    # A release sorts after its prereleases.
-    return (major, minor, patch, pre is None, pre or "")
+    ids = tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")) if pre else ()
+    return (major, minor, patch, pre is None, ids)
 
 
 def _newest_release(tags, like=None):
@@ -458,12 +503,16 @@ def main():
                     result.append(fn(r))
                 except Fail as e:
                     result.append({"ref": r, "error": str(e)})
+                except Exception as e:
+                    # One malformed kit must not cost the rest of the batch.
+                    result.append({"ref": r, "error": f"{type(e).__name__}: {e}"})
     except Fail as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     json.dump(result, sys.stdout, indent=2)
     print()
-    return 0
+    failed = isinstance(result, list) and any(isinstance(e, dict) and "error" in e for e in result)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
