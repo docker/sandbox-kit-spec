@@ -49,8 +49,8 @@ published before descriptors switched to JSON need PyYAML to describe.
 | Command | Use |
 |---|---|
 | `kits.py search [TERM …]` | v3 kits under `sbx/` and `docker/`, ranked by pulls. Each term is a separate Hub search, merged. No terms lists the whole catalog for those orgs. `--orgs a,b` changes the orgs. `--include-v2` adds v2 kits. |
-| `kits.py describe REF …` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `buildArgs` (fixed by the tag; the defaults shown are declarations, not what was built), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). Requests inside capability groups are included and take the group's optionality; `group` names the group. |
-| `kits.py update REF … [--pin]` | `suggested` is the reference to move to: the newest release tag, or the same moving tag. It carries the new digest when REF was pinned or `--pin` is given. Also reports `newestRelease` and notes (major bumps, moving tags). Local and git sources are skipped. |
+| `kits.py describe REF … [--arg [HANDLE.]NAME=VALUE …]` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `buildArgs` (fixed by the tag; the defaults shown are declarations, not what was built), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). Requests inside capability groups are included and take the group's optionality; `group` names the group. Kit-arg references in a credential resolve from arg defaults and `--arg` (a `HANDLE.` prefix scopes it to one kit); any left over are listed in `unresolved`, and that credential gets no `suggestedBinding`. |
+| `kits.py update REF … [--pin]` | `suggested` is the reference to move to: the newest release tag, or the same moving tag. It carries the new digest when REF was pinned or `--pin` is given; a digest-only REF moves to the newest release's digest and stays digest-only. Also reports `newestRelease` and notes (major bumps, moving tags). Local and git sources are skipped. |
 | `kits.py tags REF` | All tags with digests, newest first. |
 
 ## Step 1: Decide what you're doing
@@ -147,13 +147,23 @@ For each entry in `credentials` from `describe`:
    An `apiKey` with no inject rules (only `apiKeyEnv`) yields an empty
    domain list: the kit reads the key from an environment variable, and
    the binding approves that with nothing injected outbound.
+   A credential whose service or domains reference a kit arg is resolved
+   with the arg defaults. When the file sets that arg, rerun
+   `describe REF --arg NAME=VALUE` with the same value. If `unresolved`
+   is not empty, `suggestedBinding` is null: supply the missing arg, or
+   for a `${{ kit.env.NAME }}` reference ask the user what the variable
+   will hold in the sandbox. Never copy a `${{ … }}` into the file.
 2. **Secret source (apiKey only).** Ask the user to run `sbx secret ls` on
    the host.
    - If the service is already in the global store, the binding is enough.
    - Otherwise add `secrets.<service>` with `ref:` (for example 1Password
      `op://Vault/item/field`) or `command:` (for example
      `gh auth token --hostname github.com` for `github`).
-   - Use `value:` only if the user insists, and warn them not to commit it.
+   - If neither fits, the user stores the secret on the host with
+     `sbx secret set` (see `sbx secret --help`) and the binding alone
+     approves it. Do not write a `value:` entry, even on request: the
+     file is meant to be committed, and a literal in it is a leaked
+     secret.
 3. **OAuth.** No `secrets:` entry. The user signs in once on the host.
 4. **Required vs optional.** A credential that is not optional and has no
    binding makes create fail. An optional one degrades silently. Say which

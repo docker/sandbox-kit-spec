@@ -8,18 +8,22 @@ nothing is cached, because the kit catalog, tags and digests change daily.
            v3 kits published under the given orgs. Each QUERY runs as a
            separate Hub search and the results are merged; no QUERY lists
            the whole catalog for those orgs.
-  describe REF [REF ...]
+  describe REF [REF ...] [--arg [HANDLE.]NAME=VALUE ...]
            Resolve each kit reference and summarize its published v3
            descriptor: kind, handle, version, the args an sbxenv can set,
            the credentials it needs (with the binding they imply), and the
            host grants it asks for, including those inside capability
-           groups.
+           groups. Create-arg references in a credential resolve from the
+           arg defaults and any --arg (HANDLE. scopes it to one kit, as
+           sbx's --kit-arg does); one that cannot resolve is listed under
+           `unresolved` and suggests no binding.
   tags     REF
            Every tag of the repository with its digest, newest first.
   update   REF [REF ...] [--pin]
            The reference each kit entry should move to: the newest release
            tag (or the same moving tag), carrying the digest when REF is
-           digest-pinned or --pin is given.
+           digest-pinned or --pin is given. A digest-only REF moves to the
+           newest release's digest and stays digest-only.
 
 Output is JSON on stdout. describe and update report a failed lookup in
 that reference's entry, keep the other results, and exit 1 if any lookup
@@ -47,6 +51,11 @@ INDEX_ACCEPT = ", ".join([
 DESCRIPTOR_ANNOTATION = "vnd.docker.sandbox.kit.descriptor"
 V3_MEDIA_TYPE = "application/vnd.docker.sandbox.kit.v3"
 CAP_PREFIX = "com.docker.sandbox/"
+# A registry index nests at most this deep before the walk gives up; the
+# fetcher in fetch/ bounds the same walk the same way.
+MAX_INDEX_DEPTH = 4
+MAX_TAG_PAGES = 100
+KIT_REF = re.compile(r"\$\{\{\s*kit\.(args|env)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?$")
 
 
@@ -208,19 +217,44 @@ def list_tags(ref):
     token = _token(ref)
     if token:
         headers["Authorization"] = "Bearer " + token
-    status, _, body = _request(f"https://{ref.api_host}/v2/{ref.repo}/tags/list", headers)
-    if status != 200:
-        raise Fail(f"{ref.name()}: listing tags failed with HTTP {status}")
-    return [{"tag": t, "digest": None, "updated": None} for t in json.loads(body).get("tags") or []]
+    origin = f"https://{ref.api_host}"
+    url, out = f"{origin}/v2/{ref.repo}/tags/list", []
+    for _ in range(MAX_TAG_PAGES):
+        status, resp_headers, body = _request(url, headers)
+        if status != 200:
+            raise Fail(f"{ref.name()}: listing tags failed with HTTP {status}")
+        out += [{"tag": t, "digest": None, "updated": None} for t in json.loads(body).get("tags") or []]
+        link = next((v for k, v in resp_headers.items() if k.lower() == "link"), "")
+        m = re.search(r'<([^>]+)>\s*;\s*rel="?next"?', link)
+        if not m:
+            return out
+        url = urllib.parse.urljoin(url, m.group(1))
+        # The bearer token belongs to this registry: never send it elsewhere.
+        if not url.startswith(origin + "/"):
+            raise Fail(f"{ref.name()}: tag listing points to another origin ({url}); refusing to follow it")
+    raise Fail(f"{ref.name()}: tag listing exceeds {MAX_TAG_PAGES} pages")
 
 
 # --------------------------------------------------------------------------
 # Descriptor summary
 
 
-def _creds(cap, optional, group):
+def _expand(value, values, unresolved):
+    """Substitute ${{ kit.args.NAME }} from values. Anything left over (an
+    arg without a value, or ${{ kit.env.NAME }}, which only the container
+    environment at create can answer) is recorded and stays in the text."""
+    def sub(m):
+        if m.group(1) == "args" and m.group(2) in values:
+            return values[m.group(2)]
+        unresolved.add(m.group(0).replace(" ", ""))
+        return m.group(0)
+    return KIT_REF.sub(sub, value) if isinstance(value, str) else value
+
+
+def _creds(cap, optional, group, values):
     cfg = cap.get("config") or {}
-    service = cfg.get("service")
+    unresolved = set()
+    service = _expand(cfg.get("service"), values, unresolved)
     # A mechanism is declared by its block being present, not by it naming
     # domains: an apiKey with only `name` (an env var, no inject rules) is
     # valid, and still needs a binding before the runtime will supply it.
@@ -228,10 +262,12 @@ def _creds(cap, optional, group):
     oauth = cfg.get("oauth")
     binding = {}
     if api is not None:
-        binding["apiKey"] = {"domains": sorted({i["domain"] for i in api.get("inject") or [] if i.get("domain")})}
+        domains = [i.get("domain") for i in api.get("inject") or []]
+        binding["apiKey"] = {"domains": sorted({_expand(d, values, unresolved) for d in domains if d})}
     if oauth is not None:
         host = (oauth.get("tokenEndpoint") or {}).get("host")
-        binding["oauth"] = {"domains": sorted({d for d in [host, *(oauth.get("resourceHosts") or [])] if d})}
+        domains = [host, *(oauth.get("resourceHosts") or [])]
+        binding["oauth"] = {"domains": sorted({_expand(d, values, unresolved) for d in domains if d})}
     return {
         "service": service,
         "name": cap.get("name") or group,
@@ -239,7 +275,10 @@ def _creds(cap, optional, group):
         "optional": optional,
         "apiKeyEnv": (api or {}).get("name"),
         "mechanisms": sorted(binding),
-        "suggestedBinding": {service: binding} if service and binding else None,
+        # A binding holding a literal ${{ ... }} would be copied into an
+        # sbxenv, where kit references mean nothing; withhold it instead.
+        "suggestedBinding": {service: binding} if service and binding and not unresolved else None,
+        "unresolved": sorted(unresolved),
     }
 
 
@@ -275,7 +314,7 @@ def _capabilities(d):
             yield member, bool(group.get("optional")), group.get("name")
 
 
-def summarize(ref, digest, man):
+def summarize(ref, digest, man, scoped=None, unscoped=None):
     annotations = (man or {}).get("annotations") or {}
     raw = annotations.get(DESCRIPTOR_ANNOTATION)
     if not raw:
@@ -298,13 +337,21 @@ def summarize(ref, digest, man):
             build_args[name] = {k: decl[k] for k in ("description", "default") if k in decl}
             continue
         args[name] = {k: decl[k] for k in ("description", "default", "required", "enum", "pattern", "env") if k in decl}
+    # Unscoped values apply to every kit that declares the name; a value
+    # scoped to this kit must name an arg it declares, as with --kit-arg.
+    values = {n: a["default"] for n, a in args.items() if "default" in a}
+    values.update({n: v for n, v in (unscoped or {}).items() if n in args})
+    values.update(scoped or {})
+    unknown = sorted(set(scoped or {}) - set(args))
+    if unknown:
+        raise Fail(f"{ref.text}: no create-phase arg named {', '.join(unknown)}")
     creds, grants, types = [], [], []
     for cap, optional, group in _capabilities(d):
         t = cap.get("type", "")
         short = t[len(CAP_PREFIX):] if t.startswith(CAP_PREFIX) else t
         types.append(short)
         if short.startswith("credential@"):
-            creds.append(_creds(cap, optional, group))
+            creds.append(_creds(cap, optional, group, values))
         elif short.split("@")[0] in ("ssh-agent", "host-port", "host-mount", "privileged", "dockerd",
                                     "git-identity", "usb-device", "port", "resources", "long-running"):
             grants.append({"type": short, "optional": optional, "group": group, "config": cap.get("config")})
@@ -333,21 +380,45 @@ def summarize(ref, digest, man):
     }
 
 
-def describe_one(text):
+def _is_index(media_type):
+    return media_type in ("application/vnd.oci.image.index.v1+json",
+                          "application/vnd.docker.distribution.manifest.list.v2+json")
+
+
+def _find_descriptor(ref, man, depth=0):
+    """The manifest carrying the descriptor annotation, or None.
+
+    The frontend promotes the annotation onto the index only when the
+    export shape allows it; the platform manifest always carries it
+    (SPEC-v3 §9.3). Every platform carries the same descriptor, so the
+    first image manifest that has it will do. An image manifest marked
+    os=unknown is an attestation and is skipped; a nested index is
+    followed whatever its platform says, because os=unknown is also how
+    an index with no platform of its own is published.
+    """
+    if DESCRIPTOR_ANNOTATION in (man.get("annotations") or {}):
+        return man
+    if depth >= MAX_INDEX_DEPTH or not _is_index(man.get("mediaType", "")) and "manifests" not in man:
+        return None
+    children = man.get("manifests") or []
+    images = [m for m in children if not _is_index(m.get("mediaType", ""))
+              and (m.get("platform") or {}).get("os") != "unknown"]
+    nested = [m for m in children if _is_index(m.get("mediaType", ""))]
+    for m in images + nested:
+        _, child = manifest(ref, m["digest"])
+        found = _find_descriptor(ref, child, depth + 1)
+        if found:
+            return found
+    return None
+
+
+def describe_one(text, scoped=None, unscoped=None):
     ref = Ref(text)
     target = ref.digest or ref.tag or "latest"
     digest, man = manifest(ref, target)
     if ref.digest and digest and digest != ref.digest:
         raise Fail(f"{text}: registry returned digest {digest}")
-    if DESCRIPTOR_ANNOTATION not in (man.get("annotations") or {}):
-        # Earlier v3 releases annotate each platform manifest, not the index.
-        platform = next((m for m in man.get("manifests") or []
-                         if (m.get("platform") or {}).get("os") not in (None, "unknown")), None)
-        if platform:
-            _, child = manifest(ref, platform["digest"])
-            if DESCRIPTOR_ANNOTATION in (child.get("annotations") or {}):
-                man = child
-    return summarize(ref, digest or ref.digest, man)
+    return summarize(ref, digest or ref.digest, _find_descriptor(ref, man) or man, scoped, unscoped)
 
 
 # --------------------------------------------------------------------------
@@ -410,11 +481,16 @@ def update_one(text, pin):
             target = "latest"
             note = "no release tags; following latest"
     else:
-        target = None
-        note = "digest-only reference; no tag to follow"
+        # Digest-only: follow the newest release (or latest when there are
+        # none), but keep the file's spelling, a bare digest.
+        newest = _newest_release(list_tags(ref))
+        target = newest[0] if newest else "latest"
+        note = (f"digest-only reference; resolved the newest release ({target}) and kept the digest-only form"
+                if newest else "digest-only reference with no release tags; resolved latest")
 
-    new_digest = manifest(ref, target, method="HEAD")[0] if target else ref.digest
-    suggested = ref.format(target, new_digest if pinned else None)
+    new_digest = manifest(ref, target, method="HEAD")[0]
+    tag_out = None if (ref.digest and not ref.tag) else target
+    suggested = ref.format(tag_out, new_digest if pinned else None)
     return {
         "ref": text,
         "currentTag": ref.tag,
@@ -480,6 +556,8 @@ def main():
     s.add_argument("--include-v2", action="store_true", help="also list v2 kits")
     d = sub.add_parser("describe")
     d.add_argument("refs", nargs="+")
+    d.add_argument("--arg", action="append", default=[], metavar="[HANDLE.]NAME=VALUE",
+                   help="create-phase arg value for resolving credentials (repeatable)")
     t = sub.add_parser("tags")
     t.add_argument("ref")
     u = sub.add_parser("update")
@@ -493,7 +571,21 @@ def main():
         elif a.cmd == "tags":
             result = list_tags(Ref(a.ref))
         else:
-            fn = describe_one if a.cmd == "describe" else (lambda r: update_one(r, a.pin))
+            if a.cmd == "describe":
+                pairs = []
+                for item in a.arg:
+                    name, sep, value = item.partition("=")
+                    if not sep or not name:
+                        raise Fail(f"--arg {item!r}: expected [HANDLE.]NAME=VALUE")
+                    pairs.append((*name.rpartition(".")[::2], value))
+
+                def fn(r):
+                    handle = Ref(r).handle
+                    return describe_one(r, {n: v for h, n, v in pairs if h == handle},
+                                        {n: v for h, n, v in pairs if h == ""})
+            else:
+                def fn(r):
+                    return update_one(r, a.pin)
             result = []
             for r in a.refs:
                 if not is_oci_reference(r):

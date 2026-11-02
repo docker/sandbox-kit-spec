@@ -17,3 +17,6 @@
 # Optional local workspace; published builds use independent modules.
 /go.work
 /go.work.sum
+
+# Bytecode from running skills/sbxenv/scripts/kits.py locally.
+__pycache__/
