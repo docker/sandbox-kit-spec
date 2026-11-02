@@ -3,7 +3,7 @@
 schemaVersion: "3"
 kind: mixin
 displayName: Claude host sessions
-description: Retain Claude session state on the host across sandbox removal
+description: Retain Claude session state across sandbox removal
 requires: ["claude"]
 
 capabilities:

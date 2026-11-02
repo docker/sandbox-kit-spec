@@ -3,7 +3,7 @@
 schemaVersion: "3"
 kind: mixin
 displayName: Codex host sessions
-description: Retain Codex session state on the host across sandbox removal
+description: Retain Codex session state across sandbox removal
 requires: ["codex"]
 
 capabilities:
