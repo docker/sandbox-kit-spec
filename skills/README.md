@@ -1,18 +1,22 @@
 # Skills
 
-Agent skills for working with this specification: authoring a v3 kit, and
-porting one from the v2 `spec.yaml` grammar.
+Agent skills for working with this specification: authoring a v3 kit,
+porting one from the v2 `spec.yaml` grammar, and composing published kits
+into an `sbxenv.yaml` environment.
 
 | Skill | Use it for |
 |---|---|
 | [`create-kit-v3`](create-kit-v3/SKILL.md) | Writing a new kit — choosing workload or mixin, the descriptor, the content recipe, capabilities, version pinning, and verification. |
 | [`migrate-kit-to-v3`](migrate-kit-to-v3/SKILL.md) | Porting a v2 kit — the field-by-field mapping and the judgment calls a migration turns on. |
+| [`sbxenv`](sbxenv/SKILL.md) | Creating or updating an `sbxenv.yaml` — suggesting v3 kits from the live Docker Hub catalog, kit and environment args, credential bindings and secrets, and refreshing kit tags and digests. |
 
 They are ordinary markdown and useful to read directly. Nothing in them is
 specific to one agent tool: each is a directory holding a `SKILL.md` whose
 frontmatter carries only `name` and `description`, which is the convention
 Cursor and Claude Code both read, and reference files beside it that the
-`SKILL.md` links to.
+`SKILL.md` links to. `sbxenv` also carries a standard-library Python
+helper under `scripts/` that queries Docker Hub when it runs, because the
+kit catalog, its tags and its digests change too often to write down.
 
 ## Wiring them into a tool
 

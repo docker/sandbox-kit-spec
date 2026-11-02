@@ -27,6 +27,7 @@ RUN set -eux; \
     test -f create-kit-v3/SKILL.md; \
     test -f migrate-kit-to-v3/SKILL.md; \
     test ! -e README.md; \
+    test ! -e sbxenv; \
     test ! -e skills.yaml; \
     test ! -e .dockerignore
 
