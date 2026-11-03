@@ -66,6 +66,19 @@ The runtime egress list covers UBI packages, Docker's package repository
 and Docker Hub. Builds that download from other sites need those hosts
 added to the policy. Building this Kit uses the builder's network access.
 
+## Proxy certificate trust
+
+sbx injects its proxy CA under `/usr/local/share/ca-certificates` and sets
+TLS variables such as `NODE_EXTRA_CA_CERTS` to
+`/etc/ssl/certs/ca-certificates.crt`. UBI uses `/etc/pki` instead. The
+recipe links the injected-certificate directory to UBI's native anchors
+and exposes its CA bundle at the path the runtime expects. An
+`update-ca-certificates` adapter runs UBI's `update-ca-trust extract`.
+
+This lets Node-based tools, including agent mixins, trust the proxy while
+retaining certificate verification. Rebuild the Kit and recreate an
+existing sandbox to pick up these image changes.
+
 ## Build and validate
 
 ```sh
