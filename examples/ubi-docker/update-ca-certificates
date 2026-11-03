@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+# sbx's fallback installer calls the Debian updater name. Refresh UBI's
+# trust store and restore the alias if a previous bundle edit replaced it.
+update-ca-trust extract
+ln -sfn /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
