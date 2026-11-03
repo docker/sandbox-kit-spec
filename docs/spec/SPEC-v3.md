@@ -820,6 +820,7 @@ behavior** for a runtime supporting the type:
 |---|---|---|
 | `com.docker.sandbox/network-policy@1` | [network-policy@1](capabilities/com.docker.sandbox/network-policy@1.md) | singleton |
 | `com.docker.sandbox/network-policy@2` | [network-policy@2](capabilities/com.docker.sandbox/network-policy@2.md) | singleton, exclusive with `@1` |
+| `com.docker.sandbox/docker-auth@1` | [docker-auth@1](capabilities/com.docker.sandbox/docker-auth@1.md) | whole-entry |
 | `com.docker.sandbox/credential@1` | [credential@1](capabilities/com.docker.sandbox/credential@1.md) | per (service, phase) |
 | `com.docker.sandbox/ssh-agent@1` | [ssh-agent@1](capabilities/com.docker.sandbox/ssh-agent@1.md) | per phase (one entry may name both) |
 | `com.docker.sandbox/volume@1` | [volume@1](capabilities/com.docker.sandbox/volume@1.md) | per path |

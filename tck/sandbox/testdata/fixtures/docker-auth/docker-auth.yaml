@@ -1,0 +1,8 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Registry authentication
+capabilities:
+  - type: com.docker.sandbox/docker-auth@1
+    config:
+      registries: [registry.kit-tck.test]

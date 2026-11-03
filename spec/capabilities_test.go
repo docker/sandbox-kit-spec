@@ -168,6 +168,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		// holding a reference.
 		field string
 	}{
+		{typ: CapabilityDockerAuth, s: "ghcr.io", config: map[string]any{"registries": []any{ref}}, field: "registries"},
 		{typ: CapabilityNetworkPolicy, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{ref + ".example.com"}}}, field: "runtime"},
 		{typ: CapabilityNetworkPolicyV2, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{map[string]any{"hosts": []any{ref + ".example.com"}, "methods": []any{"GET"}}}}}, field: "runtime"},
 		{typ: CapabilityCredential, s: "GH_TOKEN", config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": ref}}, field: "service"},

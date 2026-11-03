@@ -64,7 +64,7 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, and `--git-identity-config <absolute-path>\|off` each at most once | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, and `--docker-auth-config <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
@@ -211,6 +211,56 @@ The suite uses fresh in-container paths for each check. It removes only
 directories at those paths for the fixture Kits, after removing their
 sandboxes; adapters **MUST NOT** interpret cleanup as a request to remove
 other Kit directories or user content.
+
+### Docker registry authentication binding
+
+An adapter claiming `com.docker.sandbox/docker-auth@1` **MUST** accept
+`create --docker-auth-config <absolute-path>`. This suite-owned JSON input
+transports synthetic credential bindings and controlled HTTPS routes:
+
+```json
+{
+  "version": 1,
+  "bindings": {
+    "registry.kit-tck.test": {"username": "synthetic-user", "password": "synthetic-password"}
+  },
+  "routes": {
+    "registry.kit-tck.test": "127.0.0.1:12345",
+    "auth.kit-tck.test": "127.0.0.1:12345",
+    "cdn.kit-tck.test": "127.0.0.1:12345"
+  },
+  "trust": "/absolute/path/to/suite-ca.pem"
+}
+```
+
+An absent registry binding is unavailable. The adapter **MUST** translate
+these inputs through its runtime's normal credential-binding and test
+endpoint facilities: route connections for the named hosts to the supplied
+addresses while preserving the original HTTPS URL, Host and TLS server
+name, and arrange trust for the suite CA. Routing **MUST NOT** bypass
+network policy, authentication interception or certificate verification,
+applies only to the test sandboxes, and is removed with them. Routing a
+name grants no network access. The optional `httpRoutes` map supplies separate
+plaintext addresses for HTTP replay probes, preserving their original scheme;
+these routes remain subject to the same policy and credential confinement.
+The adapter **MUST NOT** implement
+credential substitution itself, manufacture probe output, or read or
+modify the user's real registry logins. The binding file and CA path
+remain outside the sandbox.
+
+The workload's `kit-tck-docker-auth` probe resolves the Docker-compatible
+placeholder configuration and makes real HTTPS requests. The suite supplies
+`KIT_TCK_AUTH_CHALLENGE` through `create --env` as a verified fallback for
+explicit exchanges when discovery is completed host-side; a client-visible
+Bearer challenge takes precedence. Adapters claiming
+this capability **MUST** provide its Python 3 runtime, with ordinary HTTPS
+proxy and trust support, without changing its request or observation
+semantics. Checks judge confinement by comparing exact credential values
+at the client interface and in the services' independent request traces,
+not by scanning output. The separate `docker-auth@1/source-private` duty
+is waived: those observations cannot establish the absence of credential
+sources, helper installations or private keys at arbitrary guest paths,
+and passing the suite does not certify that unobservable property.
 
 ### Git identity binding
 
