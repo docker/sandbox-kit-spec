@@ -196,7 +196,7 @@ type Descriptor struct {
 
 	// Args declares installer-supplied values, keyed by arg name. Private
 	// by default: an arg reaches the container only via env:, and the
-	// build only via buildArg:.
+	// build only via buildArg: or buildSecret:.
 	Args map[string]Arg `json:"args,omitempty" yaml:"args,omitempty"`
 
 	// Build is the kit's content recipe inline: literal Dockerfile text,
@@ -1046,10 +1046,9 @@ func (a AgentInteractiveSessions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// Arg declares one installer-supplied value. Private by default: it reaches
+// Arg declares one installer input. Private by default: it reaches
 // the running container only through Env, and the build only through
-// BuildArg. The two are mutually exclusive because they resolve in different
-// phases.
+// BuildArg or BuildSecret. These delivery mechanisms are mutually exclusive.
 type Arg struct {
 	// Default is substituted when the caller supplies nothing. A nil
 	// default with Required unset still means the arg is optional and
@@ -1078,7 +1077,16 @@ type Arg struct {
 	// it, hands it to the companion dockerfile under this build-arg name,
 	// and expands its references into the published descriptor.
 	BuildArg string `json:"buildArg,omitempty" yaml:"buildArg,omitempty"`
+
+	// BuildSecret names a BuildKit session secret. Its bytes never enter
+	// ordinary argument resolution or descriptor expansion. Availability
+	// is enforced by required=true on the recipe's secret mount.
+	BuildSecret string `json:"buildSecret,omitempty" yaml:"buildSecret,omitempty"`
 }
+
+// IsBuildPhase reports whether an input is consumed while building the kit,
+// rather than when installing an already published artifact.
+func (a Arg) IsBuildPhase() bool { return a.BuildArg != "" || a.BuildSecret != "" }
 
 // CommandLine accepts either a YAML string (run via "sh -c") or a list of
 // argv elements.

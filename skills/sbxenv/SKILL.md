@@ -57,7 +57,7 @@ published before descriptors switched to JSON need PyYAML to describe.
 | Command | Use |
 |---|---|
 | `kits.py search [TERM …]` | v3 kits under `sbx/` and `docker/`, ranked by pulls. Each term is a separate Hub search, merged. No terms lists the whole catalog for those orgs. `--orgs a,b` changes the orgs. `--include-v2` adds v2 kits. |
-| `kits.py describe REF … [--arg [HANDLE.]NAME=VALUE …] [--platform OS/ARCH]` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `buildArgs` (fixed by the tag; the defaults shown are declarations, not what was built), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). Requests inside capability groups are included and take the group's optionality; `group` names the group. Kit-arg references in a credential resolve from arg defaults and `--arg` (a `HANDLE.` prefix scopes it to one kit); any left over are listed in `unresolved`, and that credential gets no `suggestedBinding`. When the descriptor is only on the platform manifests, the one for `--platform` is read (default `linux/<this machine's arch>`); `platform` says which was used. Pass the architecture of the machine that runs `sbx`, if it differs from the one you are on. |
+| `kits.py describe REF … [--arg [HANDLE.]NAME=VALUE …] [--platform OS/ARCH]` | From the live descriptor: `kind` (workload or mixin), `agent` (launchable agent), `handle` (what `agent:` uses), `version`, the create-phase `args` an sbxenv may set, `buildArgs` (fixed by the tag; the defaults shown are declarations, not what was built), `buildSecrets` (build input declarations with no runtime value), `credentials` with a `suggestedBinding` each, and `hostGrants` (ssh-agent, ports, privileged, …). Requests inside capability groups are included and take the group's optionality; `group` names the group. Kit-arg references in a credential resolve from arg defaults and `--arg` (a `HANDLE.` prefix scopes it to one kit); any left over are listed in `unresolved`, and that credential gets no `suggestedBinding`. When the descriptor is only on the platform manifests, the one for `--platform` is read (default `linux/<this machine's arch>`); `platform` says which was used. Pass the architecture of the machine that runs `sbx`, if it differs from the one you are on. |
 | `kits.py update REF … [--pin]` | `suggested` is the reference to move to: the highest version release tag (numeric dotted order, not Hub push time), or the same moving tag. It carries the new digest when REF was pinned or `--pin` is given; a digest-only REF moves to the highest release's digest and stays digest-only. Also reports `newestRelease` and notes (major bumps, moving tags). Local and git sources are skipped. |
 | `kits.py pin REF …` | The digest the reference's tag points to now, as `suggested` (`TAG@DIGEST`). It keeps the release exactly as written and never upgrades. |
 | `kits.py tags REF` | All tags with digests, ordered by Hub's last-updated time. Use this to inspect what exists; do not pick a release from the top of the list — use `update` for that. |
@@ -149,6 +149,11 @@ decision. Declare an **environment arg** and reference it as
 
 `--env-arg` and `--kit-arg` are experimental flags. Mention this when you
 rely on them.
+
+`buildSecrets` are consumed while building source kits. Published images
+need no binding for them, and an sbxenv cannot set them as create args.
+Do not treat them as runtime credentials. Source builds need the separate
+caller integration described by the kit's build instructions.
 
 ### C4. Credentials, secrets and bindings
 

@@ -116,6 +116,20 @@ A whole-value reference adopts its type, so a numeric arg can reach a numeric
 field (`container: ${{ kit.args.port }}`). A reference embedded in a larger
 string is always text.
 
+For private build credentials, replace a credential-bearing `buildArg`
+with `buildSecret: <ID>`, and change the recipe to
+`RUN --mount=type=secret,id=<ID>,required=true`. Supply the secret using
+`docker buildx build --secret id=<ID>,env=<HOST_TOKEN_VARIABLE>` or a
+`src=<FILE>` outside the build context. Build-secret declarations exclude
+`env`, `buildArg`, `default`, `required: true`, `enum`, and `pattern`, and
+cannot appear in `${{ kit.args.* }}` references. Required availability
+belongs to the recipe's mount. Secret bytes never enter ordinary argument
+resolution or the published descriptor; the declaration remains as build
+input documentation and creates no runtime input. Published sets cannot
+supply or re-export a member's build secrets. This draft grammar extension
+requires matching readers. The `sbx --kit-arg` secret-store bridge is a
+separate runtime feature.
+
 ### Provides
 
 **The rule everything below follows from:** every provide must carry a version

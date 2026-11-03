@@ -927,7 +927,7 @@ func kitDeclarations(published *spec.Descriptor, k spec.Kit, setArgs map[string]
 	// is refused rather than silently lost.
 	env := map[string]string{}
 	for name, decl := range published.Args {
-		if decl.BuildArg != "" || decl.Env == "" {
+		if decl.IsBuildPhase() || decl.Env == "" {
 			continue
 		}
 		value, resolved := values[name]

@@ -97,7 +97,7 @@
       "additionalProperties": {
         "$ref": "#/definitions/arg"
       },
-      "description": "Installer-supplied values, keyed by arg name. Private by default: an arg reaches the container only via env:, and the build only via buildArg:."
+      "description": "Installer inputs keyed by arg name. env exports at create, buildArg passes an ordinary build argument, and buildSecret declares a BuildKit session secret whose bytes never enter argument expansion."
     },
     "build": {
       "type": "string",
@@ -154,6 +154,17 @@
               ]
             }
           ]
+        },
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "not": {
+                "required": [
+                  "buildSecret"
+                ]
+              }
+            }
+          }
         }
       }
     },
@@ -808,6 +819,11 @@
           "type": "string",
           "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
           "description": "Resolves the arg at build instead: validated by the frontend, handed to the dockerfile under this build-arg name, expanded into the published descriptor."
+        },
+        "buildSecret": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "BuildKit session secret ID. Never expanded or passed as a build argument or runtime input. The recipe uses RUN --mount=type=secret,id=<ID>,required=true to require it."
         }
       },
       "allOf": [
@@ -846,6 +862,54 @@
                 ]
               }
             ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "buildSecret"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "env"
+                  ]
+                },
+                {
+                  "required": [
+                    "buildArg"
+                  ]
+                },
+                {
+                  "required": [
+                    "default"
+                  ]
+                },
+                {
+                  "required": [
+                    "enum"
+                  ]
+                },
+                {
+                  "required": [
+                    "pattern"
+                  ]
+                },
+                {
+                  "required": [
+                    "required"
+                  ],
+                  "properties": {
+                    "required": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            }
           }
         }
       ]

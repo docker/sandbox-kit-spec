@@ -582,7 +582,7 @@ func expandResolvedKit(k *Kit, values, exports, environment map[string]string) (
 func argExports(decls map[string]spec.Arg, values map[string]string) (map[string]string, error) {
 	env := map[string]string{}
 	for name, decl := range decls {
-		if decl.BuildArg != "" || decl.Env == "" {
+		if decl.IsBuildPhase() || decl.Env == "" {
 			continue
 		}
 		value, ok := values[name]

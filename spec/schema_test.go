@@ -735,3 +735,27 @@ func caseVariants(name string, rng *rand.Rand) []string {
 	slices.Sort(variants)
 	return slices.DeleteFunc(slices.Compact(variants), func(v string) bool { return v == name })
 }
+
+func TestBuildSecretSchemaMatchesGrammar(t *testing.T) {
+	schema := loadSchema(t)
+	setRule := schema["allOf"].([]any)[1].(map[string]any)
+	require.Equal(t, []any{"buildSecret"}, at(t, setRule, "then", "properties", "args", "additionalProperties", "not")["required"])
+	arg := at(t, schema, "definitions", "arg")
+	secret := at(t, arg, "properties", "buildSecret")
+	require.Equal(t, "string", secret["type"])
+	require.Equal(t, envVarName.String(), secret["pattern"])
+	rules := arg["allOf"].([]any)
+	rule := rules[len(rules)-1].(map[string]any)
+	require.Equal(t, []any{"buildSecret"}, at(t, rule, "if")["required"])
+	exclusions := at(t, rule, "then", "not")["anyOf"].([]any)
+	var excluded []string
+	for _, exclusion := range exclusions {
+		entry := exclusion.(map[string]any)
+		field := entry["required"].([]any)[0].(string)
+		excluded = append(excluded, field)
+		if field == "required" {
+			require.Equal(t, true, at(t, entry, "properties", "required")["const"])
+		}
+	}
+	require.ElementsMatch(t, []string{"env", "buildArg", "default", "required", "enum", "pattern"}, excluded)
+}
