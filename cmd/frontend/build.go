@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"maps"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/containerd/platforms"
@@ -610,11 +612,33 @@ func readDescriptorSources(ctx context.Context, c gwclient.Client, filename, com
 	return out, nil
 }
 
+// validateBuildSecretOpts refuses the ordinary build-arg channel before a
+// value can reach expansion or dockerfile.v0. Check both the kit input name
+// and the recipe's secret ID: either spelling is an easy mistake to make.
+func validateBuildSecretOpts(d *spec.Descriptor, opts map[string]string) error {
+	for _, name := range slices.Sorted(maps.Keys(d.Args)) {
+		decl := d.Args[name]
+		if decl.BuildSecret == "" {
+			continue
+		}
+		for _, key := range []string{name, decl.BuildSecret} {
+			if _, supplied := opts[buildArgPrefix+key]; supplied {
+				return fmt.Errorf("kit arg %q is a build secret; use --secret id=%s instead of --build-arg", name, decl.BuildSecret)
+			}
+		}
+	}
+	return nil
+}
+
 // expandBuildPhase resolves the build-phase args from --build-arg values
 // keyed by the kit arg's own name, validates them against their
 // declarations, and bakes the values into the published descriptor. Args
-// without buildArg: resolve at create, not here, and pass through untouched.
+// without buildArg: pass through untouched. Build secrets use the session;
+// ordinary inputs without buildArg: resolve at create.
 func expandBuildPhase(raw []byte, d *spec.Descriptor, opts map[string]string) ([]byte, error) {
+	if err := validateBuildSecretOpts(d, opts); err != nil {
+		return nil, err
+	}
 	supplied := map[string]string{}
 	for name, decl := range d.Args {
 		if decl.BuildArg == "" {
@@ -675,6 +699,9 @@ func buildCompanion(ctx context.Context, c gwclient.Client, d *spec.Descriptor, 
 // into the dockerfile frontend input; file recipes are read from the
 // dockerfile local like any -f file.
 func solveDockerfile(ctx context.Context, c gwclient.Client, d *spec.Descriptor, opts map[string]string, content *companionSource, plat *ocispecs.Platform, target string) (*gwclient.Result, error) {
+	if err := validateBuildSecretOpts(d, opts); err != nil {
+		return nil, err
+	}
 	if line, _, _ := strings.Cut(strings.TrimSpace(string(content.bytes)), "\n"); strings.HasPrefix(line, "# syntax=") && (strings.Contains(line, "sandbox-kit") || strings.Contains(line, "sbx-kit")) {
 		return nil, fmt.Errorf("content recipe %s names the kit frontend in its syntax directive; the recipe is an ordinary Dockerfile", content.name)
 	}

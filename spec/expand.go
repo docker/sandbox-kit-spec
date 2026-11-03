@@ -34,7 +34,8 @@ func IsWholeArgRef(s string) bool { return wholeArgRef.MatchString(s) }
 // required arg with no supplied value is an error; a supplied value holding
 // NUL or failing its enum or pattern is an error; a supplied name the kit
 // never declared is an error, because a silently ignored input is a
-// misspelling in disguise.
+// misspelling in disguise. Build-secret declarations are skipped; supplying
+// one here is an error, since its bytes belong only in the BuildKit session.
 func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]string, error) {
 	for name := range supplied {
 		if _, ok := decls[name]; !ok {
@@ -44,6 +45,12 @@ func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]s
 
 	values := make(map[string]string, len(decls))
 	for name, decl := range decls {
+		if decl.BuildSecret != "" {
+			if _, ok := supplied[name]; ok {
+				return nil, fmt.Errorf("kit arg %q is a build secret; supply it through the BuildKit secret session", name)
+			}
+			continue
+		}
 		v, ok := supplied[name]
 		if !ok {
 			if decl.Required {
@@ -323,8 +330,8 @@ func sameExpansionValue(a, b *yaml.Node) bool {
 }
 
 // ExpandCreateArgs expands references to create-phase args (those NOT
-// declaring buildArg:) through the descriptor, producing the EFFECTIVE
-// descriptor: the document enforcement, the lock, and the permission gate
+// declaring buildArg: or buildSecret:) through the descriptor, producing the
+// EFFECTIVE descriptor: the document enforcement, the lock, and the permission gate
 // judge. Expansion walks the decoded document — every string value and
 // every map key — and re-serializes as JSON, so a value carrying quotes or
 // backslashes survives instead of breaking the document it lands in. A
@@ -580,6 +587,12 @@ func expandString(s string, decls map[string]Arg, values map[string]string, phas
 // resolveRef reports the value one reference expands to, and whether this
 // pass owns it at all.
 func resolveRef(name string, decls map[string]Arg, values map[string]string, phase string, expandErr *error) (string, bool) {
+	if decls[name].BuildSecret != "" {
+		if *expandErr == nil {
+			*expandErr = fmt.Errorf("build secret arg %q cannot be expanded into a descriptor", name)
+		}
+		return "", false
+	}
 	if (decls[name].BuildArg != "") != (phase == "build") {
 		return "", false
 	}

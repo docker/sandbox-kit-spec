@@ -428,16 +428,17 @@ args:
 | `description` | string | optional. Shown wherever a Kit's inputs are listed. |
 | `enum` | list\<string\> | Exact accepted set. Mutually exclusive with `pattern`. |
 | `pattern` | string | RE2 regexp matched against the **whole** value. Mutually exclusive with `enum`. |
-| `env` | string | Opts the resolved value into the container environment under this name. Mutually exclusive with `buildArg` — an arg resolves in one phase. |
+| `env` | string | Opts the resolved value into the container environment under this name. Mutually exclusive with `buildArg` and `buildSecret` — an arg has one delivery mechanism. |
 | `buildArg` | string | Resolves the arg at build: validated, handed to the recipe as `--build-arg <buildArg>=<value>`, and every `${{ kit.args.<name> }}` reference is expanded into the published descriptor. |
+| `buildSecret` | string | BuildKit secret ID, supplied through the build session. Mutually exclusive with `env` and `buildArg`. See §6.2. |
 
 - **Private by default.** An arg reaches the running container only via
-  `env:`, and the build only via `buildArg:`.
+  `env:`, and the build only via `buildArg:` or `buildSecret:`.
 - **Every reference MUST be declared.** A `${{ kit.args.x }}` with no <!-- tck: SPEC-v3 §6/references-declared -->
-  `args.x` is an error.
-- **Two phases.** Build-phase args (`buildArg:`) are baked into the
-  published descriptor before signing. Create-phase args expand at sandbox
-  create, across the whole descriptor — capability configs included —
+  `args.x` is an error. Build-secret inputs cannot be referenced (§6.2).
+- **Two phases.** Ordinary build-phase args (`buildArg:`) are baked into
+  the published descriptor before signing. Create-phase args expand at
+  sandbox create, across the whole descriptor — capability configs included —
   producing the **effective descriptor**: the document enforcement, the
   lock, and the permission gate judge
   ([§7.4](#74-permission-surface-and-the-gate)). The published descriptor
@@ -515,6 +516,68 @@ For example, a lifecycle file can use
 path still has to satisfy the capability's absolute-path rule, and two
 paths that become identical still conflict. All declarations validate
 after expansion, including optional entries a selector would reject.
+
+### 6.2. Build secrets
+
+A `buildSecret` argument declares a BuildKit secret ID, not a value to
+expand into the descriptor:
+
+```yaml
+args:
+  gitlab_token:
+    description: Credential for private dependencies
+    buildSecret: gitlab_token
+```
+
+The recipe consumes it with ordinary Dockerfile syntax:
+
+```dockerfile
+RUN --mount=type=secret,id=gitlab_token,required=true \
+    private-dependency-installer --token-file /run/secrets/gitlab_token
+```
+
+A caller using Docker supplies the ID directly:
+
+```sh
+docker build -f private-kit.yaml \
+  --secret id=gitlab_token,env=GITLAB_TOKEN .
+```
+
+- A `buildSecret` ID **MUST** match `^[A-Za-z_][A-Za-z0-9_]*$` and <!-- tck: SPEC-v3 §6/build-secret-declaration -->
+  be unique within the descriptor. The declaration excludes `env`,
+  `buildArg`, `default`, `required: true`, `enum`, and `pattern`.
+  Secret argument names and IDs cannot overlap ordinary argument names
+  or their `buildArg` destinations. The recipe's `required=true` mount
+  enforces availability when its step executes; the descriptor does not
+  require secrets for unused or cached steps.
+- A build secret **MUST NOT** be referenced through <!-- tck: SPEC-v3 §6/build-secret-no-expansion -->
+  `${{ kit.args.<name> }}`, including in metadata, inline recipes, capability
+  configuration, and comments. Secret bytes are not ordinary argument
+  values. They never participate in build or create expansion, and a
+  published kit's secret declaration creates no runtime input.
+- A build caller **MUST** supply secret bytes only through the <!-- tck: SPEC-v3 §6/build-secret-session-only -->
+  BuildKit secret session, scoped to that kit's build. Supplying a
+  declared secret argument name or ID through `--build-arg` is an error.
+  Secret bytes are not recorded in descriptors, frontend options,
+  argument records, or diagnostics. Bindings to an external secret store
+  are caller configuration; this grammar does not prescribe their CLI
+  spelling or store layout.
+
+The published descriptor retains the declaration as documentation of
+its build inputs. Published members of a set are already built: their
+secret arguments cannot be supplied or re-exported through `kits[].args`.
+A set that only merges published images has no recipe to consume its own
+build secrets and cannot declare them.
+
+BuildKit does not include secret contents in cache keys. Rotate a token
+without expecting it to force a rebuild; use `--no-cache` when needed.
+A secret mount keeps its own contents out of image layers, but a recipe
+can still print or copy them. Build recipes are trusted with their
+explicitly supplied secrets.
+
+`buildSecret` extends the unfinished schema-3 argument grammar in place.
+Descriptors using it require matching readers; older strict readers
+reject the field. It adds no capability version or top-level field.
 
 ---
 

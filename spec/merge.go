@@ -1413,6 +1413,9 @@ func capabilityFrom(typ string, config any) (*Capability, error) {
 // Restating the constraint is the set author's work, and cheap: it is
 // the one place an installer can read what the value has to be.
 func CheckReExport(kitArg string, kit Arg, setName string, set Arg, declared bool) error {
+	if kit.BuildSecret != "" || set.BuildSecret != "" {
+		return fmt.Errorf("arg %q: build secrets cannot be re-exported by a published set", kitArg)
+	}
 	if !declared {
 		return fmt.Errorf("arg %q is re-exported as %q, which the set does not declare; a re-exported arg is the only declaration an installer sees, so the set has to declare it", kitArg, setName)
 	}
@@ -1456,7 +1459,7 @@ func CheckReExport(kitArg string, kit Arg, setName string, set Arg, declared boo
 func KitArgValues(decls map[string]Arg, supplied map[string]string) (map[string]string, error) {
 	create := map[string]Arg{}
 	for name, decl := range decls {
-		if decl.BuildArg == "" {
+		if !decl.IsBuildPhase() {
 			create[name] = decl
 		}
 	}
@@ -1465,6 +1468,9 @@ func KitArgValues(decls map[string]Arg, supplied map[string]string) (map[string]
 	deferred := map[string]string{}
 	for name, value := range supplied {
 		if _, declared := create[name]; !declared {
+			if decls[name].BuildSecret != "" {
+				return nil, fmt.Errorf("arg %q is a build secret consumed at that kit's build; it cannot be supplied to a published kit", name)
+			}
 			if _, isBuild := decls[name]; isBuild {
 				return nil, fmt.Errorf("arg %q resolved at that kit's build and is already baked into its published descriptor; drop it", name)
 			}

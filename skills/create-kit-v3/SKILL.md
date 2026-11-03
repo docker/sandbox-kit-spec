@@ -265,6 +265,38 @@ satisfy, are in [RECIPES.md](RECIPES.md). Read it before writing a mixin:
 overlay ownership is the single most common way a working-looking kit is
 broken.
 
+## Build secrets
+
+Declare private build credentials with `args.<name>.buildSecret: <ID>`.
+The ID follows the argument-name grammar and is unique within the kit.
+The declaration excludes `env`, `buildArg`, `default`, `required: true`,
+`enum`, and `pattern`; never interpolate it with `${{ kit.args.* }}`.
+Keep ordinary argument names and build-arg destinations distinct from
+secret names and IDs.
+
+The recipe uses `RUN --mount=type=secret,id=<ID>,required=true` and reads
+`/run/secrets/<ID>`. Supply it with Docker's standard interface:
+
+```sh
+docker buildx build -f <kit>.yaml \
+  --secret id=<ID>,env=<HOST_TOKEN_VARIABLE> .
+```
+
+A `src=<FILE>` secret source also works. Keep the source outside the
+build context. Never pass secret bytes or store references through
+`--build-arg`; this frontend rejects the declared secret name and ID on
+that channel. The recipe's required mount checks availability only when
+its step executes. Token rotation does not invalidate BuildKit's cache;
+use `--no-cache` when a fresh authenticated download is needed.
+
+The declaration remains in a published kit but creates no runtime input.
+Do not set it in a published set's `kits[].args` or an sbxenv. Host-store
+bindings through `sbx --kit-arg` require separate runtime support and are
+not implemented by this spec/frontend change.
+
+This extends the unfinished schema-3 grammar in place; older readers
+reject `buildSecret`. Use a matching frontend and runtime reader.
+
 ## Build, run, verify
 
 Create a named container builder once and select it for exports and

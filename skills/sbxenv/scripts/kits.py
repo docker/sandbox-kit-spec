@@ -340,8 +340,12 @@ def summarize(ref, digest, man, scoped=None, unscoped=None):
                     f"(artifactType: {kind or 'none'})",
         }
     d = _decode_descriptor(raw)
-    args, build_args = {}, {}
+    args, build_args, build_secrets = {}, {}, {}
     for name, decl in (d.get("args") or {}).items():
+        if decl.get("buildSecret"):
+            # Build credentials have no value in a published kit's runtime.
+            build_secrets[name] = {k: decl[k] for k in ("description", "buildSecret") if k in decl}
+            continue
         if decl.get("buildArg"):
             # Fixed when the kit was published, so an sbxenv cannot set it.
             # The descriptor keeps the declared default, not the value the
@@ -385,6 +389,7 @@ def summarize(ref, digest, man, scoped=None, unscoped=None):
         "sourceUrl": d.get("sourceUrl"),
         "args": args,
         "buildArgs": build_args,
+        "buildSecrets": build_secrets,
         "credentials": creds,
         "hostGrants": grants,
         "capabilities": sorted(set(types)),

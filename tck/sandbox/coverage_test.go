@@ -259,6 +259,9 @@ var waived = map[string]string{
 	"SPEC-v3 §6/arg-key-grammar":           "grammar rule, judged by the spec package's validators and schema tests",
 	"SPEC-v3 §6/required-arg-supplied":     "grammar rule, judged by the spec package's expansion tests",
 	"SPEC-v3 §6/references-declared":       "grammar rule, judged by the spec package's expansion tests",
+	"SPEC-v3 §6/build-secret-declaration":  "grammar rule, judged by spec/build_secret_test.go and the schema pins",
+	"SPEC-v3 §6/build-secret-no-expansion": "grammar rule, judged by spec/build_secret_test.go; both expansion phases reject secret references",
+	"SPEC-v3 §6/build-secret-session-only": "build-time transport, outside the runtime adapter; cmd/frontend build-secret unit and end-to-end tests judge rejection of build arguments and secret mount delivery without exporting secret bytes",
 
 	"agent-sessions@1/prompt-placeholder-required":                           "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-sessions@1/session-id-placeholder-required":                       "grammar rule, judged by the spec package's validators and schema tests",

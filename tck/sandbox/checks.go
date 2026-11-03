@@ -1494,7 +1494,7 @@ func fixtureEnvironmentExports(name string) (map[string]string, error) {
 	}
 	exports := map[string]string{}
 	for name, arg := range descriptor.Args {
-		if arg.BuildArg == "" && arg.Env != "" {
+		if !arg.IsBuildPhase() && arg.Env != "" {
 			if value, ok := values[name]; ok {
 				exports[arg.Env] = value
 			}

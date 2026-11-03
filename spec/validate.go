@@ -65,6 +65,13 @@ func Validate(d *Descriptor) (warnings []string, err error) {
 	errs.add(validateArgs(d.Args))
 	errs.add(validateRecipe(d))
 	errs.add(validateKits(d))
+	if len(d.Kits) > 0 {
+		for _, name := range slices.Sorted(maps.Keys(d.Args)) {
+			if d.Args[name].BuildSecret != "" {
+				errs.add(fieldErrorf("args."+name+".buildSecret", "args.%s: a set of published kits has no recipe to consume a build secret", name))
+			}
+		}
+	}
 	return warnings, errs.err()
 }
 
@@ -236,6 +243,7 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 	var errs ValidationErrors
 	warnings, err = Validate(d)
 	errs.add(err)
+	errs.add(validateRawBuildSecrets(raw, d))
 
 	sizeWarnings, sizeErr := validateSize(raw)
 	warnings = append(warnings, sizeWarnings...)
@@ -243,13 +251,18 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 
 	names, references := argReferences(raw, d)
 	for _, name := range names {
-		if _, ok := d.Args[name]; !ok {
+		decl, ok := d.Args[name]
+		if !ok || decl.BuildSecret != "" {
 			paths := references[name]
 			if len(paths) == 0 {
 				paths = []string{""}
 			}
 			for _, at := range paths {
-				errs.add(fieldErrorf(at, "descriptor references ${{ kit.args.%s }} but declares no arg %q", name, name))
+				if ok {
+					errs.add(fieldErrorf(at, "build secret arg %q cannot be expanded into a descriptor", name))
+				} else {
+					errs.add(fieldErrorf(at, "descriptor references ${{ kit.args.%s }} but declares no arg %q", name, name))
+				}
 			}
 		}
 	}
@@ -1795,6 +1808,26 @@ func validateArgs(args map[string]Arg) error {
 	for _, name := range slices.Sorted(maps.Keys(args)) {
 		a := args[name]
 		path := "args." + name
+		if a.BuildSecret != "" {
+			if !envVarName.MatchString(a.BuildSecret) {
+				errs.add(fieldErrorf(path+".buildSecret", "args.%s: buildSecret must be a valid secret ID", name))
+			}
+			if a.Env != "" || a.BuildArg != "" || a.Default != nil || a.Required || len(a.Enum) > 0 || a.Pattern != "" {
+				errs.add(fieldErrorf(path, "args.%s: buildSecret excludes env, buildArg, default, required: true, enum, and pattern", name))
+			}
+			for _, otherName := range slices.Sorted(maps.Keys(args)) {
+				other := args[otherName]
+				if otherName == name {
+					continue
+				}
+				if other.BuildSecret == a.BuildSecret {
+					errs.add(fieldErrorf(path+".buildSecret", "args.%s: buildSecret ID is also declared by args.%s", name, otherName))
+				}
+				if other.BuildSecret == "" && (otherName == a.BuildSecret || other.BuildArg == name || other.BuildArg == a.BuildSecret) {
+					errs.add(fieldErrorf(path+".buildSecret", "args.%s: secret name or ID overlaps ordinary args.%s", name, otherName))
+				}
+			}
+		}
 		if !envVarName.MatchString(name) {
 			errs.add(fieldErrorf(path, "args.%s: invalid arg name", name))
 		}
