@@ -1,0 +1,42 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Ubuntu with Docker
+description: >-
+  An Ubuntu 24.04 shell workload built from the distribution image, with
+  Docker Engine, Buildx and Compose from Docker's Ubuntu repository.
+sourceUrl: https://github.com/docker/sandbox-kit-spec
+version: "1.0.0"
+
+# Package provides are derived from the image's dpkg database. The Kit's
+# release version is not a claim about the installed Docker version.
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+
+  # Older sbx versions skip this unknown type and use the image's
+  # start-docker label. Keep privileged@1 for those versions, as in the
+  # builder example. The fallback does not promise storage on recreation.
+  - type: com.docker.sandbox/dockerd@1
+    optional: true
+    description: Builds and runs containers with the in-sandbox engine
+
+  - type: com.docker.sandbox/privileged@1
+    description: Runs the inner Docker engine on runtimes without dockerd@1
+
+  - type: com.docker.sandbox/long-running@1
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # Ubuntu's amd64 and arm64 package mirrors.
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+          # Docker Hub authentication, manifests and image layers.
+          - auth.docker.io
+          - registry-1.docker.io
+          - production.cloudflare.docker.com
+          - production.cloudfront.docker.com
+          - docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com
