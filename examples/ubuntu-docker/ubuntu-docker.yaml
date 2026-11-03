@@ -6,7 +6,7 @@ description: >-
   An Ubuntu 24.04 shell workload built from the distribution image, with
   Docker Engine, Buildx and Compose from Docker's Ubuntu repository.
 sourceUrl: https://github.com/docker/sandbox-kit-spec
-version: "1.0.0"
+version: "24.04"
 
 # Package provides are derived from the image's dpkg database. The Kit's
 # release version is not a claim about the installed Docker version.

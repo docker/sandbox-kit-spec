@@ -65,9 +65,10 @@ traffic; building this Kit uses the builder's own network access.
 ```sh
 task kit:build KIT=ubuntu-docker -- --builder kit-builder \
   --output type=oci,dest=/tmp/ubuntu-docker-layout,tar=false
-task tck:kit:layout DIR=/tmp/ubuntu-docker-layout TAG=1.0.0
+task tck:kit:layout DIR=/tmp/ubuntu-docker-layout TAG=24.04
 ```
 
-The Kit release is `1.0.0`; Ubuntu and Docker package versions are read
-from the built image's dpkg database. Rebuilding takes current packages
-from those repositories rather than claiming a fixed Docker version.
+The Kit version and default publication tag follow the Ubuntu release,
+`24.04`. Installed package versions are read from the built image's dpkg
+database. Rebuilding takes current packages from those repositories
+rather than claiming a fixed Docker version.
