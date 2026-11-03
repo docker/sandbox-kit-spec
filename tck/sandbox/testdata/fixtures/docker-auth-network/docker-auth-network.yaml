@@ -1,0 +1,19 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Registry fixture network
+capabilities:
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      install:
+        allow: [registry.kit-tck.test, auth.kit-tck.test]
+      runtime:
+        allow: [registry.kit-tck.test, auth.kit-tck.test, other-registry.kit-tck.test, cdn.kit-tck.test]
+        deny:
+          - hosts: [auth.kit-tck.test]
+            methods: [POST]
+          - hosts: [registry.kit-tck.test]
+            methods: [DELETE]
+          - hosts: [cdn.kit-tck.test]
+            methods: [GET]
+            paths: [/blocked]

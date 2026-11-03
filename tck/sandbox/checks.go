@@ -207,6 +207,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capability: capSbx, fixture: fixtureSbxWorkload, alone: true},
 				{capability: capLongRunning, fixture: fixtureLongRunning},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},
+				{capability: capDockerAuth, fixture: "docker-auth"},
 				{capLifecycle, fixtureHooks, false},
 				{capNetworkPolicy, fixtureEgress, false},
 				{capNetworkPolicyV2, fixtureHTTPEgress, false},

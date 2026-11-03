@@ -64,7 +64,7 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, and `--git-identity-config <absolute-path>\|off` each at most once | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, and `--docker-auth-config <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
@@ -211,6 +211,73 @@ The suite uses fresh in-container paths for each check. It removes only
 directories at those paths for the fixture Kits, after removing their
 sandboxes; adapters **MUST NOT** interpret cleanup as a request to remove
 other Kit directories or user content.
+
+### Docker registry authentication binding
+
+An adapter claiming `com.docker.sandbox/docker-auth@1` **MUST** accept
+`create --docker-auth-config <absolute-path>`. This suite-owned JSON input
+transports synthetic credential bindings and controlled HTTPS routes:
+
+```json
+{
+  "version": 1,
+  "bindings": {
+    "registry.kit-tck.test": {"username": "synthetic-user", "password": "synthetic-password"}
+  },
+  "routes": {
+    "registry.kit-tck.test": "127.0.0.1:12345",
+    "auth.kit-tck.test": "127.0.0.1:12345"
+  },
+  "trust": "/absolute/path/to/suite-ca.pem"
+}
+```
+
+An absent registry binding is unavailable. The adapter **MUST**
+translate these inputs through its runtime's normal credential-binding
+and test endpoint facilities. It **MUST NOT** implement credential
+substitution itself, manufacture probe output, or write placeholder
+configuration directly into the guest. This transport specifies no
+production credential store, process layout or discovery mechanism.
+The adapter **MUST NOT** read or modify the user's real registry logins.
+
+The suite generates an ephemeral CA and certificates for the logical
+route names. The adapter **MUST** route test connections to the supplied
+addresses while preserving the original HTTPS URL, Host and TLS server
+name, and arrange trust for the suite CA. Routing **MUST NOT** bypass
+normal network policy, authentication interception or certificate
+verification. The optional `httpRoutes` map supplies separate plaintext listener
+addresses for HTTP replay probes; its keys have the same logical names
+as `routes`. HTTP probes preserve their scheme and never use the HTTPS
+listener as a substitute. These requests remain subject to ordinary
+network policy and credential confinement.
+
+The suite also supplies routes for
+`other-registry.kit-tck.test`, `cdn.kit-tck.test` and
+`denied.kit-tck.test`; routing a name does not grant network access.
+These routes and trust apply only to the test sandboxes and are removed
+with them. The binding file and CA path remain outside the sandbox.
+
+The workload's `kit-tck-docker-auth` probe reads the Docker-compatible
+placeholder configuration and makes real HTTPS requests. Tests compare
+its observations with independent issuer/registry/CDN request traces.
+Every client request contributes response evidence, including discovery
+and failed exchanges. Headers preserve every value under case-insensitive
+names; intermediate responses remain observable even when a probe later
+fails or recovers. Shared checks judge credential leakage and upstream
+scope/policy bounds for all scenarios.
+Fresh per-test usernames, passwords, tokens and signed URL parameters
+are leak canaries. Probes exercise credential confinement in valid, malformed and error
+responses, cross-registry requests, expiry, signed download/upload
+locations, install/startup hooks, missing bindings and run-local
+placeholder withdrawal. Response recovery and generic HTTP upload-body
+integrity are outside these authentication checks. The separate
+`docker-auth@1/source-private` duty is waived: client observations and
+network traces cannot establish the absence of source files, helper
+installations or private keys at arbitrary guest paths. Passing the
+suite does not certify that unobservable property. Adapters
+claiming this capability **MUST** provide the fixture probe's Python 3
+runtime, with ordinary HTTPS proxy and trust support, without changing
+its request or observation semantics.
 
 ### Git identity binding
 

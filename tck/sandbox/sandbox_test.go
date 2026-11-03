@@ -235,6 +235,41 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"docker-auth-unverified-tls":                               {"docker-auth@1/request-scope"},
+	"docker-auth-encoded-location":                             {"docker-auth@1/redirect-confinement"},
+	"docker-auth-missing-observation":                          {"docker-auth@1/bearer-scope"},
+	"docker-auth-retains-skipped":                              {"docker-auth@1/host-resolution"},
+	"docker-auth-escaped-token":                                {"docker-auth@1/token-mediation"},
+	"docker-auth-unknown-bearer":                               {"docker-auth@1/bearer-scope"},
+	"docker-auth-header-leak":                                  {"docker-auth@1/token-mediation"},
+	"docker-auth-reuses-login":                                 {"docker-auth@1/lifetime"},
+	"docker-auth-unrelated-login":                              {"docker-auth@1/host-only"},
+	"docker-auth-bearer-policy":                                {"docker-auth@1/bearer-scope"},
+	"docker-auth-redirect-policy":                              {"docker-auth@1/redirect-confinement"},
+	"docker-auth-login-plaintext":                              {"docker-auth@1/request-scope"},
+	"docker-auth-login-policy":                                 {"docker-auth@1/request-scope"},
+	"docker-auth-plaintext":                                    {"docker-auth@1/bearer-scope"},
+	"docker-auth-masked-skip":                                  {"docker-auth@1/host-resolution"},
+	"docker-auth-hidden-config-leak":                           {"docker-auth@1/no-extra-access"},
+	"docker-auth-service-scope":                                {"docker-auth@1/request-scope"},
+	"docker-auth-upload-leak":                                  {"docker-auth@1/redirect-confinement"},
+	"docker-auth-ambient-fails":                                {"docker-auth@1/no-extra-access"},
+	"docker-auth-bearer-path":                                  {"docker-auth@1/bearer-scope"},
+	"docker-auth-without-grant":                                {"docker-auth@1/no-extra-access"},
+	"docker-auth-missing-skip":                                 {"docker-auth@1/host-resolution"},
+	"docker-auth-accepts-missing":                              {"docker-auth@1/host-resolution"},
+	"docker-auth-login-scope":                                  {"docker-auth@1/request-scope"},
+	"docker-auth-token-leak":                                   {"docker-auth@1/token-mediation"},
+	"docker-auth-bearer-scope":                                 {"docker-auth@1/bearer-scope"},
+	"docker-auth-expiry":                                       {"docker-auth@1/bearer-scope"},
+	"docker-auth-location-leak":                                {"docker-auth@1/redirect-confinement"},
+	"docker-auth-denied-redirect":                              {"docker-auth@1/redirect-confinement"},
+	"docker-auth-cdn-bearer":                                   {"docker-auth@1/redirect-confinement"},
+	"docker-auth-login-leak":                                   {"docker-auth@1/host-only"},
+	"docker-auth-late-hooks":                                   {"docker-auth@1/lifetime"},
+	"docker-auth-reuses-run":                                   {"docker-auth@1/lifetime"},
+	"docker-auth-egress":                                       {"docker-auth@1/no-extra-access"},
+	"docker-auth-socket":                                       {"docker-auth@1/no-extra-access"},
 	"host-port-accepts-family-conflict":                        {"host-port@1/family-honored"},
 	"host-port-ignores-family":                                 {"host-port@1/family-honored"},
 	"host-port-tcp-ipv4-fallback":                              {"host-port@1/family-honored"},
@@ -802,7 +837,15 @@ func TestEveryCheckHasAMutationCase(t *testing.T) {
 // reason but reports it as an error, which must not count.
 func TestAFailingCreateIsNotMistakenForARefusal(t *testing.T) {
 	t.Parallel()
-	rep := runAgainstFake(t, "refusal-as-error")
+	var refusal check
+	for _, c := range checks {
+		if c.requirement == "SPEC-v3 §7.3/unknown-required-refused" {
+			refusal = c
+			break
+		}
+	}
+	require.NotEmpty(t, refusal.requirement)
+	rep := runAgainstFake(t, "refusal-as-error", refusal)
 	require.Contains(t, failedRequirements(rep), "SPEC-v3 §7.3/unknown-required-refused",
 		"a create that fails for unrelated reasons must not count as a refusal:\n%s", rep)
 }
