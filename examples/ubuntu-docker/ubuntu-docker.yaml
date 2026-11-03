@@ -23,8 +23,6 @@ capabilities:
   - type: com.docker.sandbox/privileged@1
     description: Runs the inner Docker engine on runtimes without dockerd@1
 
-  - type: com.docker.sandbox/long-running@1
-
   - type: com.docker.sandbox/network-policy@1
     config:
       runtime:

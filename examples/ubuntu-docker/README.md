@@ -31,9 +31,8 @@ docker run --rm hello-world
 printf 'FROM busybox:stable\nRUN echo built-in-sandbox\n' | docker build -t smoke -
 ```
 
-The shell runs as `agent`; passwordless `sudo` is available. The Kit asks
-to keep the sandbox running after the shell disconnects, so background
-containers can keep running. Stop it explicitly with
+The shell runs as `agent`; passwordless `sudo` is available. The runtime's
+normal session-based auto-stop policy applies. Stop it explicitly with
 `sbx stop ubuntu-docker`, or remove it with `sbx rm ubuntu-docker`.
 
 ## Engine startup and compatibility
