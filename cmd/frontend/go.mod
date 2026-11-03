@@ -6,18 +6,18 @@ require (
 	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/distribution/reference v0.6.0
 	github.com/docker/sandbox-kit-spec/v3 v3.0.0-m.10
-	github.com/moby/buildkit v0.34.1
+	github.com/moby/buildkit v0.34.2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/stretchr/testify v1.12.1
-	github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52
+	github.com/tonistiigi/fsutil v0.0.0-20261103091533-a72de9dcf763
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/containerd/v2 v2.4.1 // indirect
+	github.com/containerd/containerd/v2 v2.4.2 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/log v0.2.0 // indirect
 	github.com/containerd/log/otel v0.1.0 // indirect
@@ -52,8 +52,8 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
@@ -70,3 +70,8 @@ replace github.com/cilium/ebpf => github.com/cilium/ebpf v0.22.0
 
 // Build the frontend against the library in this checkout, including releases.
 replace github.com/docker/sandbox-kit-spec/v3 => ../..
+
+// containerd's graph still requires v4.1.5 (GHSA-mgcc-cww5-fp2q), but no
+// frontend package imports it, so tidy drops a require override. Remove
+// this replacement once containerd requires v4.1.6 or later.
+replace github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.1.6
