@@ -1,0 +1,36 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Red Hat UBI with Docker
+description: >-
+  A Red Hat Universal Base Image 9.6 shell workload with Docker Engine,
+  Buildx and Compose from Docker's RHEL repository.
+sourceUrl: https://www.redhat.com/en/technologies/cloud-computing/openshift/universal-base-image
+version: "9.6"
+
+# No authored provides. The frontend currently derives package provides
+# from dpkg and apk databases, not RPM; the UBI release must not become
+# a claim about the versions of the tools installed here.
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+
+  # Older sbx versions use the image's start-docker label instead.
+  # The fallback does not promise engine storage across recreation.
+  - type: com.docker.sandbox/dockerd@1
+    optional: true
+    description: Builds and runs containers with the in-sandbox engine
+
+  - type: com.docker.sandbox/privileged@1
+    description: Runs the inner Docker engine on runtimes without dockerd@1
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - cdn-ubi.redhat.com
+          - download.docker.com
+          - auth.docker.io
+          - registry-1.docker.io
+          - production.cloudflare.docker.com
+          - production.cloudfront.docker.com
+          - docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com

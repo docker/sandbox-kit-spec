@@ -240,10 +240,11 @@ sbx run docker/sbx-kit-shell:1.0.0 --kit docker/sbx-kit-claude-mixin:2.1.281 .
 ```
 
 `shell` is a minimal workload; `claude-mixin` overlays Claude Code onto it.
-For a workload built from a distribution image, see
-[`ubuntu-docker`](examples/ubuntu-docker/README.md): Ubuntu 24.04 with
-Docker Engine, Buildx and Compose, including the startup compatibility
-setup for sbx 0.50.1.
+For workloads built from distribution images, see
+[`ubuntu-docker`](examples/ubuntu-docker/README.md) and
+[`ubi-docker`](examples/ubi-docker/README.md): Ubuntu 24.04 and Red Hat
+UBI 9.6 with Docker Engine, Buildx and Compose, including the startup
+compatibility setup for sbx 0.50.1.
 More v3 Kits from the `docker` org are on
 [Docker Hub](https://hub.docker.com/search?type=sbx_kit&badges=verified_publisher)
 (filter to that org — `sbx/*` there is still v2).
