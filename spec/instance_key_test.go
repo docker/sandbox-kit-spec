@@ -118,6 +118,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityWorkloadIdentity:         AritySingleton,
 		CapabilityGitPush:                  AritySingleton,
 		CapabilityCredential:               ArityInstance,
+		CapabilityWorkloadToken:            ArityInstance,
 		CapabilitySSHAgent:                 ArityInstance,
 		CapabilityVolume:                   ArityInstance,
 		CapabilityHostMount:                ArityInstance,
@@ -575,6 +576,8 @@ func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
 			[]string{"content", "contentFile"}},
 		CapabilityAgentContextV2: {map[string]any{"directory": "/home/agent/.claude", "filename": "CLAUDE.md", "content": "Be brief."},
 			[]string{"content"}},
+		CapabilityWorkloadToken: {map[string]any{"name": "backend", "audience": "https://api.example.com", "inject": []any{map[string]any{"domain": "api.example.com"}}},
+			[]string{"audience", "inject"}},
 	}
 	var keyed []string
 	for _, typ := range KnownCapabilities() {

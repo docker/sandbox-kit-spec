@@ -167,6 +167,8 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		// field is the key renamed: to a case variant, a typo, or a key
 		// holding a reference.
 		field string
+		// beside is a further entry the type needs to validate alone.
+		beside string
 	}{
 		{typ: CapabilityNetworkPolicy, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{ref + ".example.com"}}}, field: "runtime"},
 		{typ: CapabilityNetworkPolicyV2, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{map[string]any{"hosts": []any{ref + ".example.com"}, "methods": []any{"GET"}}}}}, field: "runtime"},
@@ -187,6 +189,8 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityAgentInteractiveSessions, s: "opus", config: map[string]any{"newSession": []any{"--model", ref}}, field: "newSession"},
 		{typ: CapabilityWorkloadIdentity, s: "full", config: map[string]any{"trailers": ref, "ledger": "preferred"}, field: "ledger"},
 		{typ: CapabilityGitPush, s: "deny", config: map[string]any{"delete": ref, "refs": map[string]any{"exclude": []any{"refs/heads/main"}}}, field: "refs"},
+		{typ: CapabilityWorkloadToken, s: "https://api.example.com", config: map[string]any{"name": "backend", "audience": ref, "inject": []any{map[string]any{"domain": "api.example.com"}}}, field: "audience",
+			beside: "  - type: " + CapabilityNetworkPolicyV2 + "\n    config: {runtime: {allow: [{hosts: [api.example.com]}]}}\n"},
 	}
 	var covered []string
 	for _, tt := range types {
@@ -205,7 +209,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 			if key != tt.field {
 				delete(config, tt.field)
 			}
-			return parameterizedKit(t, tt.typ, config, tt.s)
+			return append(parameterizedKit(t, tt.typ, config, tt.s), tt.beside...)
 		}
 		at := func(key string) string { return "capabilities[0].config." + key }
 		t.Run(tt.typ, func(t *testing.T) {

@@ -88,7 +88,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required", "workload-token@1/unavailable-refuses-required"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -285,6 +285,19 @@ var waived = map[string]string{
 	"workload-identity@1/pushes-recorded":      "needs a git remote fixture and a ledger the adapter exposes; not exercised yet",
 	"workload-identity@1/absent-without-grant": "needs an identity-minting adapter to show the difference; the fake adapter mints none either way",
 	"workload-identity@1/retired-on-destroy":   "host-internal: retirement is recorded in the runtime's ledger, which the adapter contract does not expose",
+	"workload-token@1/name-grammar":            "grammar rule, judged by the spec package's validators and schema tests",
+	"workload-token@1/audience-grammar":        "grammar rule, judged by the spec package's validators and schema tests",
+	"workload-token@1/inject-within-allow":     "grammar rule, judged by the spec package's validators and schema tests",
+	"workload-token@1/fields-closed":           "grammar rule, judged by the spec package's validators and schema tests",
+	"workload-token@1/issuer-minted":           "needs an identity-minting adapter and an issuer the suite can inspect; not exercised yet",
+	"workload-token@1/injected-at-boundary":    "needs an identity-minting adapter and an HTTPS backend fixture that records the header; not exercised yet",
+	"workload-token@1/audience-exact":          "needs an identity-minting adapter and an HTTPS backend fixture that decodes the token; not exercised yet",
+	"workload-token@1/never-in-sandbox":        "needs an identity-minting adapter to show a token exists at all; the fake adapter presents none",
+	"workload-token@1/fresh-token":             "needs an identity-minting adapter and a clock the suite controls; not exercised yet",
+	"workload-token@1/expired-refused":         "needs an identity-minting adapter and a clock the suite controls; not exercised yet",
+	"workload-token@1/issuance-recorded":       "host-internal: issuance is recorded in the runtime's ledger, which the adapter contract does not expose",
+	"workload-token@1/token-not-recorded":      "host-internal: the ledger's contents are not exposed by the adapter contract",
+	"workload-token@1/absent-without-grant":    "needs an identity-minting adapter to show the difference; the fake adapter presents nothing either way",
 	"git-push@1/states-a-rule":                 "grammar rule, judged by the spec package's validators and schema tests",
 	"git-push@1/pattern-grammar":               "grammar rule, judged by the spec package's validators and schema tests",
 	"git-push@1/patterns-unique":               "grammar rule, judged by the spec package's validators and schema tests",

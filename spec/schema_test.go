@@ -75,7 +75,7 @@ func allCapabilityTypes() []string {
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity,
-		CapabilityWorkloadIdentity, CapabilityGitPush,
+		CapabilityWorkloadIdentity, CapabilityGitPush, CapabilityWorkloadToken,
 	}
 }
 
@@ -299,6 +299,13 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 		literalEnum(t, at(t, identity, "properties", "ledger")))
 	assertAcceptsKitArg(t, at(t, identity, "properties", "trailers"), "bearing")
 	assertAcceptsKitArg(t, at(t, identity, "properties", "ledger"), "bearing")
+
+	workloadToken := loadJSON(t, perTypeSchemaPath(CapabilityWorkloadToken))
+	require.ElementsMatch(t, []any{"name", "audience", "inject"}, workloadToken["required"].([]any))
+	require.Equal(t, workloadTokenName.String(), literalPattern(t, at(t, workloadToken, "properties", "name")))
+	assertAcceptsKitArg(t, at(t, workloadToken, "properties", "name"), "bearing")
+	assertAcceptsKitArg(t, at(t, workloadToken, "properties", "audience"), "bearing")
+	require.Equal(t, float64(1), at(t, workloadToken, "properties", "inject")["minItems"], "a token with nowhere to go is never presented")
 
 	gitPush := loadJSON(t, perTypeSchemaPath(CapabilityGitPush))
 	require.Equal(t, float64(1), gitPush["minProperties"], "a git-push stating nothing bounds nothing")

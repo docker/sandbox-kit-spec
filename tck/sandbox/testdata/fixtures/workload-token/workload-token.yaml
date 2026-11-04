@@ -1,0 +1,23 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Workload token
+description: Presents the sandbox identity to one backend as a bearer token the sandbox never holds
+capabilities:
+  # Optional so a runtime claiming only one capability can compose this
+  # fixture; the token's inject domain must be in the allow list.
+  - type: com.docker.sandbox/network-policy@1
+    optional: true
+    config:
+      runtime:
+        allow: [example.com]
+
+  - type: com.docker.sandbox/workload-identity@1
+    optional: true
+
+  - type: com.docker.sandbox/workload-token@1
+    config:
+      name: backend
+      audience: https://example.com
+      inject:
+        - domain: example.com

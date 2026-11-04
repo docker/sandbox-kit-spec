@@ -62,6 +62,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityAgentInteractiveSessions: reflect.TypeFor[AgentInteractiveSessions](),
 	CapabilityWorkloadIdentity:         reflect.TypeFor[WorkloadIdentity](),
 	CapabilityGitPush:                  reflect.TypeFor[GitPush](),
+	CapabilityWorkloadToken:            reflect.TypeFor[WorkloadToken](),
 }
 
 // freeFormConfigMaps lists, by type, the maps in a well-known config whose
@@ -611,6 +612,23 @@ func WorkloadIdentityOf(needs []Capability) (*WorkloadIdentity, error) {
 		return &w, nil
 	}
 	return nil, nil
+}
+
+// WorkloadTokensOf returns every workload-token request in declaration
+// order.
+func WorkloadTokensOf(needs []Capability) ([]WorkloadToken, error) {
+	var out []WorkloadToken
+	for _, n := range needs {
+		if n.Type != CapabilityWorkloadToken {
+			continue
+		}
+		var w WorkloadToken
+		if err := DecodeCapabilityConfig(n, &w); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, nil
 }
 
 // GitPushOf returns the git-push policy, or nil when none is declared.

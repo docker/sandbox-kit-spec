@@ -1,0 +1,73 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Federated backend
+description: >-
+  Lets the sandbox call one HTTPS backend as itself. The host mints a
+  short-lived token for the backend's audience from the sandbox's
+  workload identity and injects it into requests at the network boundary;
+  the agent never sees it. The backend verifies the token against the
+  identity service's published keys, or exchanges it with AWS or GCP for
+  cloud credentials bound to this sandbox.
+
+kind: mixin
+provides: ["federated-backend"]
+version: "1.0.0"
+
+args:
+  # The backend's host, both where the token goes and what the network
+  # policy opens. One host: a token is for one relying party.
+  domain:
+    default: api.example.com
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Backend host the sandbox calls with its workload token
+  # What the backend expects as `aud`. A plain HTTPS backend uses its own
+  # URL; a backend that exchanges the token with a cloud provider uses the
+  # audience that provider's trust configuration names.
+  audience:
+    default: https://api.example.com
+    pattern: '^\S{1,256}$'
+    description: Audience claim the token is minted for
+
+capabilities:
+  # The token is this identity's credential toward the backend; without
+  # an identity there is nothing to present, so the host refuses the
+  # create rather than sending unauthenticated requests.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Act as this sandbox toward the backend
+    config:
+      ledger: required
+
+  - type: com.docker.sandbox/workload-token@1
+    description: Present this sandbox's identity to ${{ kit.args.domain }}
+    config:
+      name: backend
+      audience: ${{ kit.args.audience }}
+      inject:
+        - domain: ${{ kit.args.domain }}
+
+  # Every inject domain must be reachable; the policy unions with the
+  # workload's own.
+  - type: com.docker.sandbox/network-policy@2
+    description: Reach the backend
+    config:
+      runtime:
+        allow:
+          - hosts: ["${{ kit.args.domain }}"]
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Federated backend
+
+        Requests from this sandbox to `https://${{ kit.args.domain }}`
+        carry a token identifying this sandbox. You do not hold the token
+        and cannot read it: send requests without an `Authorization`
+        header and the host adds one. A 401 from the backend means it did
+        not accept this sandbox's identity; report it rather than looking
+        for another credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

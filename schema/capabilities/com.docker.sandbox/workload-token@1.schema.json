@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/workload-token@1",
+  "description": "Presents the sandbox's workload identity to one relying party: the runtime obtains a short-lived, audience-bound token from its identity issuer and injects it into matching outbound requests outside the sandbox. Instance-shaped on name. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "audience",
+    "inject"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "Identifies the token among the sandbox's tokens and names it in the runtime's ledger."
+    },
+    "audience": {
+      "type": "string",
+      "anyOf": [
+        {
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^\\S+$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "The token's aud claim: the relying party, or the cloud identity provider that exchanges it, which must verify it."
+    },
+    "inject": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/inject"
+      },
+      "description": "Outbound domains the runtime presents the token to. Every domain must appear in the network policy's runtime allow list (or be covered by a bare wildcard)."
+    }
+  },
+  "definitions": {
+    "inject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string",
+          "description": "Header carrying the token. Defaults to Authorization."
+        },
+        "format": {
+          "type": "string",
+          "description": "Renders the token into the header value with exactly one %s. Defaults to \"Bearer %s\"."
+        },
+        "scheme": {
+          "not": {},
+          "description": "A workload token is presented as a header; scheme does not apply."
+        },
+        "username": {
+          "not": {},
+          "description": "A workload token is presented as a header; username does not apply."
+        }
+      }
+    }
+  }
+}

@@ -451,6 +451,13 @@ const (
 	// intersect, so a mixin can only narrow what the workload allows.
 	CapabilityGitPush = "com.docker.sandbox/git-push@1"
 
+	// CapabilityWorkloadToken asks the runtime to present the sandbox's
+	// identity to one relying party: a short-lived, audience-bound token
+	// the runtime obtains from its identity issuer and injects into
+	// matching outbound requests, never into the sandbox. Config decodes
+	// to WorkloadToken. Instance-shaped on name.
+	CapabilityWorkloadToken = "com.docker.sandbox/workload-token@1"
+
 	// CapabilityCredential is one service the workload authenticates to;
 	// config decodes to Credential. Instance-shaped, keyed by
 	// (service, phase).
@@ -769,6 +776,21 @@ const (
 	WorkloadIdentityLedgerRequired  = "required"
 	WorkloadIdentityLedgerPreferred = "preferred"
 )
+
+// WorkloadToken is CapabilityWorkloadToken's config: one audience the
+// sandbox identifies itself to and the outbound requests that carry the
+// token.
+type WorkloadToken struct {
+	// Name identifies the token among a sandbox's tokens and appears in
+	// the runtime's ledger record of each issuance.
+	Name string `json:"name" yaml:"name"`
+	// Audience is the token's aud claim: the relying party, or the cloud
+	// identity provider that exchanges it, which must verify it.
+	Audience string `json:"audience" yaml:"audience"`
+	// Inject lists the outbound domains the runtime presents the token
+	// to. Header defaults to Authorization and Format to "Bearer %s".
+	Inject []Inject `json:"inject" yaml:"inject"`
+}
 
 // GitPush is CapabilityGitPush's config. Every field bounds pushes
 // further; an omitted field leaves that dimension unbounded, and a
