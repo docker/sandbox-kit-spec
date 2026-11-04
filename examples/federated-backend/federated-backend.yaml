@@ -2,12 +2,13 @@
 schemaVersion: "3"
 displayName: Federated backend
 description: >-
-  Lets the sandbox call one HTTPS backend as itself. The host mints a
-  short-lived token for the backend's audience from the sandbox's
+  Lets the sandbox call one HTTPS backend you own as itself. The host
+  mints a short-lived token for the backend's audience from the sandbox's
   workload identity and injects it into requests at the network boundary;
   the agent never sees it. The backend verifies the token against the
-  identity service's published keys, or exchanges it with AWS or GCP for
-  cloud credentials bound to this sandbox.
+  identity service's published keys. For GCP and AWS themselves, see
+  gcloud-mixin and aws-cli-mixin, where the cloud CLI performs the
+  exchange.
 
 kind: mixin
 provides: ["federated-backend"]

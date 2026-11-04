@@ -4,11 +4,15 @@ Presents the sandbox's workload identity to one relying party. The
 runtime asks its identity issuer for a short-lived token whose `aud` is
 the declared audience and whose subject is the sandbox, then injects it
 into matching outbound requests at the network boundary. The token is
-the identity's credential for that one party; it never enters the
-sandbox, so the agent cannot read, log or forward it. A relying party
-verifies it against the issuer's published keys, or hands it to a cloud
-identity provider (AWS IAM, GCP Workload Identity Federation) that
-exchanges it for cloud credentials bound to the same sandbox.
+the identity's credential for that one party; the runtime never places
+it in the sandbox, so the agent cannot read, log or forward it unless a
+listed relying party hands it back. A relying party verifies it against
+the issuer's published keys, or hands it to a cloud identity provider
+(AWS IAM, GCP Workload Identity Federation) that exchanges it for cloud
+credentials bound to the same sandbox. A Kit that lists the issuer's own
+token endpoint as an inject domain chooses the latter route for clients
+that read an identity token from a URL, such as cloud CLIs: the sandbox
+then obtains its own short-lived, audience-bound token and nothing else.
 
 - **Shape**: instance-shaped on `name`; every field required.
 - **Permission surface**: **yes** — presence lets the sandbox act as
@@ -59,8 +63,10 @@ A conforming runtime:
 - **MUST** set the token's audience to exactly the declared `audience`. <!-- tck: workload-token@1/audience-exact -->
 - **MUST** present the token only on HTTPS requests from the sandbox to a <!-- tck: workload-token@1/injected-at-boundary -->
   listed `inject[].domain`, rendered into the listed header.
-- **MUST NOT** make the token readable inside the sandbox: not as an <!-- tck: workload-token@1/never-in-sandbox -->
-  environment variable, a file, or a response to a sandbox request.
+- **MUST NOT** make the token readable inside the sandbox other than by <!-- tck: workload-token@1/never-in-sandbox -->
+  presenting it to a listed domain: not as an environment variable, a
+  file, or a response the runtime itself produces. What a listed relying
+  party returns is the Kit author's choice.
 - **MUST** replace a token before it expires. <!-- tck: workload-token@1/fresh-token -->
 - **MUST NOT** present an expired token; a request that arrives while no <!-- tck: workload-token@1/expired-refused -->
   valid token can be obtained is refused rather than sent without one.

@@ -1,0 +1,106 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: AWS CLI (federated)
+description: >-
+  The AWS CLI from nixpkgs, assuming an IAM role as this sandbox. The
+  sandbox holds no AWS secret: a credential process reads the sandbox's
+  short-lived workload token from the identity service and calls
+  AssumeRoleWithWebIdentity, and the CLI and SDKs cache the resulting
+  session until it nears expiry.
+sourceUrl: https://github.com/aws/aws-cli
+licenses: [Apache-2.0]
+
+kind: mixin
+
+# The nixpkgs commit in the companion Dockerfile is the version authority.
+provides: ["aws@2.36.31"]
+
+args:
+  # The role whose trust policy admits the identity service's issuer with
+  # audience sts.amazonaws.com, as printed by sbx-ledger's
+  # examples/federation/aws/setup.sh.
+  roleArn:
+    default: arn:aws:iam::000000000000:role/sbx-federated
+    pattern: '^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$'
+    description: IAM role the sandbox assumes
+  region:
+    default: us-east-1
+    pattern: '^[a-z]{2}-[a-z]+-[0-9]$'
+    description: Default AWS region
+  # The identity service that mints workload tokens and relays them at
+  # /workload/token. Requests to it carry the token; the credential
+  # process reads it back.
+  ledger:
+    default: ledger.sbx.build
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Identity service host that relays the workload token
+
+capabilities:
+  - type: com.docker.sandbox/workload-identity@1
+    description: Act as this sandbox toward AWS
+    config:
+      ledger: required
+
+  # sts.amazonaws.com is the audience AWS requires of a web identity
+  # token; the role's trust policy pins it. The runtime presents the token
+  # to the identity service, whose /workload/token verifies and echoes
+  # it: a five-minute JWT whose only use is the role assumption the trust
+  # policy already permits.
+  - type: com.docker.sandbox/workload-token@1
+    description: Obtain this sandbox's token for AWS STS
+    config:
+      name: aws
+      audience: sts.amazonaws.com
+      inject:
+        - domain: ${{ kit.args.ledger }}
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The token relay, listed exactly as the inject domain requires.
+          - ${{ kit.args.ledger }}:443
+          # Global endpoints: STS for the role assumption, IAM, S3's
+          # global name.
+          - "*.amazonaws.com"
+          # Regional endpoints in the default region, where the CLI sends
+          # most calls (sts.<region>, s3.<region>, ec2.<region>, ...). Add
+          # another region's pattern in the composition to reach it.
+          - "*.${{ kit.args.region }}.amazonaws.com"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # The shared config the Dockerfile points AWS_CONFIG_FILE at. It
+        # names no secret: credentials come from the process on demand,
+        # which the CLI and every SDK invoke and cache.
+        - path: /etc/sbx/aws/config
+          mode: "0644"
+          description: AWS profile assuming the role through the workload token
+          content: |
+            [default]
+            region = ${{ kit.args.region }}
+            credential_process = /usr/local/bin/sbx-aws-credentials ${{ kit.args.roleArn }} ${{ kit.args.ledger }} ${{ kit.args.region }}
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # AWS CLI
+
+        `aws` is on PATH and already authenticated: every call assumes
+        `${{ kit.args.roleArn }}` through this sandbox's workload identity, in
+        region `${{ kit.args.region }}` by default. SDKs read the same profile
+        from `AWS_CONFIG_FILE`.
+
+        - Do not run `aws configure` or set `AWS_ACCESS_KEY_ID`; there is no
+          key, and the session renews itself.
+        - `aws sts get-caller-identity` shows the assumed role; the session name
+          is this sandbox's id, which CloudTrail records.
+        - An `AccessDenied` means the role lacks the permission, not that you are
+          signed out. Report it rather than looking for another credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
