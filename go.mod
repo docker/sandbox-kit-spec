@@ -12,7 +12,7 @@ require (
 	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	oras.land/oras-go/v2 v2.6.4
+	oras.land/oras-go/v2 v2.7.0
 )
 
 require (
