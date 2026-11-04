@@ -118,6 +118,7 @@ var kitCovers = map[string][]string{
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
 		"host-port@1/config-valid",
+		"docker-auth@1/config-valid",
 		"host-port@1/published-port-conflict",
 		"agent-context@2/inline-only",
 		"host-mount@1/runtime-owned-location",
@@ -190,6 +191,7 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"docker-auth@1/source-private":          "the adapter supplies synthetic bindings but exposes no inventory of runtime credential sources, helper installations or interception keys, nor their mapping into guest paths; client and network observations cannot prove absence of copies at arbitrary paths",
 	"host-port@1/no-egress-widening":        "selection checks the declared surface, but the adapter has no host interface inventory or controlled external destination to prove no incidental network access",
 	"host-port@1/runtime-listener-conflict": "the adapter does not expose runtime-owned listener addresses; a portable fixture cannot arrange a collision",
 	"host-port@1/loopback-only":             "the adapter has no sandbox interface inventory or host destination trace; loopback reachability alone cannot establish listener binding or arbitrary-destination confinement",

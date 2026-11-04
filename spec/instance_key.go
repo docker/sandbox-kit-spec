@@ -38,7 +38,7 @@ func ArityOf(typ string) Arity {
 	switch {
 	case singletonCapabilities[typ]:
 		return AritySingleton
-	case typ == CapabilityUSBDevice:
+	case typ == CapabilityUSBDevice || typ == CapabilityDockerAuth:
 		return ArityWholeEntry
 	}
 	return ArityUnknown

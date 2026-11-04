@@ -128,6 +128,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityAgentContext:             ArityInstance,
 		CapabilityAgentContextV2:           ArityInstance,
 		CapabilityUSBDevice:                ArityWholeEntry,
+		CapabilityDockerAuth:               ArityWholeEntry,
 	}
 	require.ElementsMatch(t, KnownCapabilities(), slices.Collect(maps.Keys(want)))
 	for typ, arity := range want {
