@@ -1,0 +1,131 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Google Cloud CLI (federated)
+description: >-
+  gcloud from nixpkgs, signed in to Google Cloud as this sandbox. The
+  sandbox holds no Google credential: gcloud reads the sandbox's
+  short-lived workload token from the identity service, exchanges it with
+  Google STS through Workload Identity Federation and impersonates the
+  service account the pool trusts. Application Default Credentials point
+  at the same configuration, so Google client libraries federate the same
+  way.
+sourceUrl: https://cloud.google.com/sdk
+licenses: [Apache-2.0]
+
+kind: mixin
+
+# The nixpkgs commit in the companion Dockerfile is the version authority.
+provides: ["gcloud@583.0.0"]
+
+args:
+  # The Workload Identity Pool provider that trusts the identity service,
+  # as printed by sbx-ledger's examples/federation/gcp/setup.sh. It is
+  # both the token's audience and the credential's `audience`.
+  audience:
+    default: //iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/sbx-sandboxes/providers/sbx-ledger
+    pattern: '^//iam\.googleapis\.com/projects/[0-9]+/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+$'
+    description: Workload Identity Pool provider resource the token is minted for
+  # The account sandboxes act as. Its IAM policy grants
+  # roles/iam.workloadIdentityUser to the pool's principal set.
+  serviceAccount:
+    default: sbx-federated@my-project.iam.gserviceaccount.com
+    pattern: '^[a-z][a-z0-9-]{5,29}@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$'
+    description: Service account gcloud impersonates
+    buildArg: GCP_SERVICE_ACCOUNT
+  project:
+    default: my-project
+    pattern: '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+    description: Default project for gcloud commands
+    buildArg: GCP_PROJECT
+  # The identity service that mints workload tokens and relays them at
+  # /workload/token. Requests to it carry the token; gcloud reads it back.
+  ledger:
+    default: ledger.sbx.build
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Identity service host that relays the workload token
+
+capabilities:
+  # The token is this identity's credential toward Google; without an
+  # identity there is nothing to exchange.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Act as this sandbox toward Google Cloud
+    config:
+      ledger: required
+
+  # The runtime presents the token to the identity service, whose
+  # /workload/token verifies and echoes it. That is the one place the
+  # sandbox can read its own token, and all it can read: a five-minute
+  # JWT whose only use is the exchange the pool already permits.
+  - type: com.docker.sandbox/workload-token@1
+    description: Obtain this sandbox's token for the Workload Identity Pool
+    config:
+      name: gcp
+      audience: ${{ kit.args.audience }}
+      inject:
+        - domain: ${{ kit.args.ledger }}
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # The token relay, listed exactly as the inject domain requires.
+          - ${{ kit.args.ledger }}:443
+          # The exchange: STS trades the token for a federated token and
+          # IAM Credentials issues the service account's access token.
+          - sts.googleapis.com:443
+          - iamcredentials.googleapis.com:443
+          # The APIs gcloud then calls on the account's behalf.
+          - "*.googleapis.com"
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # The external_account credential gcloud and the client libraries
+        # consume. It names no secret: the subject token comes from the
+        # relay URL at use, and the proxy adds the bearer header on the way
+        # there, so no `headers` entry is needed. The Dockerfile points
+        # GOOGLE_APPLICATION_CREDENTIALS and gcloud at this path.
+        - path: /etc/sbx/gcp/credentials.json
+          mode: "0644"
+          description: Workload Identity Federation credential configuration
+          content: |
+            {
+              "type": "external_account",
+              "audience": "${{ kit.args.audience }}",
+              "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+              "token_url": "https://sts.googleapis.com/v1/token",
+              "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${{ kit.args.serviceAccount }}:generateAccessToken",
+              "credential_source": {
+                "url": "https://${{ kit.args.ledger }}/workload/token",
+                "format": {
+                  "type": "json",
+                  "subject_token_field_name": "value"
+                }
+              }
+            }
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Google Cloud CLI
+
+        `gcloud` is on PATH and already authenticated as the service account
+        `${{ kit.args.serviceAccount }}` in project `${{ kit.args.project }}`,
+        through this sandbox's workload identity. Google client libraries pick
+        up the same credential from `GOOGLE_APPLICATION_CREDENTIALS`.
+
+        - Do not run `gcloud auth login` or `gcloud auth activate-service-account`;
+          there is no key to activate and no browser flow to complete. `gcloud
+          auth list` shows no account because the credential comes from a file
+          override, not the account store; that is expected.
+        - `gcloud auth print-access-token` yields a short-lived token when you
+          need one for `curl`; do not store it.
+        - A `PERMISSION_DENIED` means the service account lacks the role, not
+          that you are signed out. Report it rather than looking for another
+          credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
