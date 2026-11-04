@@ -160,6 +160,11 @@ var instanceKeys = map[string]keyDefinition{
 	CapabilityHostPort: keyOn([]string{"host", "container", "transport"}, func(p HostPort) ([]string, error) {
 		return []string{p.Key()}, nil
 	}).defaulting("container", "transport"),
+	// One token per name, whichever kits asked: a name is the sandbox's
+	// handle on an audience, and two kits naming it must mean one token.
+	CapabilityWorkloadToken: keyOn([]string{"name"}, func(w WorkloadToken) ([]string, error) {
+		return []string{w.Name}, nil
+	}),
 	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
 	}).defaulting("transport"),
