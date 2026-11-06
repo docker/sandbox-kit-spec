@@ -129,6 +129,18 @@ func installPhaseScoped(fixture string) func(context.Context, *Env) []report.Fin
 }
 
 var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
+	{requirement: "sbx@1/environment-provided", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironment(ctx, e, "") }},
+	{requirement: "sbx@1/environment-process", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentProcess(ctx, e, "") }},
+	{requirement: "sbx@1/environment-process-none", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentProcess(ctx, e, "none") }},
+	{requirement: "sbx@1/environment-internal", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironment(ctx, e, "internal") }},
+	{requirement: "sbx@1/environment-host", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironment(ctx, e, "host") }},
+	{requirement: "sbx@1/environment-cloned", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironment(ctx, e, "cloned") }},
+	{requirement: "sbx@1/environment-none", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironment(ctx, e, "none") }},
+	{requirement: "sbx@1/environment-hooks", capability: capSbx, needs: []string{capLifecycle}, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentHooks(ctx, e, "") }},
+	{requirement: "sbx@1/environment-hooks-internal", capability: capSbx, needs: []string{capLifecycle}, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentHooks(ctx, e, "internal") }},
+	{requirement: "sbx@1/environment-hooks-none", capability: capSbx, needs: []string{capLifecycle}, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentHooks(ctx, e, "none") }},
+	{requirement: "sbx@1/identity-stable", capability: capSbx, run: sbxIdentityStable},
+	{requirement: "sbx@1/identity-new-after-deletion", capability: capSbx, run: sbxIdentityNewAfterDeletion},
 	{requirement: "credential@1/sentinel-phase-scoped", capability: capCredential, needs: []string{capLifecycle}, run: credentialSentinelPhaseScoped},
 	{requirement: "SPEC-v3 §6/env-expanded", capability: capLifecycle, run: finalEnvironmentPrecedence},
 	{requirement: "ssh-agent@1/destination-keys-outside-sandbox", capability: capSSHAgent, run: sshAgentDestinationKeys},

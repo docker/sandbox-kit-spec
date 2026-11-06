@@ -1,0 +1,22 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Requested and unrequested sandbox environment
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: [kit-tck-sbx-env, record, install]
+          env: [WORKSPACE_DIR, SANDBOX_NAME, SANDBOX_ID, IS_SANDBOX]
+        - command: [kit-tck-sbx-env, record, install-restricted]
+      startup:
+        - command: [kit-tck-sbx-env, record, startup]
+          env: [WORKSPACE_DIR, SANDBOX_NAME, SANDBOX_ID, IS_SANDBOX]
+        - command: [kit-tck-sbx-env, record, startup-restricted]
+      files:
+        - path: /home/sbxagent/.config/sbx-expanded/SANDBOX_NAME
+          content: '${{ kit.env.SANDBOX_NAME }}'
+        - path: /home/sbxagent/.config/sbx-expanded/SANDBOX_ID
+          content: '${{ kit.env.SANDBOX_ID }}'
+        - path: /home/sbxagent/.config/sbx-expanded/IS_SANDBOX
+          content: '${{ kit.env.IS_SANDBOX }}'

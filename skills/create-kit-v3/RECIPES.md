@@ -26,7 +26,6 @@ RUN set -eux; \
     tool --version | grep -q "${TOOL_VERSION}"
 
 # The runtime contract lives in the image config, not the descriptor.
-ENV IS_SANDBOX=1
 USER agent
 WORKDIR /home/agent/workspace
 ENTRYPOINT ["tool", "--dangerously-skip-permissions"]

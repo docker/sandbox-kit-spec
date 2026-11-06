@@ -1,0 +1,17 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Conflicting sandbox environment exports
+args:
+  workspace_input:
+    default: /argument/workspace
+    env: WORKSPACE_DIR
+  name_input:
+    default: argument-name
+    env: SANDBOX_NAME
+  id_input:
+    default: argument-id
+    env: SANDBOX_ID
+  marker_input:
+    default: argument-marker
+    env: IS_SANDBOX

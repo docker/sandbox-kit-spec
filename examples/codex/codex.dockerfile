@@ -67,7 +67,7 @@ RUN chmod 0755 /usr/local/bin/sbx-codex-hook \
  && ! test -e /home/agent/.codex
 USER agent
 # v2's environment.variables, in the slot OCI already owns for static env.
-ENV IS_SANDBOX=1 BROWSER=xdg-open CODEX_HOME=/home/agent/.codex GIT_TERMINAL_PROMPT=0
+ENV BROWSER=xdg-open CODEX_HOME=/home/agent/.codex GIT_TERMINAL_PROMPT=0
 WORKDIR /home/agent/workspace
 # v2's sandbox.entrypoint.
 ENTRYPOINT ["codex", "--dangerously-bypass-approvals-and-sandbox"]

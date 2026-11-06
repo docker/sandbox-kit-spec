@@ -120,6 +120,18 @@ not freeze the draft contracts: consumers need the matching draft
 specification and implementation. A pull request making such a change
 records the maintainer-approved exception and its compatibility impact.
 
+The in-place `sbx@1` environment addition in
+[issue #208](https://github.com/docker/sandbox-kit-spec/issues/208) uses
+this exception, approved by maintainer @cdupuis's instruction to implement
+the proposal. It adds runtime injection of workspace and sandbox identity,
+including universal `IS_SANDBOX=1`, workspace absence semantics, stable
+sandbox IDs, and create-time expansion and hook duties. The four names
+are runtime-owned and override conflicting image defaults, Kit argument
+exports, and explicit runtime or process environment inputs. Runtimes
+that previously allowed these overrides or supplied only some values
+need to change to match this draft. Descriptor fields, capability config,
+and `schemaVersion` are unchanged.
+
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new

@@ -80,3 +80,23 @@ func TestVolumePathsRequiresAnArrayAndSuccessfulObservation(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceAndProcessInputsAreTransportedLiterally(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "adapter")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\000' \"$@\" > \"$ARGV_FILE\"\necho sandbox-id\n"), 0700))
+	argvFile := filepath.Join(dir, "argv")
+	a := New(path)
+	a.Env = []string{"ARGV_FILE=" + argvFile}
+	_, err := a.Create(t.Context(), []string{"workload"}, CreateOptions{WorkspaceMode: "none"})
+	require.NoError(t, err)
+	raw, err := os.ReadFile(argvFile)
+	require.NoError(t, err)
+	require.Equal(t, []string{"create", "workload", "--workspace-mode", "none"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
+	value := "spaces $HOME $(touch forbidden)"
+	_, err = a.ExecWith(t.Context(), "sandbox-id", ExecOptions{Cwd: "/other cwd", Env: map[string]string{"IS_SANDBOX": value}}, "probe", "--env", "literal")
+	require.NoError(t, err)
+	raw, err = os.ReadFile(argvFile)
+	require.NoError(t, err)
+	require.Equal(t, []string{"exec", "sandbox-id", "--cwd", "/other cwd", "--env", "IS_SANDBOX=" + value, "--", "probe", "--env", "literal"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
+}

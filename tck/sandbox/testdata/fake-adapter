@@ -25,6 +25,18 @@ host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
 
+# Environment probes keep sandbox identity separate from the adapter handle.
+environment_helper="$(dirname "${BASH_SOURCE[0]}")/sbx-environment-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    if [ "${arg##*/}" = sbx-environment ] || [ "${arg##*/}" = sbx-environment-clean ]; then
+      exec python3 "$environment_helper" "$state" "$broken" "$verb" "$@"
+    fi
+  done
+elif [ -f "$state/sbx-environment/${1:-}.json" ]; then
+  exec python3 "$environment_helper" "$state" "$broken" "$verb" "$@"
+fi
+
 host_port_helper="$(dirname "${BASH_SOURCE[0]}")/host-port-fake.py"
 if [ "$verb" = create ]; then
   for arg in "$@"; do

@@ -28,6 +28,16 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"sbx@1/environment-hooks-internal":            {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
+	"sbx@1/environment-process-none":              {"sbx@1/environment-authoritative"},
+	"sbx@1/environment-provided":                  {"sbx@1/environment-authoritative", "sbx@1/identity-consistent", "sbx@1/workspace-at-workdir"},
+	"sbx@1/environment-process":                   {"sbx@1/environment-authoritative"},
+	"sbx@1/environment-internal":                  {"sbx@1/environment-provided", "sbx@1/environment-authoritative", "sbx@1/workspace-at-workdir"},
+	"sbx@1/environment-host":                      {"sbx@1/environment-provided", "sbx@1/workspace-at-workdir"},
+	"sbx@1/environment-cloned":                    {"sbx@1/environment-provided", "sbx@1/workspace-at-workdir"},
+	"sbx@1/environment-none":                      {"sbx@1/environment-provided", "sbx@1/environment-authoritative"},
+	"sbx@1/environment-hooks":                     {"sbx@1/environment-expanded", "SPEC-v3 §6/env-expanded", "lifecycle@1/hook-env-restricted"},
+	"sbx@1/environment-hooks-none":                {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
 	"host-port@1/family-honored":                  {"host-port@1/permission-surface", "host-port@1/conflict"},
 	"host-port@1/tcp-bytes":                       {"host-port@1/forwarded"},
 	"host-port@1/udp-datagrams":                   {"host-port@1/forwarded"},
@@ -190,6 +200,8 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
+	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",
 	"host-port@1/no-egress-widening":        "selection checks the declared surface, but the adapter has no host interface inventory or controlled external destination to prove no incidental network access",
 	"host-port@1/runtime-listener-conflict": "the adapter does not expose runtime-owned listener addresses; a portable fixture cannot arrange a collision",
 	"host-port@1/loopback-only":             "the adapter has no sandbox interface inventory or host destination trace; loopback reachability alone cannot establish listener binding or arbitrary-destination confinement",

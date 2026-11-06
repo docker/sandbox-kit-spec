@@ -25,7 +25,7 @@ RUN test "$(readlink -f "$(command -v cursor-agent)")" = \
 # v2's environment.variables. AGENT_CLI_CREDENTIAL_STORE=memory keeps
 # cursor from validating a file-backed sentinel and re-prompting login;
 # auth bootstraps through the environment when host OAuth creds exist.
-ENV IS_SANDBOX=1 AGENT_CLI_CREDENTIAL_STORE=memory
+ENV AGENT_CLI_CREDENTIAL_STORE=memory
 # The ACP launcher acp@1 names: cursor-agent's ACP server keeps running
 # after stdin closes, so the wrapper follows the close with SIGTERM, which
 # it does stop on.

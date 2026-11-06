@@ -521,3 +521,19 @@ string substitution, not shell evaluation: `$HOME`, `${HOME}`, and `~/`
 are unchanged. Do not use environment references in mapping keys or Kit
 metadata, and do not pass Kit placeholders inside argument or environment
 values. Persist the expanded descriptor for restart.
+
+## Workspace and sandbox identity
+
+A workload declaring `sbx@1` receives runtime-owned `WORKSPACE_DIR`,
+`SANDBOX_NAME`, `SANDBOX_ID`, and `IS_SANDBOX=1`. Do not bake these into an
+image, export them from Kit arguments, or set them in shell profiles:
+the runtime's values win over image, argument, and process overrides.
+Treat `SANDBOX_ID` as opaque; it identifies the sandbox across restarts
+and container replacement, not a backing container or VM.
+
+`WORKSPACE_DIR` is an absolute sandbox path when a workspace is assigned,
+including internal and cloned workspaces; it does not imply a host mount
+or finished preparation. It is unset with no workspace, and then a
+`${{ kit.env.WORKSPACE_DIR }}` reference fails at create. A process cwd
+does not change the assigned workspace. Hooks list each of these inputs
+they consume in `env`; none is in lifecycle's automatic baseline.

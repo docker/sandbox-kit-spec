@@ -931,6 +931,21 @@ create)
 			case "$requested_name" in '' | *[!a-zA-Z0-9_-]*) die "invalid sandbox alias" ;; esac
 			shift 2
 			;;
+		--workspace-mode)
+			# Without a positional host path sbx assigns an internal
+			# workspace at the image WORKDIR. This adapter has no
+			# suite-owned host workspace or clone binding, and sbx has
+			# no genuinely workspace-free create mode.
+			case "$2" in
+			internal) ;;
+			host | cloned | none)
+				echo "unsupported workspace mode: $2" >&2
+				exit 2
+				;;
+			*) die "unknown workspace mode: $2" ;;
+			esac
+			shift 2
+			;;
 		--arg)
 			# The contract's name=value is sbx's own --kit-arg spelling,
 			# which applies the value to every kit that declares the
@@ -1050,13 +1065,21 @@ create)
 exec)
 	id="$1"
 	shift
+	exec_options=()
+	while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+		case "$1" in
+		--cwd) exec_options+=(--workdir "$2"); shift 2 ;;
+		--env) exec_options+=(--env "$2"); shift 2 ;;
+		*) die "unknown exec option: $1" ;;
+		esac
+	done
 	[ "${1:-}" = "--" ] && shift
 	# The argv passes through unmodified and the status proxies back:
 	# checks compare bytes and read exit codes, so neither may be
 	# rewritten here. sbx allocates no TTY unless asked, which is what
 	# the contract requires.
 	set +e
-	run_sbx exec "$id" "$@"
+	run_sbx exec ${exec_options[@]+"${exec_options[@]}"} "$id" "$@"
 	status=$?
 	set -e
 	exit "$status"
