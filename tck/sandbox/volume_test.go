@@ -14,6 +14,7 @@ import (
 )
 
 func TestVolumeInstallEmptinessProbe(t *testing.T) {
+	t.Parallel()
 	for _, observation := range []string{"empty", "nonempty", "missing"} {
 		t.Run(observation, func(t *testing.T) {
 			dir := t.TempDir()
@@ -38,6 +39,7 @@ func TestVolumeInstallEmptinessProbe(t *testing.T) {
 }
 
 func TestVolumeProbeOverwritesMarkerWithoutWritableRoot(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory permission checks")
 	}
@@ -60,6 +62,7 @@ func TestVolumeProbeOverwritesMarkerWithoutWritableRoot(t *testing.T) {
 }
 
 func TestVolumeHookOrderDoesNotRequireWritableRoot(t *testing.T) {
+	t.Parallel()
 	index := slices.IndexFunc(volumeChecks, func(c check) bool {
 		return c.requirement == "volume@1/mounted-before-hooks"
 	})
@@ -70,16 +73,19 @@ func TestVolumeHookOrderDoesNotRequireWritableRoot(t *testing.T) {
 }
 
 func TestVolumeChecks(t *testing.T) {
+	t.Parallel()
 	rep := runAgainstFake(t, "", volumeChecks...)
 	require.False(t, rep.Failed(), "%s", rep)
 }
 
 func TestVolumeChecksDoNotRequireMountRootOwnership(t *testing.T) {
+	t.Parallel()
 	rep := runAgainstFake(t, "volume-root-not-owned", volumeChecks...)
 	require.False(t, rep.Failed(), "%s", rep)
 }
 
 func TestVolumeDataObservationsSkipInaccessibleInitialRoots(t *testing.T) {
+	t.Parallel()
 	var allVolumeChecks []check
 	for _, c := range checks {
 		if c.capability == capVolume {
@@ -108,6 +114,7 @@ func TestVolumeDataObservationsSkipInaccessibleInitialRoots(t *testing.T) {
 }
 
 func TestFakeVolumeInstallHooksRunOnlyAtCreate(t *testing.T) {
+	t.Parallel()
 	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume + "," + capLifecycle, "KIT_TCK_FAKE_BROKEN="}
 	fixtures := Fixtures(FixtureDir)
@@ -130,6 +137,7 @@ func TestFakeVolumeInstallHooksRunOnlyAtCreate(t *testing.T) {
 }
 
 func TestVolumeTmpfsObservationsSkipInaccessibleFreshRoots(t *testing.T) {
+	t.Parallel()
 	index := slices.IndexFunc(volumeChecks, func(c check) bool {
 		return c.requirement == "volume@1/tmpfs-cleared"
 	})
@@ -146,6 +154,7 @@ func TestVolumeTmpfsObservationsSkipInaccessibleFreshRoots(t *testing.T) {
 }
 
 func TestVolumeRetainedContinuesPastUnreadableRenamedRoot(t *testing.T) {
+	t.Parallel()
 	index := slices.IndexFunc(volumeChecks, func(c check) bool {
 		return c.requirement == "volume@1/undeclared-retained"
 	})
@@ -157,6 +166,7 @@ func TestVolumeRetainedContinuesPastUnreadableRenamedRoot(t *testing.T) {
 }
 
 func TestVolumeLifetimeNeedsNoOtherCapabilities(t *testing.T) {
+	t.Parallel()
 	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capVolume, "KIT_TCK_FAKE_BROKEN="}
 	rep, err := runChecks(t.Context(), &Env{Adapter: a, Fixtures: Fixtures(FixtureDir)}, volumeChecks)
