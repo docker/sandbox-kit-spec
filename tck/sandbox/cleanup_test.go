@@ -15,7 +15,9 @@ import (
 )
 
 func TestFailedCreateCleansAndReportsRetainedStorage(t *testing.T) {
-	t.Parallel()
+	// Cancellation waits for the adapter to allocate before interrupting
+	// it. Keep these short cases ahead of the parallel mutation suite so
+	// process contention cannot exhaust that startup wait.
 	for _, outcome := range []string{"1", "2", "cancel"} {
 		for _, cleanupFails := range []bool{false, true} {
 			label := outcome + "/removed"
@@ -23,7 +25,6 @@ func TestFailedCreateCleansAndReportsRetainedStorage(t *testing.T) {
 				label = outcome + "/cleanup-fails"
 			}
 			t.Run(label, func(t *testing.T) {
-				t.Parallel()
 				dir := t.TempDir()
 				executable := filepath.Join(dir, "adapter")
 				allocation := filepath.Join(dir, "allocation")
