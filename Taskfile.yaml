@@ -66,7 +66,10 @@ tasks:
     desc: Run all Go tests in both modules and the consumer compatibility check
     cmds:
       - task: test:consumer
-      - GOWORK=off go test ./...
+      # The fake-runtime suite exercises retained storage and configuration
+      # matrices through child processes; Go's default ten minutes is too
+      # short on small CI runners. Keep the same bound as test:tck.
+      - GOWORK=off go test -timeout 15m ./...
       - GOWORK=off go -C cmd/frontend test ./...
 
   test:unit:
@@ -88,7 +91,8 @@ tasks:
   test:tck:
     desc: The sandbox conformance suite, judged against the fake adapter
     cmds:
-      - GOWORK=off go test ./tck/sandbox/...
+      # Match the full test target rather than relying on Go's default.
+      - GOWORK=off go test -timeout 15m ./tck/sandbox/...
 
   test:mem0:
     desc: Build the Mem0 example and start its database, API and dashboard

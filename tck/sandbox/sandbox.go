@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ type Env struct {
 	// Host-directory cleanup is accounted for separately from sandbox rm:
 	// the capability intentionally keeps these directories after rm.
 	hostMountLeaks []string
+	volumeLeaks    []string
 }
 
 // The suite arranges three known values before it judges anything, because
@@ -110,14 +112,17 @@ func (e *Env) sandbox(ctx context.Context, kits []string, args map[string]string
 }
 
 func (e *Env) sandboxWith(ctx context.Context, kits []string, opts adapter.CreateOptions) (string, func(), error) {
+	// Every suite-owned name can retain volumes, even from a helper Kit.
+	// Keep deletion separate from explicit cleanup so lifetime checks can
+	// observe retained allocations before this cleanup runs.
+	if e.claims(capVolume) && opts.Name == "" {
+		opts.Name = "kit-tck-" + rand.Text()
+	}
 	refs := make([]string, 0, len(kits))
 	for _, name := range kits {
 		refs = append(refs, e.Fixtures(name))
 	}
 	id, err := e.Adapter.Create(ctx, refs, opts)
-	if err != nil {
-		return "", func() {}, err
-	}
 	cleanup := func() {
 		// Removal must survive the check's context: a cancelled or timed
 		// out check is exactly when a sandbox would otherwise be left
@@ -125,9 +130,23 @@ func (e *Env) sandboxWith(ctx context.Context, kits []string, opts adapter.Creat
 		// creates.
 		rmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 		defer cancel()
-		if err := e.Adapter.Remove(rmCtx, id); err != nil {
-			e.leaked = append(e.leaked, fmt.Sprintf("%s: %v", id, err))
+		if id != "" {
+			if err := e.Adapter.Remove(rmCtx, id); err != nil {
+				e.leaked = append(e.leaked, fmt.Sprintf("%s: %v", id, err))
+				return
+			}
 		}
+		if e.claims(capVolume) {
+			if err := e.Adapter.RemoveVolumeStorage(rmCtx, opts.Name, ""); err != nil {
+				e.volumeLeaks = append(e.volumeLeaks, fmt.Sprintf("%s: %v", opts.Name, err))
+			}
+		}
+	}
+	if err != nil {
+		// A failed create may have allocated storage before returning no id.
+		// Callers often return immediately on error, so reclaim it here.
+		cleanup()
+		return "", func() {}, err
 	}
 	return id, cleanup, nil
 }
@@ -238,6 +257,9 @@ func runChecks(ctx context.Context, e *Env, selected []check) (rep report.Report
 			// incomplete however its checks went.
 			rep.Add("cleanup", "conformance.md §2.4",
 				report.Failf("a sandbox could not be removed: %s", l))
+		}
+		for _, l := range e.volumeLeaks {
+			rep.Add("cleanup", "conformance.md §2.4", report.Failf("volume storage could not be removed: %s", l))
 		}
 		for _, l := range e.hostMountLeaks {
 			rep.Add("cleanup", "conformance.md §2.4", report.Failf("a host directory could not be removed: %s", l))

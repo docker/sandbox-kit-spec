@@ -64,7 +64,7 @@ type CreateOptions struct {
 	// DockerAuthConfig supplies suite-owned credential bindings and HTTPS
 	// endpoint routing for registry-auth observations, never guest config.
 	DockerAuthConfig string
-	// Name is a suite-owned alias, not the sandbox's storage identity.
+	// Name is suite-owned and keys volume storage within the owner scope.
 	Name string
 	// GitIdentityConfig transports a suite-owned test binding in Git config
 	// format, or "off" to withhold it. It does not prescribe runtime storage.
@@ -190,7 +190,7 @@ func (a *Adapter) Status(ctx context.Context, id string) (string, error) {
 }
 
 // Recreate replaces the sandbox's container — a fresh writable layer —
-// preserving instance-owned block storage, including unmounted paths.
+// preserving name-scoped block storage, including unmounted paths.
 // Stop/start preserves the entire
 // filesystem, so it cannot tell a volume from an ordinary directory;
 // recreate is the observation that can.
@@ -198,7 +198,7 @@ func (a *Adapter) Recreate(ctx context.Context, id string) error {
 	return a.RecreateWith(ctx, id, nil, nil)
 }
 
-// RecreateWith changes the composition within the existing instance.
+// RecreateWith changes the composition under the same sandbox name.
 // Kits replace the previous set when nonempty; args override retained
 // argument values. Create-time host bindings remain unchanged.
 func (a *Adapter) RecreateWith(ctx context.Context, id string, kits []string, args map[string]string) error {

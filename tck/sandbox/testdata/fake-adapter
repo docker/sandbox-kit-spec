@@ -73,7 +73,7 @@ if [ "$verb" = create ]; then
       ;;
     esac
   done
-elif [ "$verb" = volume-paths ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
+elif [ "$verb" = volume-paths ] || [ "$verb" = volume-storage ] || [ "$verb" = volume-rm ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
   exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 

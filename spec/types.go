@@ -886,8 +886,9 @@ func SkillsWritable(s AgentSkills) bool {
 	return SkillsMode(s) == SkillsReadWrite
 }
 
-// Volume is CapabilityVolume's config: instance-owned storage at a cleaned
-// destination, independent of the Kit that requested it.
+// Volume is CapabilityVolume's config: private storage at a cleaned
+// destination, independent of the Kit that requested it. Block storage
+// belongs to the owner scope and sandbox name, surviving sandbox deletion.
 type Volume struct {
 	Path string `json:"path" yaml:"path"`
 	Size string `json:"size,omitempty" yaml:"size,omitempty"`
