@@ -48,6 +48,12 @@ func sbxValidateEnvironment(env map[string]string, name, mode string) *report.Fi
 	if env["SANDBOX_NAME"] != name || env["SANDBOX_ID"] == "" || env["IS_SANDBOX"] != "1" {
 		return failing("workload did not receive its assigned sandbox name, a non-empty ID, and IS_SANDBOX=1")
 	}
+	// Agreement between processes cannot detect an ID consistently taken
+	// from a conflicting input instead of the runtime's assigned identity.
+	switch env["SANDBOX_ID"] {
+	case "image-id", "argument-id", "runtime-conflict":
+		return failing("SANDBOX_ID came from an image default, Kit argument export, or explicit runtime override")
+	}
 	for _, value := range env {
 		if strings.Contains(value, HostSentinelValue) {
 			return failing("host workspace or sandbox identity reached the workload")

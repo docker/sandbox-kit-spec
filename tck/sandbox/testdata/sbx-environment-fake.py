@@ -85,10 +85,16 @@ if verb == "create":
         env = {}
     if broken == "sbx-image-wins" and not exports and "sbx-environment" in kits:
         env.update(dict(zip(NAMES, ("/image/workspace", "image-name", "image-id", "image-marker"))))
+    if broken == "sbx-image-id-wins" and not exports and "sbx-environment" in kits:
+        env["SANDBOX_ID"] = "image-id"
     if broken == "sbx-argument-wins" and exports and not overrides:
         env.update(dict(zip(NAMES, ("/argument/workspace", "argument-name", "argument-id", "argument-marker"))))
+    if broken == "sbx-argument-id-wins" and exports and not overrides:
+        env["SANDBOX_ID"] = "argument-id"
     if broken == "sbx-override-wins" and any(overrides.values()):
         env.update(overrides)
+    if broken == "sbx-override-id-wins" and any(overrides.values()):
+        env["SANDBOX_ID"] = overrides["SANDBOX_ID"]
     if broken == "sbx-empty-override-wins" and overrides and not any(overrides.values()):
         env.update(overrides)
     if broken == "sbx-inherits-host":
@@ -153,6 +159,8 @@ elif verb == "exec":
         env = dict(state["environment"])
         if broken == "sbx-process-override-wins":
             env.update(overrides)
+        if broken == "sbx-process-id-override-wins" and "SANDBOX_ID" in overrides:
+            env["SANDBOX_ID"] = overrides["SANDBOX_ID"]
         if broken == "sbx-cwd-changes-workspace" and cwd:
             env["WORKSPACE_DIR"] = cwd
         if action == "process":
