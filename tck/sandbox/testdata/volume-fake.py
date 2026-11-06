@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Instance storage for the volume fixtures, with independently broken duties.
+"""Name-scoped storage for the volume fixtures, with independently broken duties.
 
 The fake models only its shipped fixtures. Guest probes operate on real
 directories; request records choose mounts but cannot stand in for data.
@@ -286,8 +286,10 @@ def apply(record, kits, overrides, recreating=False):
                     if child.is_file():
                         child.chmod(int(previous['mode'] or '0700', 8))
             if (broken != 'volume-ignores-recreate-config'
+                    and not (broken == 'volume-create-ignores-config' and not recreating)
                     and not permits_directional_change(previous, config, path not in record['selected'])):
-                refuse('retained volume configuration changed at ' + path)
+                fields = [f for f in ['size', 'mode', 'tmpfs'] if previous[f] != config[f]]
+                refuse('retained volume configuration changed at ' + path + ': ' + ', '.join(fields))
     if recreating:
         if broken == 'volume-refuses-recomposition' and record['kits'] != kits:
             refuse('equivalent changed-composition recreation rejected')
@@ -341,9 +343,11 @@ def apply(record, kits, overrides, recreating=False):
 if verb == 'create':
     kits, overrides, alias = parse(argv)
     sandbox = 'volume-' + uuid.uuid4().hex
-    root = 'shared' if broken == 'volume-shares-instances' else sandbox
-    if broken == 'volume-reuses-name':
-        root = alias or sandbox
+    root = alias or sandbox
+    if broken == 'volume-shares-instances':
+        root = 'shared'
+    if broken == 'volume-keys-on-instance':
+        root = sandbox
     record = dict(storage=root, alias=alias, kits=[], args={}, allocated={}, selected={})
     previous = storage / root / 'requests.json'
     if previous.exists():
@@ -361,13 +365,39 @@ elif verb == 'volume-paths':
         allocated = json.loads((root / 'requests.json').read_text())
         print(json.dumps(sorted(path for path, config in allocated.items()
                                 if not config['tmpfs'] and destination(record, path).exists())))
+elif verb in ['volume-storage', 'volume-rm']:
+    root = storage / argv[0]
+    previous = root / 'requests.json'
+    allocated = json.loads(previous.read_text()) if previous.exists() else {}
+    record = dict(storage=root.name)
+    if verb == 'volume-storage':
+        print(json.dumps(sorted(path for path, config in allocated.items()
+                                if not config['tmpfs'] and destination(record, path).exists()))
+              if broken != 'volume-hides-retained-storage' else '[]')
+    elif broken != 'volume-ignores-explicit-removal':
+        for path in list(allocated):
+            if len(argv) > 1 and path != argv[1]:
+                continue
+            shutil.rmtree(destination(record, path), ignore_errors=True)
+            if broken != 'volume-removal-keeps-config':
+                del allocated[path]
+        if previous.exists():
+            previous.write_text(json.dumps(allocated))
 elif verb == 'rm':
     sandbox = argv[0]
     record = load(sandbox)
-    if broken != 'volume-retains-after-removal':
-        if broken not in ['volume-reuses-name', 'volume-orphans-after-removal']:
-            shutil.rmtree(storage / record['storage'], ignore_errors=True)
-        record_path(sandbox).unlink()
+    shutil.rmtree(storage / record['storage'] / 'writable', ignore_errors=True)
+    for path, config in list(record['allocated'].items()):
+        if config['tmpfs'] and broken != 'volume-tmpfs-retains-config-on-delete':
+            shutil.rmtree(destination(record, path), ignore_errors=True)
+            del record['allocated'][path]
+    record['selected'] = {}
+    save(sandbox, record)
+    record_path(sandbox).unlink()
+    if broken == 'volume-deletes-on-removal':
+        shutil.rmtree(storage / record['storage'], ignore_errors=True)
+    if broken == 'volume-drops-dormant-on-delete':
+        shutil.rmtree(destination(record, primary), ignore_errors=True)
 elif verb == 'recreate':
     sandbox, *args = argv
     record = load(sandbox)

@@ -1,7 +1,8 @@
 # `com.docker.sandbox/volume@1`
 
 One sandbox-private storage destination. Block storage belongs to the
-sandbox instance and outlives its container; tmpfs is scratch storage.
+sandbox name within its owner scope and outlives sandbox deletion; tmpfs
+is scratch storage.
 
 - **Shape**: instance — one entry per cleaned path in a declaration block;
   duplicates rejected. Matching requests across Kits merge.
@@ -21,7 +22,7 @@ sandbox instance and outlives its container; tmpfs is scratch storage.
 | Field | Type | Rules |
 |---|---|---|
 | `path` | string | REQUIRED. Absolute in-container path. |
-| `size` | string | optional. Byte-size (`512m`, `2g`, `1gib`); suffixes use powers of 1024, with or without `i` or `b`. Omission leaves capacity unspecified. |
+| `size` | string | optional. Dedicated block capacity when enforced, additive to the root disk; a RAM limit for tmpfs. Byte-size (`512m`, `2g`, `1gib`); suffixes use powers of 1024, with or without `i` or `b`. Omission leaves capacity unspecified. |
 | `tmpfs` | bool | optional. RAM-backed mount; contents do not survive a stop. |
 | `mode` | string | optional. Initial octal permissions (`755`, `0755`, `1777`). Omission leaves initial permissions unspecified. |
 
@@ -33,16 +34,26 @@ A conforming runtime:
   hooks can populate it.
 - **MUST** make a block (non-tmpfs) volume persistent across container <!-- tck: volume@1/persists-across-restart -->
   restarts.
-- **MUST** preserve block-volume contents across sandbox recreation. <!-- tck: volume@1/persists-across-recreate -->
-  Recreation replaces the container and its writable layer within the
-  same sandbox instance.
+- **MUST** preserve block-volume contents when re-creating a sandbox, <!-- tck: volume@1/persists-across-recreate -->
+  including delete followed by create under the same owner scope and
+  name. Re-create replaces the container and its writable layer and
+  resolves the composition again, whether through an update operation
+  or delete followed by create.
 - **MUST** back a `tmpfs: true` entry with RAM; its contents are <!-- tck: volume@1/tmpfs-ram-backed -->
   scratch.
-- **MUST** discard tmpfs contents on stop or recreation. <!-- tck: volume@1/tmpfs-cleared -->
-- **SHOULD** apply `size` as a capacity limit and `mode` to the mount <!-- tck: volume@1/size-and-mode-applied -->
+- **MUST** discard tmpfs contents on stop, restart, re-create, or delete. <!-- tck: volume@1/tmpfs-cleared -->
+- **SHOULD** apply `size` as dedicated capacity and `mode` to the mount <!-- tck: volume@1/size-and-mode-applied -->
   root when allocating fresh storage. Reattachment preserves existing
-  permissions. A runtime that cannot enforce `size` MAY treat it as
-  advisory, but retains the declared request for compatibility checks.
+  permissions. An enforced block-volume `size` reserves that many bytes
+  independently of the root filesystem and other volumes: filling one
+  does not consume the capacity available to another. Physical devices
+  may be shared if reservations provide this guarantee. A runtime that
+  cannot enforce `size` MAY treat it as advisory, but retains the declared
+  request for compatibility checks. Tmpfs `size` remains a RAM-backed
+  capacity limit; it does not request block capacity.
+- **MUST** disclose advisory `size` in its capability advertisement or <!-- tck: volume@1/advisory-size-disclosed -->
+  documentation, including when using unreserved root-filesystem space.
+  An omitted `size` leaves capacity to the runtime.
 - Ownership: the mount root **SHOULD** be writable by the agent user <!-- tck: volume@1/agent-writable-root -->
   (uid 1000); Kits that need different ownership fix it in a
   [lifecycle](lifecycle@1.md) startup hook (a fresh mount may come up
@@ -50,17 +61,24 @@ A conforming runtime:
 
 ## Identity and lifetime
 
-A runtime **MUST** isolate storage by sandbox instance and cleaned <!-- tck: volume@1/instance-and-path-identity -->
-destination path. Instance identity is runtime-owned, stable across
-restart and recreation, and distinct for every new sandbox. A name is
-an alias, not storage identity. Kit references, digests, display metadata,
-and `source` attribution do not determine volume identity. Two sandboxes
-composing identical Kits have independent storage.
+A runtime **MUST** isolate block storage by (owner scope, sandbox name, <!-- tck: volume@1/name-and-path-identity -->
+cleaned destination path). Owner scope is the runtime-owned namespace
+used for sandbox names, such as the local host user or a hosted account
+or organization. Reusing a name in that scope reuses its retained
+storage. Different names or owner scopes have independent storage even
+when composing identical Kits. Kit references, digests, display metadata,
+and `source` attribution do not determine volume identity.
+
+If sandbox rename is supported, a runtime **MUST** move all of that <!-- tck: volume@1/rename-follows-storage -->
+name's storage and retained requests to the new name within the same
+owner scope, including unmounted paths. The old name then has no storage.
+A rename to a name with existing storage or a live sandbox refuses
+without changing either name's state; it never merges their data.
 
 A runtime **MUST** reuse existing block storage at a selected path when <!-- tck: volume@1/composition-independent -->
-recreating the same instance, including after Kit updates, changes to
-mixins, or replacement of the workload through the normal permission
-gate. The instance's data remains available to its newly selected
+re-creating under the same owner scope and name, including Kit updates,
+changes to mixins, or replacement of the workload through the normal
+permission gate. The name's data remains available to its newly selected
 composition. Packaging contributions into a published set does not
 change this rule. New destinations receive fresh storage; renaming a
 destination does not move its data.
@@ -71,23 +89,43 @@ reattaches its retained storage, subject to configuration compatibility.
 Retaining data grants no access while its destination is undeclared;
 reintroducing a path goes through the normal widening gate.
 
-Removing a sandbox instance **MUST** delete all its volume storage, <!-- tck: volume@1/removal-deletes-storage -->
-including retained, unmounted destinations. Creating another sandbox
-with the same name or Kits allocates a new instance with fresh storage.
-There is no automatic cross-instance reattachment. This does not require
-secure erasure of the underlying medium.
+Deleting a sandbox **MUST NOT** delete its block-volume storage by <!-- tck: volume@1/delete-retains-storage -->
+default, including retained, unmounted destinations. Delete unmounts it;
+create under the same owner scope and name reattaches selected paths,
+subject to configuration compatibility and the gate. Tmpfs contents are
+discarded. A new name starts with fresh storage.
 
-Before recreating a sandbox, a runtime **MUST** compare each selected <!-- tck: volume@1/recreate-config-compatible -->
-request with any retained request at its destination using the same
-configuration equivalence as composition. This capability permits only
-equivalent retained requests; it does not define a directional transition
-such as accepting a larger minimum size. A difference in `size`, `mode`,
-or `tmpfs` refuses recreation before replacing the container or changing
-storage. It leaves the previous composition and data intact. This applies
-even if a size limit was advisory or permissions were changed inside the
-sandbox. No implicit resize, permission reset, or block/tmpfs conversion
-is performed. Explicit operator-managed data migration or storage reset
-is outside this capability's contract; Kits cannot request it.
+A runtime **MUST** let the operator list retained block storage by <!-- tck: volume@1/retained-storage-listed -->
+sandbox name and cleaned path, including after the sandbox is deleted.
+
+A runtime **MUST** let the operator explicitly remove block storage per <!-- tck: volume@1/explicit-removal-deletes-storage -->
+path or for a whole sandbox name, including unmounted destinations and
+their retained requests. A later create at a removed destination starts
+empty and can use a different configuration. A runtime MAY offer this as
+an opt-in part of sandbox deletion; it is never the default. Removal of
+mounted storage may require stopping or deleting its sandbox first.
+Secure erasure of the underlying medium is not required. Kits cannot
+request storage removal or migration.
+
+A runtime **MUST NOT** silently expire retained storage. A retention or <!-- tck: volume@1/no-silent-expiry -->
+quota policy is allowed only when documented and its removals are visible
+to the user. Such removal ends the affected storage lifetime just as
+explicit removal does.
+
+Before re-creating or creating a sandbox, a runtime **MUST** compare each <!-- tck: volume@1/recreate-config-compatible -->
+selected request with any retained request at its destination using the
+same configuration equivalence as composition. This capability permits
+only equivalent retained requests; it does not define a directional
+transition such as accepting a larger minimum size. A difference in
+`size`, `mode`, or `tmpfs` refuses the operation before allocating storage
+or replacing the container, leaving prior composition and data intact.
+The error names the path and differing setting. This applies even if a
+size limit was advisory or permissions were changed inside the sandbox.
+No implicit resize, permission reset, or block/tmpfs conversion is
+performed. The operator resolves a conflict by restoring the earlier
+configuration or explicitly removing retained storage. A discarded tmpfs
+has no retained storage or request after deletion; a retained block
+request still refuses conversion to tmpfs on a later create.
 
 A runtime **MUST** preserve existing contents and permissions when <!-- tck: volume@1/reattach-preserves-state -->
 reattaching storage. The initial `mode` request is not reapplied.
@@ -95,6 +133,50 @@ reattaching storage. The initial `mode` request is not reapplied.
 A runtime **MUST** allocate new storage with empty contents before <!-- tck: volume@1/initially-empty -->
 lifecycle hooks run; it does not copy files hidden by the mount from the
 image. Hooks may initialize it. Reattached storage retains its contents.
+
+## User-facing lifecycle and durability
+
+The following table applies within one owner scope and sandbox name.
+"Preserved" retains contents and permissions; "fresh" starts empty before
+hooks. Reattachment is subject to configuration compatibility and the
+gate. Unsupported operations need not be offered by a runtime.
+
+| Operation | Block volume | Tmpfs volume |
+|---|---|---|
+| Stop / start, restart | Preserved | Discarded |
+| Hibernate / resume (suspend) | Preserved | MAY be preserved when memory is restored; otherwise discarded |
+| Re-create: Kit update, mixin change, workload replacement | Preserved | Discarded |
+| Delete sandbox | Retained, unmounted | Discarded |
+| Create with retained storage under the same name | Selected paths reattached | Fresh |
+| Create with a new name | Fresh | Fresh |
+| Explicit volume removal | Deleted | Not applicable |
+
+A runtime **MUST** preserve block storage during supported hibernate / <!-- tck: volume@1/preserves-across-suspend-and-move -->
+resume and any host or node move it performs as a normal lifecycle
+operation. This does not require replication or survival of arbitrary
+infrastructure failure.
+
+After infrastructure failure, a runtime **MUST NOT** silently roll back <!-- tck: volume@1/no-silent-rollback -->
+volume contents. Restoring an earlier point in time reports the restore
+and the approximate age of the restored data to the user. Unrecoverable
+data loss fails the sandbox visibly; it does not start with empty storage
+as though newly allocated. Explicit removal or a disclosed retention
+policy is distinct from infrastructure loss.
+
+A runtime **MUST** document its block-volume durability guarantee, <!-- tck: volume@1/durability-documented -->
+including host or disk loss and any recovery-point loss bound. For
+example, it may guarantee survival of single-host loss or disclose that
+host loss can destroy all local data. This capability has no Kit-visible
+replication or durability selector.
+
+A runtime **MUST NOT** attach a name's storage to a different sandbox <!-- tck: volume@1/no-cross-name-reattachment -->
+name, except through the explicit rename above. Copying or migrating data
+is an operator action outside this capability. For host access and
+concurrent sharing across sandboxes composing the same Kit, use
+[host-mount@1](host-mount@1.md): it keys storage on Kit identity and path,
+while `volume@1` keys private storage on owner scope, sandbox name, and
+path. Separately managed volumes attachable to several sandboxes need a
+separate capability contract.
 
 ## Composition
 
@@ -128,3 +210,11 @@ The cleaned path also conflicts with a
 
 The path is permission surface. A new path widens; `size`/`mode` changes do
 not (they constrain, not grant).
+
+A runtime **MUST** identify reattached paths as existing data on the <!-- tck: volume@1/retained-data-surfaced -->
+create permission surface. Reattaching an already granted path is not a
+new grant; reintroducing a path removed from the composition still goes
+through the normal widening gate. Retaining bytes alone grants no access.
+Reusing a name for an unrelated composition can therefore expose that
+name's earlier data within its owner scope, which this surface makes
+visible before create.

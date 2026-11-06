@@ -3,8 +3,9 @@
 One host directory shared with the host and across sandboxes composing
 the same Kit. The runtime chooses its location and mount mechanism;
 Linux bind mounts and VM filesystem sharing can satisfy the same grant.
-Use [volume@1](volume@1.md) for sandbox storage without this sharing
-contract.
+Use [volume@1](volume@1.md) for private storage keyed on owner scope,
+sandbox name, and path. It survives sandbox deletion for reattachment
+under that name, without this host or cross-sandbox sharing contract.
 
 - **Shape**: instance — one entry per path; duplicates rejected.
 - **Permission surface**: yes — the path, separately marked host-shared.

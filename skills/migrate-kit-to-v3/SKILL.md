@@ -115,10 +115,13 @@ descriptor.
 Volume declarations at one cleaned path merge across Kits only when their
 expanded settings match. Equivalent byte-size and octal-mode spellings
 match; unspecified size or mode differs from an explicit value. Block
-storage belongs to the sandbox instance: recreation retains it across
-composition changes, unselected paths remain unmounted until requested
-again, and incompatible settings refuse recreation. Instance removal
-deletes all its volumes; another create with the same name starts fresh.
+storage belongs to the owner scope, sandbox name, and cleaned path:
+re-create and delete followed by create under that name retain it across
+composition changes. Unselected paths remain unmounted until requested
+again, and incompatible retained settings refuse create or re-create.
+Explicit storage removal or a documented, visible retention policy ends
+its lifetime. Enforced block `size` is dedicated capacity additive to the
+root disk; runtimes disclose advisory sizing and durability guarantees.
 Fresh storage starts empty before hooks. Host mounts still have one
 Kit owner and conflict with volumes at the same destination.
 Re-exported volume text inputs remain separate contributions in a

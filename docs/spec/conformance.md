@@ -64,13 +64,15 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, and `--git-identity-config <absolute-path>\|off` each at most once | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, and `--git-identity-config <absolute-path>\|off` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
-| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container within the same instance, preserving block-volume storage and the `dockerd@1` engine store |
-| `rm` | `<id>` | — | End the instance and delete all its volume storage |
-| `volume-paths` | `<id>` | JSON array of cleaned destination paths | Observe allocated block storage, including unmounted destinations |
+| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container under the same sandbox name, preserving block-volume storage and the `dockerd@1` engine store |
+| `rm` | `<id>` | — | Delete the sandbox, retaining its block-volume storage |
+| `volume-paths` | `<id>` | JSON array of cleaned destination paths | Observe allocated block storage, including unmounted destinations, after deletion too |
+| `volume-storage` | `<name>` | JSON array of cleaned destination paths | List retained block storage by sandbox name, without a live sandbox |
+| `volume-rm` | `<name>` and optionally `<cleaned-path>` | — | Explicitly remove retained block storage and requests for one path or the whole name |
 | `wait-idle` | `<id>` | — | Disconnect the final client session and wait beyond the normal auto-stop grace period |
 | `status` | `<id>` | `running` or `stopped` | Observe sandbox state without starting it or attaching a session |
 | `host-mounts` | `<kit-ref>` | JSON array of `{id, path, hostPath}` | List retained host directories for the resolved Kit identity |
@@ -104,10 +106,10 @@ This pair is what separates the lifecycle phases: `install` hooks run once
 at create, `startup` hooks on every boot.
 
 `recreate` **MUST** replace the container — discarding the writable layer —
-while preserving the instance's block-volume storage, including paths
+while preserving the name's block-volume storage, including paths
 no longer selected. With replacement references, the adapter **MUST**
-recreate the same instance with that composition; without them it reuses
-the previous references. Argument overrides replace values by name;
+re-create under the same owner scope and name with that composition;
+without them it reuses the previous references. Argument overrides replace values by name;
 other create-time inputs, including host bindings, remain unchanged.
 The adapter **MUST** keep the suite-facing id usable after recreation,
 even if the runtime changes its container handle. Deliberate refusal
@@ -118,19 +120,47 @@ recreate is the observation that can, and the suite verifies the layer was
 really discarded before crediting anything to the volume.
 
 An adapter claiming `volume@1` **MUST** support `create --name`, changed
-composition recreation, and `volume-paths`. The suite uses a fresh alias
-to distinguish recreation from removal followed by creation under the
-same name. `volume-paths` **MUST** report actual runtime-managed block
-storage, including retained unmounted paths and allocations orphaned by
-instance removal. The suite-facing observation handle **MUST** remain
-usable after instance metadata is removed: an absent instance record
-alone does not establish that its backing allocations were deleted.
-An empty array means no associated block allocation remains. The verb
-**MUST NOT** provision storage or merely echo a descriptor or
-adapter-maintained request list. The adapter **MUST NOT**
-simulate persistence by copying data around a runtime remove/create.
-An adapter without an operation that preserves instance identity and
-volume data on recreation cannot claim `volume@1`.
+composition re-create, `volume-paths`, `volume-storage`, and `volume-rm`.
+The suite uses fresh names within the adapter's owner scope. Both
+in-place re-create and delete followed by create under that name preserve
+block storage; a later create may use different Kits with equivalent
+storage requests. An incompatible retained request returns `2` before
+allocating storage or replacing a container, with the path and differing
+setting on stderr. Deleting tmpfs discards both its data and request.
+
+`volume-paths` **MUST** report actual runtime-managed block storage,
+including retained unmounted paths. Its suite-facing observation handle
+**MUST** remain usable after sandbox metadata is removed.
+`volume-storage` **MUST** report the same allocations by sandbox name,
+including names without a live sandbox. An empty array means no
+associated block allocation remains. Observations **MUST NOT** provision
+storage or merely echo a descriptor or adapter-maintained request list.
+The adapter **MUST NOT** simulate persistence by copying data around a
+runtime remove/create.
+
+`volume-rm` **MUST** invoke the runtime's explicit operator removal,
+removing backing allocations and retained configuration for exactly the
+requested name and optional path in the adapter's owner scope. Removing
+an absent destination is idempotent. It **MUST NOT** remove another name's
+storage or an undeclared host directory. The suite invokes it only after
+removing its sandbox. Normal `rm` **MUST NOT** perform this cleanup.
+
+The suite gives its sandboxes unique names and explicitly removes their
+retained storage during final cleanup. The delete-retains check observes
+storage and reattachment before that cleanup. Failure to remove either a
+sandbox or its retained block storage is reported as a cleanup failure.
+An adapter that cannot observe and remove retained storage cannot claim
+`volume@1`.
+
+The suite uses one owner scope, so it cannot judge cross-owner isolation.
+It records waivers for rename and collisions, suspend and host moves,
+retention-policy notifications, infrastructure-loss recovery,
+documentation disclosure, and existing-data markings on the permission
+surface. It also waives initial mode and capacity reservation: the
+protocol has no enforced/advisory size advertisement, and proving
+independence by exhausting root and sibling volumes would risk unrelated
+test storage. These are conformance duties requiring review beyond the
+automated report, not guarantees inferred from a passing data probe.
 
 Volume data probes run as the agent. Mount-root accessibility is a SHOULD,
 so contents observations report SKIP when the initial root's permissions
