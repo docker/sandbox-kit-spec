@@ -849,7 +849,10 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 		// claim.
 		needs: []string{capAgentContext},
 		run: func(ctx context.Context, e *Env) []report.Finding {
-			id, cleanup, err := e.sandbox(ctx, []string{fixtureSbxWorkload}, nil)
+			id, cleanup, err := e.sandboxWith(ctx, []string{fixtureSbxWorkload}, adapter.CreateOptions{WorkspaceMode: "internal"})
+			if sbxWorkspaceUnavailable(err, "internal") {
+				return []report.Finding{report.Skipf("internal workspace unavailable: %v", err)}
+			}
 			if err != nil {
 				return []report.Finding{report.Failf("create: %v", err)}
 			}
