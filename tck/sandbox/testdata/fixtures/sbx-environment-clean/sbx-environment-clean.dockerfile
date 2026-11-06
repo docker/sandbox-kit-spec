@@ -20,7 +20,10 @@ names = ("WORKSPACE_DIR", "SANDBOX_NAME", "SANDBOX_ID", "IS_SANDBOX")
 env = {name: os.environ[name] for name in names if name in os.environ}
 path = Path("/var/tmp/sbx-agent.env")
 if sys.argv[1] == "launch":
-    path.write_text(json.dumps(env))
+    # Readers use existence as readiness, so publish only complete JSON.
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(env))
+    temporary.replace(path)
     os.execlp("sleep", "sleep", "infinity")
 elif sys.argv[1] == "current":
     print(json.dumps(env))

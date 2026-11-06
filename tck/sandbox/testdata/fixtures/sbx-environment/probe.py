@@ -11,12 +11,18 @@ NAMES = ("WORKSPACE_DIR", "SANDBOX_NAME", "SANDBOX_ID", "IS_SANDBOX")
 def snapshot():
     return {name: os.environ[name] for name in NAMES if name in os.environ}
 
+def record(path):
+    # Readers use existence as readiness, so publish only complete JSON.
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(snapshot()))
+    temporary.replace(path)
+
 mode = sys.argv[1]
 if mode == "launch":
-    Path("/var/tmp/sbx-agent.env").write_text(json.dumps(snapshot()))
+    record(Path("/var/tmp/sbx-agent.env"))
     os.execlp("sleep", "sleep", "infinity")
 elif mode == "record":
-    Path("/var/tmp/sbx-" + sys.argv[2] + ".env").write_text(json.dumps(snapshot()))
+    record(Path("/var/tmp/sbx-" + sys.argv[2] + ".env"))
 elif mode == "read":
     path = Path("/var/tmp/sbx-" + sys.argv[2] + ".env")
     # An adapter may return from create just before the agent is scheduled.
