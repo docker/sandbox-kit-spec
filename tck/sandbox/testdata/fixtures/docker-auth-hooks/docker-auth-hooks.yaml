@@ -1,0 +1,13 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Registry authentication during hooks
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: sh -c 'kit-tck-docker-auth login > /var/tmp/kit-tck-docker-auth-install'
+          env: [KIT_TCK_AUTH_CHALLENGE, DOCKER_CONFIG, HTTPS_PROXY, HTTP_PROXY, NO_PROXY, https_proxy, http_proxy, no_proxy, SSL_CERT_FILE, REQUESTS_CA_BUNDLE]
+      startup:
+        - command: sh -c 'kit-tck-docker-auth login > /var/tmp/kit-tck-docker-auth-startup'
+          env: [KIT_TCK_AUTH_CHALLENGE, DOCKER_CONFIG, HTTPS_PROXY, HTTP_PROXY, NO_PROXY, https_proxy, http_proxy, no_proxy, SSL_CERT_FILE, REQUESTS_CA_BUNDLE]

@@ -8,7 +8,8 @@ the Kit. The host may refuse.
 - **Permission surface**: yes. It counts as
   [`privileged@1`](privileged@1.md) plus storage at `/var/lib/docker`:
   the engine needs the same elevation, and its store is persistent
-  storage, as a [`volume@1`](volume@1.md) there would be.
+  storage, as a [`volume@1`](volume@1.md) there would be. Its lifetime
+  follows this capability's rules below, ending at sandbox deletion.
 
 ## Config
 
@@ -54,13 +55,15 @@ A conforming runtime, whatever `autoStart` says:
 - **MUST** run the sandbox with its platform's elevated-privilege mode <!-- tck: dockerd@1/elevation-granted -->
   when granted, as for `privileged@1`.
 - **MUST** back `/var/lib/docker` with storage private to the sandbox <!-- tck: dockerd@1/storage-private-and-persistent -->
-  that survives stop and start and recreation of the same sandbox
-  (recreation as [`volume@1`](volume@1.md) defines it, including after
-  Kit updates), so images, containers, and build cache outlive a reboot
-  and an update, and no other sandbox reads or writes them.
-- **MUST** delete that storage when the sandbox is removed, as for <!-- tck: dockerd@1/storage-removed-with-sandbox -->
-  `volume@1` storage; removing the sandbox is how its build cache is
-  reclaimed.
+  that survives stop and start and container replacement within the
+  existing sandbox instance, including Kit updates. Images, containers,
+  and build cache outlive a reboot and an in-place update, and no other
+  sandbox reads or writes them. This preservation duty does not cover
+  deleting the sandbox and creating another under the same name.
+- **MUST** delete that storage when the sandbox is removed. <!-- tck: dockerd@1/storage-removed-with-sandbox -->
+  Removing the sandbox is how its build cache is reclaimed. Name-scoped
+  retention and reattachment under `volume@1` do not apply to the engine
+  store.
 - **MUST NOT** give a new sandbox the store of a removed one, even <!-- tck: dockerd@1/removed-store-not-reused -->
   one created under the same name.
 - **MUST NOT** start an engine for a composition that was not granted <!-- tck: dockerd@1/absent-without-grant -->

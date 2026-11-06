@@ -424,6 +424,9 @@ func (c Capability) ConfigStated() bool { return c.configSet || c.Config != nil 
 // one's entries: a singleton appears at most once per descriptor, and an
 // instance-shaped type once per thing requested.
 const (
+	// CapabilityDockerAuth requests host-only Docker registry authentication.
+	CapabilityDockerAuth = "com.docker.sandbox/docker-auth@1"
+
 	// CapabilityNetworkPolicy is the phase-scoped egress policy; config
 	// decodes to PhasedNetwork.
 	CapabilityNetworkPolicy = "com.docker.sandbox/network-policy@1"
@@ -883,8 +886,9 @@ func SkillsWritable(s AgentSkills) bool {
 	return SkillsMode(s) == SkillsReadWrite
 }
 
-// Volume is CapabilityVolume's config: instance-owned storage at a cleaned
-// destination, independent of the Kit that requested it.
+// Volume is CapabilityVolume's config: private storage at a cleaned
+// destination, independent of the Kit that requested it. Block storage
+// belongs to the owner scope and sandbox name, surviving sandbox deletion.
 type Volume struct {
 	Path string `json:"path" yaml:"path"`
 	Size string `json:"size,omitempty" yaml:"size,omitempty"`

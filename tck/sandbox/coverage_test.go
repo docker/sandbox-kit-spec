@@ -113,6 +113,9 @@ var covers = map[string][]string{
 	// the old container; composition changes exercise reattachment too.
 	"volume@1/persists-across-recreate": {"volume@1/persists-across-restart"},
 	"volume@1/composition-independent":  {"volume@1/reattach-preserves-state"},
+	"volume@1/create-config-compatible": {"volume@1/recreate-config-compatible"},
+	"volume@1/delete-retains-storage":   {"volume@1/persists-across-recreate", "volume@1/name-and-path-identity"},
+	"volume@1/name-and-path-identity":   {"volume@1/no-cross-name-reattachment"},
 }
 
 // kitCovers maps a kit-suite CHECK, by its unique name, onto the anchored
@@ -128,6 +131,7 @@ var kitCovers = map[string][]string{
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
 		"host-port@1/config-valid",
+		"docker-auth@1/config-valid",
 		"host-port@1/published-port-conflict",
 		"agent-context@2/inline-only",
 		"host-mount@1/runtime-owned-location",
@@ -202,6 +206,7 @@ var kitCovers = map[string][]string{
 var waived = map[string]string{
 	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
 	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",
+	"docker-auth@1/source-private":          "the adapter supplies synthetic bindings but exposes no inventory of runtime credential sources, helper installations or interception keys, nor their mapping into guest paths; client and network observations cannot prove absence of copies at arbitrary paths",
 	"host-port@1/no-egress-widening":        "selection checks the declared surface, but the adapter has no host interface inventory or controlled external destination to prove no incidental network access",
 	"host-port@1/runtime-listener-conflict": "the adapter does not expose runtime-owned listener addresses; a portable fixture cannot arrange a collision",
 	"host-port@1/loopback-only":             "the adapter has no sandbox interface inventory or host destination trace; loopback reachability alone cannot establish listener binding or arbitrary-destination confinement",
@@ -382,9 +387,16 @@ var waived = map[string]string{
 	"usb-device@1/matching-devices-passed": "needs host hardware the suite cannot assume",
 	"usb-device@1/grant-scoped-to-match":   "needs host hardware the suite cannot assume",
 
-	"volume@1/tmpfs-ram-backed":      "RAM-backing has no reliable in-sandbox symptom",
-	"volume@1/size-and-mode-applied": "SHOULD; the suite probes reattached permissions but does not independently judge initial permissions or capacity enforcement",
-	"volume@1/agent-writable-root":   "SHOULD; data probes need usable mounts but no check independently reports initial root ownership or writability",
+	"volume@1/tmpfs-ram-backed":                  "RAM-backing has no reliable in-sandbox symptom",
+	"volume@1/size-and-mode-applied":             "SHOULD; initial mode and dedicated capacity are not independently judged: the adapter exposes no enforcement claim, and exhausting root and sibling volumes to prove reservation is not safe in the shared test environment",
+	"volume@1/advisory-size-disclosed":           "capability advertisements carry type names only; documentation and advisory enforcement disclosure have no adapter observation",
+	"volume@1/rename-follows-storage":            "the adapter has no rename verb or target-name collision observation",
+	"volume@1/no-silent-expiry":                  "the adapter cannot configure retention/quota policies, advance their clocks, or observe removal notifications",
+	"volume@1/preserves-across-suspend-and-move": "the adapter has no hibernate, resume, or host-move verbs",
+	"volume@1/no-silent-rollback":                "the adapter cannot inject infrastructure loss or observe restore/loss notifications",
+	"volume@1/durability-documented":             "runtime documentation and recovery-point guarantees are outside the adapter protocol",
+	"volume@1/retained-data-surfaced":            "the permission-surface observation reports granted paths but has no existing-data marker or create consent observation",
+	"volume@1/agent-writable-root":               "SHOULD; data probes need usable mounts but no check independently reports initial root ownership or writability",
 }
 
 // specDocs are the documents whose normative statements the guard

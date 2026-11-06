@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -21,6 +21,19 @@ host-mount-accepts-unclaimed | host-mount-refuses-optional | host-mount-unclaime
   claims="${claims//com.docker.sandbox\/host-mount@1/}"
   ;;
 esac
+auth_helper="$(dirname "${BASH_SOURCE[0]}")/docker-auth-fake.py"
+if [ "${1:-}" = create ]; then
+  # Adapter.Create places Kit references before every option.
+  for arg in "${@:2}"; do
+    case "$arg" in --*) break ;; esac
+    case "${arg##*/}" in
+      docker-auth | docker-auth-optional | docker-auth-absent)
+        exec python3 "$auth_helper" "$state" "$claims" "$broken" "$@" ;;
+    esac
+  done
+elif [ -f "$state/docker-auth/${2:-}.json" ]; then
+  exec python3 "$auth_helper" "$state" "$claims" "$broken" "$@"
+fi
 host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
@@ -72,7 +85,7 @@ if [ "$verb" = create ]; then
       ;;
     esac
   done
-elif [ "$verb" = volume-paths ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
+elif [ "$verb" = volume-paths ] || [ "$verb" = volume-storage ] || [ "$verb" = volume-rm ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
   exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 
