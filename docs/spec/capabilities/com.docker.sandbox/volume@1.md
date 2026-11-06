@@ -36,9 +36,11 @@ A conforming runtime:
   restarts.
 - **MUST** preserve block-volume contents when re-creating a sandbox, <!-- tck: volume@1/persists-across-recreate -->
   including delete followed by create under the same owner scope and
-  name. Re-create replaces the container and its writable layer and
-  resolves the composition again, whether through an update operation
-  or delete followed by create.
+  name. In this capability, re-create replaces the container and its
+  writable layer and resolves the composition again, whether through an
+  update operation or delete followed by create. The engine store managed by
+  [dockerd@1](dockerd@1.md) follows its own lifetime and ends at sandbox
+  deletion.
 - **MUST** back a `tmpfs: true` entry with RAM; its contents are <!-- tck: volume@1/tmpfs-ram-backed -->
   scratch.
 - **MUST** discard tmpfs contents on stop, restart, re-create, or delete. <!-- tck: volume@1/tmpfs-cleared -->

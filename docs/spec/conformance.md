@@ -114,6 +114,12 @@ other create-time inputs, including host bindings, remain unchanged.
 The adapter **MUST** keep the suite-facing id usable after recreation,
 even if the runtime changes its container handle. Deliberate refusal
 returns `2` and leaves the previous composition and storage intact.
+For `dockerd@1`, the engine store survives container replacement within
+an existing sandbox instance; ordinary sandbox deletion ends that store.
+The `volume@1` definition that also preserves data through same-name
+delete/create applies only to its declared volumes. An adapter using
+delete/create for `recreate` still has to satisfy the engine-store
+preservation duty whenever `dockerd@1` is selected.
 Because stop/start preserves the writable layer, it cannot distinguish
 a block volume from an ordinary directory;
 recreate is the observation that can, and the suite verifies the layer was
