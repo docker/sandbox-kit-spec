@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/docker-auth@1",
+  "description": "Host-only Docker registry authentication using login and bearer placeholders. Registries may delegate authentication through verified HTTPS challenges. Does not grant egress or start Docker.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["registries"],
+  "properties": {
+    "registries": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/definitions/registry"}
+    }
+  },
+  "definitions": {
+    "registry": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$",
+          "maxLength": 253,
+          "not": {"pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$"}
+        },
+        {"$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"}
+      ]
+    }
+  }
+}

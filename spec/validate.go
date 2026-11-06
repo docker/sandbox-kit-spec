@@ -976,6 +976,9 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 		// one of the two away — after which the evidence is gone
 		// and the strict pass at the end sees a valid descriptor.
 		c.errs.add(validatePresenceRules(path, i, n))
+		if n.Type == CapabilityDockerAuth {
+			c.errs.add(validateDockerAuthNeed(path, i, n))
+		}
 		return c
 	}
 	c.decodeFailed = !c.checkTyped(path, i, n)
@@ -986,6 +989,11 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 // reports false when it stopped before reaching the end of its checks.
 func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 	switch n.Type {
+	case CapabilityDockerAuth:
+		if err := validateDockerAuthNeed(path, i, n); err != nil {
+			c.errs.add(err)
+			return false
+		}
 	case CapabilityNetworkPolicy:
 		var p PhasedNetwork
 		if err := DecodeCapabilityConfig(n, &p); err != nil {

@@ -188,6 +188,7 @@ ENTRY
 WORKDIR /home/agent/workspace
 ENTRYPOINT ["kit-tck-git-identity", "workload", "/usr/local/bin/kit-tck-workload-entrypoint"]
 
+COPY --chmod=0755 kit-tck-docker-auth.py /usr/local/bin/kit-tck-docker-auth
 COPY --chmod=0755 kit-tck-git-identity /usr/local/bin/kit-tck-git-identity
 RUN git config --global user.name "Image Author" \
  && git config --global user.email image@example.invalid \

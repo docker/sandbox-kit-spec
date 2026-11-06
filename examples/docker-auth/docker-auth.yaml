@@ -1,0 +1,29 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Host Docker authentication
+description: Authenticate registry token requests without exposing the host Docker login
+version: "1.0.0"
+provides: ["docker-auth@1.0.0"]
+
+args:
+  docker_registry:
+    default: docker.io
+    enum: [docker.io, ghcr.io]
+    description: Registry authenticated by the host gateway
+
+capabilities:
+  - type: com.docker.sandbox/docker-auth@1
+    config:
+      registries: ["${{ kit.args.docker_registry }}"]
+
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      runtime:
+        # Authentication grants no egress. Add specific blob/CDN hosts
+        # required by the images being pulled, rather than allowing all.
+        allow:
+          - registry-1.docker.io
+          - auth.docker.io
+          - ghcr.io
+          - pkg-containers.githubusercontent.com

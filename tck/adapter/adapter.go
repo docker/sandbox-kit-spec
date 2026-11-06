@@ -61,6 +61,9 @@ func (a *Adapter) Capabilities(ctx context.Context) ([]string, error) {
 
 // CreateOptions shape one create call beyond the kit set itself.
 type CreateOptions struct {
+	// DockerAuthConfig supplies suite-owned credential bindings and HTTPS
+	// endpoint routing for registry-auth observations, never guest config.
+	DockerAuthConfig string
 	// Name is suite-owned and keys volume storage within the owner scope.
 	Name string
 	// GitIdentityConfig transports a suite-owned test binding in Git config
@@ -112,6 +115,9 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 	argv := append([]string{"create"}, kits...)
 	if opts.Name != "" {
 		argv = append(argv, "--name", opts.Name)
+	}
+	if opts.DockerAuthConfig != "" {
+		argv = append(argv, "--docker-auth-config", opts.DockerAuthConfig)
 	}
 	if opts.GitIdentityConfig != "" {
 		argv = append(argv, "--git-identity-config", opts.GitIdentityConfig)
