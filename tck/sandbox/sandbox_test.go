@@ -408,6 +408,11 @@ var mutations = map[string][]string{
 	"volume-root-not-writable+volume-refusal-corrupts-dormant-mode":  {"volume@1/recreate-config-compatible"},
 	"volume-root-not-readable+volume-refusal-corrupts-dormant-mode":  {"volume@1/recreate-config-compatible"},
 
+	"volume-create-refusal-resets-mode":  {"volume@1/create-config-compatible"},
+	"volume-create-reattach-resets-mode": {"volume@1/create-config-compatible"},
+	"volume-removal-wipes-other-data":    {"volume@1/explicit-removal-deletes-storage"},
+	"volume-removal-wipes-sibling-data":  {"volume@1/explicit-removal-deletes-storage"},
+
 	"volume-hides-retained-storage":         {"volume@1/retained-storage-listed"},
 	"volume-ignores-explicit-removal":       {"volume@1/explicit-removal-deletes-storage"},
 	"volume-removal-keeps-config":           {"volume@1/explicit-removal-deletes-storage"},

@@ -123,9 +123,6 @@ func (e *Env) sandboxWith(ctx context.Context, kits []string, opts adapter.Creat
 		refs = append(refs, e.Fixtures(name))
 	}
 	id, err := e.Adapter.Create(ctx, refs, opts)
-	if err != nil {
-		return "", func() {}, err
-	}
 	cleanup := func() {
 		// Removal must survive the check's context: a cancelled or timed
 		// out check is exactly when a sandbox would otherwise be left
@@ -133,15 +130,23 @@ func (e *Env) sandboxWith(ctx context.Context, kits []string, opts adapter.Creat
 		// creates.
 		rmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 		defer cancel()
-		if err := e.Adapter.Remove(rmCtx, id); err != nil {
-			e.leaked = append(e.leaked, fmt.Sprintf("%s: %v", id, err))
-			return
+		if id != "" {
+			if err := e.Adapter.Remove(rmCtx, id); err != nil {
+				e.leaked = append(e.leaked, fmt.Sprintf("%s: %v", id, err))
+				return
+			}
 		}
 		if e.claims(capVolume) {
 			if err := e.Adapter.RemoveVolumeStorage(rmCtx, opts.Name, ""); err != nil {
 				e.volumeLeaks = append(e.volumeLeaks, fmt.Sprintf("%s: %v", opts.Name, err))
 			}
 		}
+	}
+	if err != nil {
+		// A failed create may have allocated storage before returning no id.
+		// Callers often return immediately on error, so reclaim it here.
+		cleanup()
+		return "", func() {}, err
 	}
 	return id, cleanup, nil
 }

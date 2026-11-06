@@ -435,17 +435,19 @@ func volumeExplicitRemoval(ctx context.Context, e *Env) []report.Finding {
 	defer other.cleanup(ctx)
 	kits := []string{fixtureWorkload, "volume-state"}
 	var findings []report.Finding
+	seeded := map[string]map[string]bool{}
 	for _, name := range []*volumeName{v, other} {
 		if err := name.create(ctx, kits, nil); err != nil {
 			return []report.Finding{report.Failf("control create: %v", err)}
 		}
-		if name == v {
-			if f := volumeSeed(ctx, e, v.id, volumePath, "marker", "discard"); len(f) > 0 {
-				if f[0].Severity != report.Skip {
-					return f
-				}
-				findings = append(findings, f...)
+		seeded[name.name] = map[string]bool{}
+		for _, path := range []string{volumePath, volumeOtherPath} {
+			f := volumeSeed(ctx, e, name.id, path, "marker", name.name+":"+path)
+			if len(f) > 0 && f[0].Severity != report.Skip {
+				return f
 			}
+			findings = append(findings, f...)
+			seeded[name.name][path] = len(f) == 0
 		}
 		if err := name.remove(ctx); err != nil {
 			return []report.Finding{report.Failf("delete: %v", err)}
@@ -467,6 +469,24 @@ func volumeExplicitRemoval(ctx context.Context, e *Env) []report.Finding {
 		if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
 			return []report.Finding{report.Failf("removal altered another name: %v (%v)", paths, err)}
 		}
+		// Allocation directories can survive even when a removal wiped their
+		// contents. Reattach the control name to judge the retained bytes.
+		if err := other.create(ctx, kits, nil); err != nil {
+			return []report.Finding{report.Failf("reattach control name: %v", err)}
+		}
+		for _, path := range []string{volumePath, volumeOtherPath} {
+			if f := volumeProbe(ctx, e, other.id, "mounted", path, "", "", ""); len(f) > 0 {
+				return f
+			}
+			if seeded[other.name][path] {
+				if f := volumeProbe(ctx, e, other.id, "read", path, "marker", "", other.name+":"+path); len(f) > 0 {
+					return f
+				}
+			}
+		}
+		if err := other.remove(ctx); err != nil {
+			return []report.Finding{report.Failf("delete control name: %v", err)}
+		}
 		// A new configuration proves removal cleared retained requests too.
 		mode := "0755"
 		if destination == "" {
@@ -475,13 +495,23 @@ func volumeExplicitRemoval(ctx context.Context, e *Env) []report.Finding {
 		if err := v.create(ctx, kits, map[string]string{"volume_mode": mode}); err != nil {
 			return []report.Finding{report.Failf("create after explicit removal: %v", err)}
 		}
-		if f := volumeAccess(ctx, e, v.id, volumePath, "readable"); len(f) > 0 {
-			if f[0].Severity != report.Skip {
+		freshPaths := []string{volumePath}
+		if destination == "" {
+			freshPaths = append(freshPaths, volumeOtherPath)
+		} else if seeded[v.name][volumeOtherPath] {
+			if f := volumeProbe(ctx, e, v.id, "read", volumeOtherPath, "marker", "", v.name+":"+volumeOtherPath); len(f) > 0 {
 				return f
 			}
-			findings = append(findings, f...)
-		} else if f := volumeProbe(ctx, e, v.id, "empty", volumePath, "", "", ""); len(f) > 0 {
-			return f
+		}
+		for _, path := range freshPaths {
+			if f := volumeAccess(ctx, e, v.id, path, "readable"); len(f) > 0 {
+				if f[0].Severity != report.Skip {
+					return f
+				}
+				findings = append(findings, f...)
+			} else if f := volumeProbe(ctx, e, v.id, "empty", path, "", "", ""); len(f) > 0 {
+				return f
+			}
 		}
 		// Seed bytes so the second removal cannot pass by forgetting only
 		// the allocation index while reusing the old backing directory.
@@ -514,6 +544,11 @@ func volumeCreateConflicts(ctx context.Context, e *Env) []report.Finding {
 			if !seeded && findings[0].Severity != report.Skip {
 				return findings
 			}
+			if seeded {
+				if f := volumeProbe(ctx, e, v.id, "set-mode", volumePath, "marker", "0600", ""); len(f) > 0 {
+					return f
+				}
+			}
 			if err := v.remove(ctx); err != nil {
 				return []report.Finding{report.Failf("delete: %v", err)}
 			}
@@ -539,7 +574,10 @@ func volumeCreateConflicts(ctx context.Context, e *Env) []report.Finding {
 				return []report.Finding{report.Failf("create with original settings: %v", err)}
 			}
 			if seeded {
-				return volumeProbe(ctx, e, v.id, "read", volumePath, "marker", "", "unchanged")
+				if f := volumeProbe(ctx, e, v.id, "read", volumePath, "marker", "", "unchanged"); len(f) > 0 {
+					return f
+				}
+				return volumeProbe(ctx, e, v.id, "mode", volumePath, "marker", "", "600\n")
 			}
 			return findings
 		}()

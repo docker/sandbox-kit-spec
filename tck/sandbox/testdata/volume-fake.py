@@ -281,7 +281,8 @@ def apply(record, kits, overrides, recreating=False):
                 shutil.rmtree(storage / record['storage'] / 'writable', ignore_errors=True)
             if broken == 'volume-refusal-destroys-storage':
                 shutil.rmtree(storage / record['storage'] / 'volumes', ignore_errors=True)
-            if broken == 'volume-refusal-resets-mode':
+            if (broken == 'volume-refusal-resets-mode'
+                    or (not recreating and broken == 'volume-create-refusal-resets-mode')):
                 for child in destination(record, path).iterdir():
                     if child.is_file():
                         child.chmod(int(previous['mode'] or '0700', 8))
@@ -311,6 +312,10 @@ def apply(record, kits, overrides, recreating=False):
         if fresh or broken == 'volume-resets-mode':
             target.chmod(int(config['mode'] or '0700', 8))
         if not fresh and broken == 'volume-resets-mode':
+            for child in target.iterdir():
+                if child.is_file():
+                    child.chmod(int(config['mode'] or '0700', 8))
+        if not fresh and not recreating and broken == 'volume-create-reattach-resets-mode':
             for child in target.iterdir():
                 if child.is_file():
                     child.chmod(int(config['mode'] or '0700', 8))
@@ -383,6 +388,25 @@ elif verb in ['volume-storage', 'volume-rm']:
                 del allocated[path]
         if previous.exists():
             previous.write_text(json.dumps(allocated))
+        if broken == 'volume-removal-wipes-other-data':
+            for allocation in storage.iterdir():
+                if allocation == root or not (allocation / 'volumes').is_dir():
+                    continue
+                for target in (allocation / 'volumes').iterdir():
+                    if target.is_dir():
+                        for child in target.iterdir():
+                            if child.is_dir():
+                                shutil.rmtree(child)
+                            else:
+                                child.unlink()
+        if broken == 'volume-removal-wipes-sibling-data' and len(argv) > 1:
+            for path in allocated:
+                if path != argv[1]:
+                    for child in destination(record, path).iterdir():
+                        if child.is_dir():
+                            shutil.rmtree(child)
+                        else:
+                            child.unlink()
 elif verb == 'rm':
     sandbox = argv[0]
     record = load(sandbox)
