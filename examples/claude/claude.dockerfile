@@ -43,8 +43,7 @@ RUN chmod 0755 /opt/claude-sessions/interactive-sessions.mjs
 COPY scripts/sbx-agent-hook.sh /usr/local/bin/sbx-claude-hook
 RUN chmod 0755 /usr/local/bin/sbx-claude-hook
 
-# v2's environment.variables, in the slot OCI already owns for static env.
-ENV IS_SANDBOX=1
+# sbx@1 supplies IS_SANDBOX; the image declares process identity and cwd.
 USER agent
 WORKDIR /home/agent/workspace
 # v2's sandbox.entrypoint.

@@ -373,11 +373,13 @@ that needs nothing from create time. Keep it a hook when:
 - `files[].onlyIfMissing: true` → `overwrite: false`.
 - `files[].content` expands `${{ kit.args.* }}` and `${{ kit.env.* }}` at
   create. Environment references use the final container environment:
-  composed image defaults, then argument exports, then runtime overrides.
+  composed image defaults, then argument exports, then runtime overrides,
+  followed by `sbx@1`'s runtime-owned workspace and sandbox identity.
   This is string substitution, not shell evaluation; `$VAR`, `${VAR}`,
   and `~/` remain literal in the file. For v2 `${WORKDIR}` substitution,
-  use `${{ kit.env.WORKSPACE_DIR }}` when the runtime supplies that
-  variable in the final environment. Missing variables are errors.
+  use `${{ kit.env.WORKSPACE_DIR }}` for an assigned workspace. `sbx@1`
+  supplies it for internal, mounted, and cloned workspaces, and leaves
+  it unset with no workspace. Missing variables are errors.
   Otherwise, keep `$WORKSPACE_DIR` inside a script for the shell to
   expand when it runs, or write the file from an install hook declaring
   `env: [WORKSPACE_DIR]`. The v3 hook variable is `WORKSPACE_DIR`.
@@ -489,6 +491,13 @@ the declared user can execute and declare a non-empty `user` that resolves in
 `/etc/passwd`. Naming an absolute shipped file in `BASH_ENV` is a **SHOULD** on
 the capability page rather than a MUST, and `kit-tck` warns rather than failing
 when it is missing.
+
+`sbx@1` also supplies runtime-owned `WORKSPACE_DIR`, `SANDBOX_NAME`,
+`SANDBOX_ID`, and `IS_SANDBOX=1`. These override image defaults, argument
+exports, and explicit runtime or process inputs. `WORKSPACE_DIR` is unset
+with no assigned workspace; it does not identify whether a workspace is
+host-mounted. Keep the ID opaque. Hooks request each needed name in
+`env`; these names do not join the automatic baseline.
 
 ### dockerd@1
 
@@ -638,8 +647,9 @@ environment can carry:
 - `displayName: <Name> (mixin)`, and a description that says to layer it onto a
   shell base and run the tool.
 
-v2 `environment.variables` becomes `ENV` in a mixin too. Env is one of the
-**additive** image-config fields that merge at assembly, so a mixin's `ENV`
+v2 `environment.variables` becomes `ENV` in a mixin too, except for
+`sbx@1`'s runtime-owned workspace and sandbox identity names. Drop
+`IS_SANDBOX=1` from recipes and shell profiles; the runtime supplies it. Env is one of the **additive** image-config fields that merge at assembly, so a mixin's `ENV`
 does reach the composed image; only the contract fields the workload anchors —
 entrypoint, cmd, user, workdir — are ignored. Put it on the recipe's **final**
 stage, since a build stage's config is discarded.
@@ -662,7 +672,6 @@ RUN ...
 # The overlay: lands on any base.
 FROM scratch
 COPY --from=build /out /
-ENV IS_SANDBOX=1
 ```
 
 Where an install resists relocation — `uv tool install`, npm global installs —

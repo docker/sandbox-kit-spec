@@ -488,7 +488,12 @@ optional.
 This is the final **container** environment, not the host process's
 `os.Environ` and not only the values declared by Kits. Image defaults are
 composed first, create-argument `env` exports replace them, and explicit
-runtime environment overrides win last.
+runtime environment overrides win last. Capabilities may define
+runtime-owned names: for workloads accepting
+[`sbx@1`](capabilities/com.docker.sandbox/sbx@1.md#workspace-and-sandbox-environment),
+its workspace and sandbox identity values are applied after those inputs,
+including removal of `WORKSPACE_DIR` when no workspace is assigned. These
+values are part of the create-time environment used for expansion.
 
 Runtimes **MUST** expand these references at create, before strict <!-- tck: SPEC-v3 §6/env-expanded -->
 validation, capability selection, reconciliation, and the permission

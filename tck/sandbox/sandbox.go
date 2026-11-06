@@ -228,6 +228,10 @@ func runChecks(ctx context.Context, e *Env, selected []check) (rep report.Report
 	e.Adapter.Dir = markedHome
 	e.Adapter.Env = append(e.Adapter.Env,
 		HostSentinelName+"="+HostSentinelValue,
+		"WORKSPACE_DIR=/"+HostSentinelValue,
+		"SANDBOX_NAME="+HostSentinelValue,
+		"SANDBOX_ID="+HostSentinelValue,
+		"IS_SANDBOX="+HostSentinelValue,
 		SecretName+"="+e.Secret,
 		SkillNameVar+"="+SkillName,
 		"TERM="+HostSentinelValue,

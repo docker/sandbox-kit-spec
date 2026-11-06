@@ -19,7 +19,7 @@ RUN HOME=/build bash -c 'curl -fsS https://cursor.com/install | bash' \
 # profile applies over the base's value instead, at the cost of not
 # reaching a process started outside a login shell.
 RUN mkdir -p /out/etc/profile.d \
- && printf '%s\n' 'export IS_SANDBOX=1' 'export AGENT_CLI_CREDENTIAL_STORE=memory' \
+ && printf '%s\n' 'export AGENT_CLI_CREDENTIAL_STORE=memory' \
       > /out/etc/profile.d/cursor-env.sh
 
 # The overlay: the agent tree and its bin shim, landing on any base.

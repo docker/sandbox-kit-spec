@@ -54,7 +54,6 @@ RUN chmod 0755 /out/usr/local/bin/sbx-codex-hook && chown 0:0 /out/usr/local/bin
 # hanging on an interactive credential prompt in a headless sandbox.
 RUN mkdir -p /out/etc/profile.d && cat > /out/etc/profile.d/codex-env.sh <<'EOF'
 export BROWSER=xdg-open
-export IS_SANDBOX=1
 export GIT_TERMINAL_PROMPT=0
 EOF
 

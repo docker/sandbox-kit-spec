@@ -38,6 +38,18 @@ host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
 
+# Environment probes keep sandbox identity separate from the adapter handle.
+environment_helper="$(dirname "${BASH_SOURCE[0]}")/sbx-environment-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    if [ "${arg##*/}" = sbx-environment ] || [ "${arg##*/}" = sbx-environment-clean ]; then
+      exec python3 "$environment_helper" "$state" "$broken" "$verb" "$@"
+    fi
+  done
+elif [ -f "$state/sbx-environment/${1:-}.json" ]; then
+  exec python3 "$environment_helper" "$state" "$broken" "$verb" "$@"
+fi
+
 host_port_helper="$(dirname "${BASH_SOURCE[0]}")/host-port-fake.py"
 if [ "$verb" = create ]; then
   for arg in "$@"; do
@@ -229,8 +241,13 @@ create)
   group_rejected=no
   lifecycle_rejected=no
   sandbox_name=""
+  workspace_mode="${KIT_TCK_FAKE_DEFAULT_WORKSPACE:-internal}"
   while [ $# -gt 0 ]; do
     case "$1" in
+    --workspace-mode)
+      workspace_mode="$2"
+      shift 2
+      ;;
     --name)
       sandbox_name="$2"
       shift 2
@@ -576,6 +593,7 @@ create)
   id="sbx-$$-${RANDOM}"
   dir="$state/$id"
   mkdir -p "$dir"
+  printf '%s' "$workspace_mode" >"$dir/workspace-mode"
   echo running >"$dir/status"
   # The probe the workload fixture ships, which the fake runs itself.
   for kit in "${kits[@]}"; do
@@ -1155,7 +1173,7 @@ exec)
       ;;
     /home/agent/AGENTS.md) cat "$dir/profile" ;;
     /home/sbxagent/AGENTS.md)
-      if [ -f "$dir/sbx" ] && [ "$broken" != "workspace-at-fixed-path" ]; then
+      if [ -f "$dir/sbx" ] && [ "$broken" != "workspace-at-fixed-path" ] && [ "$(cat "$dir/workspace-mode")" != none ]; then
         cat "$dir/profile"
       else
         echo "no such file: $2" >&2

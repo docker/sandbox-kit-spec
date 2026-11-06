@@ -66,6 +66,10 @@ type CreateOptions struct {
 	DockerAuthConfig string
 	// Name is suite-owned and keys volume storage within the owner scope.
 	Name string
+	// WorkspaceMode arranges an internal, host-mounted, cloned, or absent
+	// workspace (internal, host, cloned, none). Empty uses the runtime default.
+	// Unsupported modes return ExitRefused without creating a sandbox.
+	WorkspaceMode string
 	// GitIdentityConfig transports a suite-owned test binding in Git config
 	// format, or "off" to withhold it. It does not prescribe runtime storage.
 	GitIdentityConfig string
@@ -76,7 +80,8 @@ type CreateOptions struct {
 	Args map[string]string
 
 	// Env overrides the final container environment, passed as --env name=value.
-	// These values take precedence over image defaults and Kit argument exports.
+	// These values take precedence over image defaults and Kit argument exports,
+	// except for runtime-owned sbx@1 workspace and identity names.
 	Env map[string]string
 
 	// SkillsHostMode, when set, is the host-side skills setting the
@@ -115,6 +120,9 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 	argv := append([]string{"create"}, kits...)
 	if opts.Name != "" {
 		argv = append(argv, "--name", opts.Name)
+	}
+	if opts.WorkspaceMode != "" {
+		argv = append(argv, "--workspace-mode", opts.WorkspaceMode)
 	}
 	if opts.DockerAuthConfig != "" {
 		argv = append(argv, "--docker-auth-config", opts.DockerAuthConfig)
@@ -164,6 +172,26 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 // Exec runs a command inside a sandbox, proxying its exit status.
 func (a *Adapter) Exec(ctx context.Context, id string, argv ...string) (Result, error) {
 	return a.run(ctx, append([]string{"exec", id, "--"}, argv...)...)
+}
+
+// ExecOptions controls a runtime-launched process, without wrapping it in
+// a guest shell whose own assignments would bypass runtime precedence.
+type ExecOptions struct {
+	Env map[string]string
+	Cwd string
+}
+
+// ExecWith launches a process with explicit environment and cwd inputs.
+func (a *Adapter) ExecWith(ctx context.Context, id string, opts ExecOptions, argv ...string) (Result, error) {
+	args := []string{"exec", id}
+	if opts.Cwd != "" {
+		args = append(args, "--cwd", opts.Cwd)
+	}
+	for _, name := range sortedKeys(opts.Env) {
+		args = append(args, "--env", name+"="+opts.Env[name])
+	}
+	args = append(args, "--")
+	return a.run(ctx, append(args, argv...)...)
 }
 
 // WaitIdle exercises final-session disconnection and waits beyond the

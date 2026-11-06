@@ -64,8 +64,8 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, and `--docker-auth-config <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
-| `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, and `--docker-auth-config <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
+| `exec` | `<id>`, optional `--cwd <absolute-path>` and zero or more `--env name=value`, then `-- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
 | `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container under the same sandbox name, preserving block-volume storage and the `dockerd@1` engine store |
@@ -81,13 +81,48 @@ An adapter **MUST NOT** require interactive input.
 
 `create --env name=value` supplies a container environment override.
 Adapters **MUST** apply it after image defaults and Kit argument exports,
-before expanding `${{ kit.env.NAME }}` references. An empty value is a
+before expanding `${{ kit.env.NAME }}` references. Runtime-owned
+`sbx@1` workspace and sandbox identity values take precedence over these
+inputs, as specified by that capability. An empty value is a
 present override; values are literal and are not shell-expanded. These
 flags do not change the adapter process's own environment. The
 `SPEC-v3 §6/env-expanded` check compares a declared file's content with
 its final environment value: an image default without any argument
 exports, a distinct argument export, a distinct runtime override, and
 an empty override.
+
+Adapters claiming `sbx@1` **MUST** support `create --name` for the identity
+checks. This alias is the requested sandbox name; it need not match the
+adapter's returned handle or `SANDBOX_ID`, which the suite treats as
+separate opaque values.
+
+For `sbx@1` environment checks, `create --workspace-mode` asks the
+adapter to arrange an assigned internal, host-mounted, or cloned
+workspace, or genuinely no assigned workspace (`none`). Host and cloned
+scenarios use suite-owned disposable sources, never user projects, and
+the assigned destination follows the workload's absolute image
+`WORKDIR`. Adapters **MUST** use the runtime's real workspace assignment
+and injection paths, without synthesizing the variables in a wrapper or
+editing the probe output. The suite observes environment values, not the
+workspace mechanism; arranging the requested mechanism is the adapter's
+duty. Workspace preparation need not finish before the environment probe.
+
+An unavailable scenario **MUST** return exit `2` with exactly
+`unsupported workspace mode: <mode>` on stderr, before creating any
+sandbox or other resources. This produces an explicit scenario skip,
+not a pass for that mode. Other refusals remain failures. Without this
+option the runtime's normal create path is always judged. Remote
+adapters that cannot arrange disposable host sources record that limit
+rather than treating an internal workspace as a mounted or cloned one.
+
+The bundled sbx adapter arranges internal workspaces; host and clone
+bindings are not implemented by this adapter, and sbx has no genuinely
+workspace-free mode. Those scenario checks report skips. Its `recreate`
+emulation removes and creates a sandbox, so it cannot establish
+`sbx@1/identity-stable` through container replacement: a changed ID there
+is a finding, not evidence that an actual in-place replacement changes
+identity. Rename is waived in the suite's normative accounting because
+the adapter protocol has no rename operation.
 
 `capabilities` is what makes a partial implementation testable: the suite
 skips the types a runtime does not claim, and asserts that a Kit
@@ -96,6 +131,11 @@ under-provisioned.
 
 `exec` **MUST** proxy the command's exit status as its own, and **MUST
 NOT** allocate a TTY. The argv after `--` is passed through unmodified.
+`--cwd` and `--env` **MUST** be passed through the runtime's process
+launch interface, with its `sbx@1` runtime-owned values applied before
+launch. They are not guest shell assignments: the suite tests runtime
+precedence and a cwd different from the assigned workspace. An adapter
+cannot enforce the result by filtering the requested inputs itself.
 It **MUST** run the command as the sandbox's agent identity: several
 requirements are about who the sandbox does things as, and an `exec` of
 the runtime's choosing would answer for a user the agent never is.
@@ -352,6 +392,13 @@ identity is recorded as skipped, with its rejected member, and is absent
 from selected records.
 
 ### 2.3 Known values the suite arranges
+
+The suite seeds `WORKSPACE_DIR`, `SANDBOX_NAME`, `SANDBOX_ID`, and
+`IS_SANDBOX` in the adapter's host environment with distinct-from-sandbox
+sentinel values. A later host name change during the stability check
+also detects re-expansion of persisted descriptor references. These
+inputs are never sandbox assignments; an adapter that unsets them before
+invoking its runtime hides accidental host inheritance.
 
 Several requirements are about what must **not** appear, and absence
 cannot be judged against an unknown value. The suite therefore places
