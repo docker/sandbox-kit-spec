@@ -782,6 +782,11 @@ var mutations = map[string][]string{
 	"sbx-id-changes-on-recreate":   {"sbx@1/identity-stable"},
 	"sbx-keeps-container-layer":    {"sbx@1/identity-stable"},
 	"sbx-reuses-deleted-id":        {"sbx@1/identity-new-after-deletion"},
+
+	"sbx-hooks-share-wrong-name":      {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
+	"sbx-hooks-share-wrong-id":        {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
+	"sbx-hooks-share-wrong-marker":    {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
+	"sbx-hooks-share-wrong-workspace": {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
 }
 
 func TestEachCheckFailsWhenItsBehaviorIsAbsent(t *testing.T) {

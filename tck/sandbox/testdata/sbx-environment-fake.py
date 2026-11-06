@@ -99,6 +99,16 @@ if verb == "create":
         env.update(overrides)
     if broken == "sbx-inherits-host":
         env.update({key: os.environ[key] for key in NAMES if key in os.environ})
+    if hooks:
+        shared_errors = {
+            "sbx-hooks-share-wrong-name": ("SANDBOX_NAME", "another-sandbox"),
+            "sbx-hooks-share-wrong-id": ("SANDBOX_ID", "runtime-conflict"),
+            "sbx-hooks-share-wrong-marker": ("IS_SANDBOX", "true"),
+            "sbx-hooks-share-wrong-workspace": ("WORKSPACE_DIR", "/wrong/workspace"),
+        }
+        if broken in shared_errors:
+            key, value = shared_errors[broken]
+            env[key] = value
     expanded = dict(env) if hooks else {}
     if not reference:
         expanded.pop("WORKSPACE_DIR", None)

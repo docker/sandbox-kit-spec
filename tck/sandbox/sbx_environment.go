@@ -167,7 +167,11 @@ func sbxEnvironmentHooks(ctx context.Context, e *Env, mode string) []report.Find
 	if mode == "internal" {
 		kits = append(kits, "sbx-workspace-reference")
 	}
-	id, cleanup, err := e.sandboxWith(ctx, kits, adapter.CreateOptions{WorkspaceMode: mode, Env: sbxConflictingEnvironment("runtime-conflict")})
+	opts := adapter.CreateOptions{
+		Name: "kit-tck-env-hooks-" + strings.ToLower(rand.Text()), WorkspaceMode: mode,
+		Env: sbxConflictingEnvironment("runtime-conflict"),
+	}
+	id, cleanup, err := e.sandboxWith(ctx, kits, opts)
 	if err != nil {
 		if sbxWorkspaceUnavailable(err, mode) {
 			return []report.Finding{report.Skipf("no-workspace hook observation unavailable: %v", err)}
@@ -179,8 +183,8 @@ func sbxEnvironmentHooks(ctx context.Context, e *Env, mode string) []report.Find
 	if f != nil {
 		return []report.Finding{*f}
 	}
-	if _, exists := agent["WORKSPACE_DIR"]; mode == "none" && exists {
-		return []report.Finding{report.Failf("WORKSPACE_DIR present without an assigned workspace")}
+	if f := sbxValidateEnvironment(agent, opts.Name, mode); f != nil {
+		return []report.Finding{*f}
 	}
 	for _, phase := range []string{"install", "startup"} {
 		got, f := sbxReadEnvironment(ctx, e, id, "read", phase)
