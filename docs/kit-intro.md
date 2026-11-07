@@ -214,6 +214,8 @@ the content, and publishes both as one image.
 
 ## Where to go next
 
+- [Inspecting a Kit's source](inspecting-kits.md) — find its declared
+  source URL and read the recipe carried by a published artifact.
 - [SPEC-v3.md](spec/SPEC-v3.md) — the normative specification.
 - [spec/capabilities/](spec/capabilities/com.docker.sandbox) — one page per
   well-known capability type, normative for runtimes implementing it.

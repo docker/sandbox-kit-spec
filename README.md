@@ -566,6 +566,11 @@ kit-tck inspect docker.io/me/sbx-kit-gh:1.0.0 --dockerfile > gh.dockerfile
 kit-tck inspect docker.io/me/sbx-kit-gh:1.0.0 --format json
 ```
 
+To find a Kit's source repository, read its optional `sourceUrl` field or
+the `org.opencontainers.image.source` manifest annotation. See
+[Inspecting a Kit's source](docs/inspecting-kits.md) for commands, publisher
+guidance, and the distinction between a source link and build provenance.
+
 ## Development
 
 ```sh
