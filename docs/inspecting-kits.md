@@ -1,13 +1,110 @@
 # Inspecting a Kit's source
 
-A Kit can advertise its source repository through the existing optional
-`sourceUrl` descriptor field. The frontend copies that value to the
-standard OCI manifest annotation `org.opencontainers.image.source`.
-No additional descriptor field is needed. A registry's web page may not
-display the annotation, so a missing link on Docker Hub does not by itself
-mean the published Kit has no source URL.
+A published Kit's build provenance can identify its source repository,
+commit, and build directory, even when its Docker Hub page has no source
+link. Start with the attestation, then check the optional `sourceUrl`
+descriptor field and the recipe carried by the artifact. These are
+existing mechanisms; no additional descriptor field is needed.
+
+For a repeatable inspection, use a digest reference such as
+`docker.io/sbx/neovim@sha256:<digest>` in place of the tag in the commands
+below. `latest` and other tags can move.
+
+## Find the source through build provenance
+
+BuildKit can publish an in-toto attestation with a SLSA provenance
+predicate. It can be embedded as an attestation manifest in the image
+index, discoverable through OCI referrers, or available through both.
+Neither discovery route requires the descriptor's `sourceUrl` field.
+
+### Attestations in the image index
+
+Docker Buildx can read embedded provenance. With `jq` installed, select
+the platform and the source fields from the SLSA predicate:
+
+```sh
+docker buildx imagetools inspect docker.io/sbx/neovim:latest \
+  --format '{{json .Provenance}}' |
+  jq '.["linux/amd64"].SLSA | {
+    vcs: .runDetails.metadata.buildkit_metadata.vcs,
+    configSource: .buildDefinition.externalParameters.configSource
+  }'
+```
+
+The inspected Neovim artifact records:
+
+```json
+{
+  "vcs": {
+    "localdir:context": "neovim",
+    "localdir:dockerfile": "neovim",
+    "revision": "317a118e6839dfe5bf23f0fef075c67dd15e71b7",
+    "source": "https://github.com/docker/sbx-kits-contrib"
+  },
+  "configSource": {
+    "path": "neovim.yaml"
+  }
+}
+```
+
+That gives the [Kit's build directory at the recorded commit][neovim-source],
+including its descriptor, Dockerfile, and helper scripts. Both published
+platforms record the same source. This example was read from image index
+`sha256:8412632ad7cfaacc2d5ca35010b8e484e74ece55768a4e7c9230ba2b8e212052`.
+
+[neovim-source]: https://github.com/docker/sbx-kits-contrib/tree/317a118e6839dfe5bf23f0fef075c67dd15e71b7/neovim
+
+These paths describe BuildKit's SLSA v1 predicate. Older SLSA v0.2
+predicates use `invocation.configSource` and
+`metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs` instead.
+For Git build contexts, also inspect the source URI and commit in the
+predicate's resolved dependencies (`materials` in v0.2). Available fields
+depend on the builder and its source inputs; local builds can omit VCS
+metadata. For local contexts, the `vcs` values are client-supplied hints;
+BuildKit does not verify that the files match the recorded commit. See
+[BuildKit's provenance documentation][buildkit-provenance].
+
+[buildkit-provenance]: https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-provenance.md
+
+### Attestations through OCI referrers
+
+With [regctl](https://regclient.org/cli/regctl/), discover artifacts that
+refer to the selected platform manifest:
+
+```sh
+regctl artifact list docker.io/sbx/neovim:latest --platform linux/amd64
+```
+
+Check the platform digest as well as the image index: an attestation can
+refer to a platform manifest while the index has no referrers. Neovim's
+amd64 attestation is both embedded in the index and discoverable this way.
+
+Download the BuildKit attestation's payloads into an empty directory,
+then select the SLSA statement. The same attestation can carry an SBOM,
+so selecting by predicate type matters:
+
+```sh
+mkdir neovim-attestations
+regctl artifact get --subject docker.io/sbx/neovim:latest \
+  --platform linux/amd64 \
+  --filter-artifact-type application/vnd.docker.attestation.manifest.v1+json \
+  --output neovim-attestations
+jq 'select(.predicateType | startswith("https://slsa.dev/provenance/")) |
+  {subject, predicateType, vcs: .predicate.runDetails.metadata.buildkit_metadata.vcs}' \
+  neovim-attestations/*
+```
+
+The statement's `subject` identifies the image digest it describes. Other
+publishers may use different artifact types or signed envelopes; inspect
+the referrers list before choosing a filter or a verification tool.
+Finding no provenance in one location does not establish that it is
+absent from the other.
 
 ## Find the declared source URL
+
+The optional `sourceUrl` descriptor field is another discovery route.
+The frontend copies it to `org.opencontainers.image.source`. A registry's
+web page may not display that annotation.
 
 Use `kit-tck inspect` to read the published descriptor:
 
@@ -35,10 +132,10 @@ annotations even when its platform manifests carry them.
 `sourceUrl` is optional and can link to a source repository or
 documentation. Some Kits link to the upstream tool's project rather than
 the repository containing the Kit's Dockerfile and helper scripts. If the
-field is absent or points only to the upstream project, it does not
-establish where the Kit's build sources live. There is no general mapping
-from a registry namespace to a Git repository; ask the publisher for that
-link.
+field is absent or points only to the upstream project, check provenance
+for the Kit's build sources. If neither mechanism records them, ask the
+publisher for the link. A registry namespace alone does not establish a
+Git repository.
 
 ## Read the recipe carried by the artifact
 
@@ -84,15 +181,13 @@ build and publication to update the artifact's annotation.
 
 ## Distinguish a source link from build provenance
 
-A source URL is a publisher's claim. Even a commit-specific link does
-not prove that an artifact was built from that commit. To establish that
-relationship, inspect build provenance tied to the artifact's digest and
-verify its signature and builder identity against a publisher you trust.
-Provenance availability and verification depend on the publishing
-workflow; a URL alone cannot supply them.
+A source URL is a publisher's claim. Provenance records a build's source
+and output relationship, but fetching it does not authenticate that claim.
+BuildKit provenance is not automatically signed. Check the statement's
+subject against the image digest being assessed, then verify any
+signature and builder identity using the publisher's verification
+procedure. The discovery commands above do not perform that verification.
 
-Use a digest reference such as `docker.io/sbx/neovim@sha256:<digest>` when
-assessing a particular artifact: `latest` and other tags can move. The
-`vnd.docker.sandbox.kit.built-by` annotation identifies the **frontend**
-build, and its revision names the frontend's source commit. It does not
-identify the Kit's source revision.
+The `vnd.docker.sandbox.kit.built-by` annotation identifies the
+**frontend** build, and its revision names the frontend's source commit.
+It does not identify the Kit's source revision.
