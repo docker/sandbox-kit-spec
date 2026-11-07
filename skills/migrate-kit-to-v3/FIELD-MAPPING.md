@@ -435,6 +435,15 @@ legacy fallback, and differing explicit destinations each get a profile,
 so two agent mixins can share a sandbox. Tool mixins
 carry `contentFile` or `content` alone. Staged bodies keep their paths.
 
+### open-url@1
+
+For host browser navigation, request `com.docker.sandbox/open-url@1`
+without `config`. The runtime supplies `xdg-open` on `PATH` and an
+absolute helper path in `BROWSER`; do not copy a runtime-specific helper
+into the Kit. Only HTTP/HTTPS navigation is granted, on the provider
+host rather than the CLI client. Browser traffic is not sandbox egress.
+Use `optional: true` if printing the URL is a sufficient fallback.
+
 ### long-running@1
 
 For a workload or mixin that must keep serving after the last client disconnects,
