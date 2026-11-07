@@ -17,6 +17,22 @@ predicate. It can be embedded as an attestation manifest in the image
 index, discoverable through OCI referrers, or available through both.
 Neither discovery route requires the descriptor's `sourceUrl` field.
 
+### Quick view with Docker Scout
+
+If Docker Scout is installed, its CVE report also summarizes available
+provenance information:
+
+```sh
+docker scout cves sbx/neovim:latest
+```
+
+Look for the source repository and revision in the image details. This
+command also performs vulnerability analysis. Use the commands below to
+inspect the provenance fields directly or discover referrers. See the
+[Docker Scout CVE command reference][scout-cves] for its options.
+
+[scout-cves]: https://docs.docker.com/reference/cli/docker/scout/cves/
+
 ### Attestations in the image index
 
 Docker Buildx can read embedded provenance. With `jq` installed, select
