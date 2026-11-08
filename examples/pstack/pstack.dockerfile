@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Text and scripts are platform-independent; download on the builder's CPU.
-FROM --platform=$BUILDPLATFORM debian:trixie-slim AS build
+FROM --platform=$BUILDPLATFORM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS build
 USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -11,14 +11,16 @@ ARG PSTACK_VERSION
 # and archive bytes: the plugin version alone does not identify its edits.
 RUN <<'SH'
 set -eu
+: "${PSTACK_VERSION:?PSTACK_VERSION must be supplied by the kit descriptor}"
 curl -fsSL --retry 3 \
   https://codeload.github.com/backnotprop/pstack/tar.gz/a6342ded43a2437e3c664b46c2cff103787773fd \
   -o /tmp/pstack.tar.gz
-printf '%s  %s\n' \
-  476413f9fa1a7d768943b73633aa17e1aa4ee04f28d6f9ee25bad01f449e0f87 \
-  /tmp/pstack.tar.gz | sha256sum -c -
+sha256sum -c - <<'CHECKSUM'
+476413f9fa1a7d768943b73633aa17e1aa4ee04f28d6f9ee25bad01f449e0f87  /tmp/pstack.tar.gz
+CHECKSUM
 mkdir -p /out/usr/share/pstack
-tar -xzf /tmp/pstack.tar.gz --strip-components=1 -C /out/usr/share/pstack
+tar -xzf /tmp/pstack.tar.gz --strip-components=1 \
+  --no-same-owner --no-same-permissions -C /out/usr/share/pstack
 cd /out/usr/share/pstack
 grep -F "\"version\": \"$PSTACK_VERSION\"" plugin.json
 grep -F "\"version\": \"$PSTACK_VERSION\"" .cursor-plugin/plugin.json

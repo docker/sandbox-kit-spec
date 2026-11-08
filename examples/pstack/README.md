@@ -23,7 +23,9 @@ the upstream frontmatter and direct the agent to the absolute bundled
 links to sibling skills and guides rooted in the original tree, even
 when no context capability is selected. Agent Kits that declare
 `agent-skills@1` receive the wrappers at every selected discovery
-destination. Optional context entries offer both
+destination. The singular capability supplies a bundled skill; the
+plural capability declares an agent's discovery directory. Optional
+context entries offer both
 `agent-context@1` and `agent-context@2` during the runtime rollout;
 select one. They point other agents to `/usr/share/pstack/skills/`,
 where each skill can be read directly. A runtime supporting neither
