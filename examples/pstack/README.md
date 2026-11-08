@@ -16,9 +16,14 @@ main workflow, or an individual skill such as `how`, `tdd`, or `unslop`.
 The agent's own invocation syntax applies; installing the collection
 does not activate its workflows automatically.
 
-Each skill declares an optional `agent-skill@1` source. Agent Kits that
-declare `agent-skills@1` receive the collection at every selected
-discovery destination. Optional context entries offer both
+Each skill declares an optional `agent-skill@1` source under
+`/usr/share/pstack-skills/`. These small discovery wrappers preserve
+the upstream frontmatter and direct the agent to the absolute bundled
+`SKILL.md` path. Copying a wrapper into an agent's discovery store keeps
+links to sibling skills and guides rooted in the original tree, even
+when no context capability is selected. Agent Kits that declare
+`agent-skills@1` receive the wrappers at every selected discovery
+destination. Optional context entries offer both
 `agent-context@1` and `agent-context@2` during the runtime rollout;
 select one. They point other agents to `/usr/share/pstack/skills/`,
 where each skill can be read directly. A runtime supporting neither

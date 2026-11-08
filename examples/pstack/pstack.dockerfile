@@ -26,13 +26,30 @@ grep -F "\"version\": \"$PSTACK_VERSION\"" .cursor-plugin/plugin.json
 for skill in skills/*; do
   test -s "$skill/SKILL.md"
   test ! -L "$skill/SKILL.md"
+  # Runtimes may copy discovery bundles. Keep cross-tree references in
+  # the original location, independently of optional context guidance.
+  wrapper="/out/usr/share/pstack-skills/${skill##*/}"
+  mkdir -p "$wrapper"
+  awk '
+    NR == 1 { if ($0 != "---") exit 1; print; next }
+    { print }
+    $0 == "---" { closed = 1; exit }
+    END { if (!closed) exit 1 }
+  ' "$skill/SKILL.md" > "$wrapper/SKILL.md"
+  cat >> "$wrapper/SKILL.md" <<EOF
+
+Read /usr/share/pstack/$skill/SKILL.md in full before using this skill.
+Follow its instructions from that source location and resolve relative
+paths there. The complete pstack tree, including sibling skills, guides,
+agent templates, and supporting scripts, is bundled at /usr/share/pstack/.
+EOF
 done
 test -s LICENSE
 test -s README.md
 test -s agents/poteto-agent.md
 test -s agents/comment-sicko.md
 test -s docs/guide/README.md
-chmod -R a+rX /out/usr/share/pstack
+chmod -R a+rX /out/usr/share/pstack /out/usr/share/pstack-skills
 chown -R 0:0 /out
 SH
 
