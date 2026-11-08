@@ -115,10 +115,13 @@ descriptor.
 Volume declarations at one cleaned path merge across Kits only when their
 expanded settings match. Equivalent byte-size and octal-mode spellings
 match; unspecified size or mode differs from an explicit value. Block
-storage belongs to the sandbox instance: recreation retains it across
-composition changes, unselected paths remain unmounted until requested
-again, and incompatible settings refuse recreation. Instance removal
-deletes all its volumes; another create with the same name starts fresh.
+storage belongs to the owner scope, sandbox name, and cleaned path:
+re-create and delete followed by create under that name retain it across
+composition changes. Unselected paths remain unmounted until requested
+again, and incompatible retained settings refuse create or re-create.
+Explicit storage removal or a documented, visible retention policy ends
+its lifetime. Enforced block `size` is dedicated capacity additive to the
+root disk; runtimes disclose advisory sizing and durability guarantees.
 Fresh storage starts empty before hooks. Host mounts still have one
 Kit owner and conflict with volumes at the same destination.
 Re-exported volume text inputs remain separate contributions in a
@@ -477,3 +480,19 @@ combined guidance directly rather than @1's progressive per-Kit index.
 Runtime consumers must advertise @2 support. Serialized budgets apply
 after expansion and composition: warn above 64 KiB, fail above 512 KiB.
 @1 remains supported and is not deprecated by this migration.
+
+## Workspace and sandbox identity
+
+A workload declaring `sbx@1` receives runtime-owned `WORKSPACE_DIR`,
+`SANDBOX_NAME`, `SANDBOX_ID`, and `IS_SANDBOX=1`. Do not bake these into an
+image, export them from Kit arguments, or set them in shell profiles:
+the runtime's values win over image, argument, and process overrides.
+Treat `SANDBOX_ID` as opaque; it identifies the sandbox across restarts
+and container replacement, not a backing container or VM.
+
+`WORKSPACE_DIR` is an absolute sandbox path when a workspace is assigned,
+including internal and cloned workspaces; it does not imply a host mount
+or finished preparation. It is unset with no workspace, and then a
+`${{ kit.env.WORKSPACE_DIR }}` reference fails at create. A process cwd
+does not change the assigned workspace. Hooks list each of these inputs
+they consume in `env`; none is in lifecycle's automatic baseline.

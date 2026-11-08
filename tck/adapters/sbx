@@ -10,9 +10,9 @@
 #   - `recreate` has no sbx command. It is an `sbx rm` followed by a
 #     create under the same name from the arguments the first create
 #     used — the closest sbx offers to replacing a container in place.
-#     This ends the runtime instance, so it is not volume-conforming
-#     recreation. volume@1 remains unclaimed until sbx can preserve
-#     instance-owned storage without removing the instance.
+#     volume@1 allows this when name-scoped block storage survives, but
+#     remains unclaimed until sbx provides declared mounts and retained
+#     storage observation and explicit removal.
 #   - `capabilities` is a claim, not a discovery: sbx has no command that
 #     reports which capability types it implements, so the list lives
 #     here. Claiming one sbx does not implement produces failures rather
@@ -68,9 +68,8 @@ marker_line="Placed by tck/adapters/sbx"
 #   volume@1 is absent because sbx mounts nothing at a declared volume
 #   path: the fixture asks for /data, the sandbox has no such mount, and
 #   a write there fails outright — so no observation about persistence
-#   can be made at all. Claiming this type also requires an in-place
-#   recreation operation and volume-paths observation of retained storage;
-#   a same-name remove/create cannot preserve instance identity.
+#   can be made at all. Claiming this type also requires name-scoped
+#   persistence, retained-storage observations, and explicit removal.
 #
 #   port@1, usb-device@1, agent-sessions@1, agent-interactive-sessions@1
 #   and kit-registry@1 are absent because the contract gives the suite no
@@ -931,6 +930,21 @@ create)
 			case "$requested_name" in '' | *[!a-zA-Z0-9_-]*) die "invalid sandbox alias" ;; esac
 			shift 2
 			;;
+		--workspace-mode)
+			# Without a positional host path sbx assigns an internal
+			# workspace at the image WORKDIR. This adapter has no
+			# suite-owned host workspace or clone binding, and sbx has
+			# no genuinely workspace-free create mode.
+			case "$2" in
+			internal) ;;
+			host | cloned | none)
+				echo "unsupported workspace mode: $2" >&2
+				exit 2
+				;;
+			*) die "unknown workspace mode: $2" ;;
+			esac
+			shift 2
+			;;
 		--arg)
 			# The contract's name=value is sbx's own --kit-arg spelling,
 			# which applies the value to every kit that declares the
@@ -1050,13 +1064,21 @@ create)
 exec)
 	id="$1"
 	shift
+	exec_options=()
+	while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+		case "$1" in
+		--cwd) exec_options+=(--workdir "$2"); shift 2 ;;
+		--env) exec_options+=(--env "$2"); shift 2 ;;
+		*) die "unknown exec option: $1" ;;
+		esac
+	done
 	[ "${1:-}" = "--" ] && shift
 	# The argv passes through unmodified and the status proxies back:
 	# checks compare bytes and read exit codes, so neither may be
 	# rewritten here. sbx allocates no TTY unless asked, which is what
 	# the contract requires.
 	set +e
-	run_sbx exec "$id" "$@"
+	run_sbx exec ${exec_options[@]+"${exec_options[@]}"} "$id" "$@"
 	status=$?
 	set -e
 	exit "$status"
@@ -1073,18 +1095,24 @@ start)
 	run_sbx run --name "$1" --detached >&2
 	;;
 
-volume-paths)
+volume-paths | volume-storage)
 	if claims_volume; then
-		die "sbx does not expose retained instance volume storage"
+		die "sbx does not expose retained name-scoped volume storage"
 	fi
 	printf '[]\n'
 	;;
 
-recreate)
-	# Refuse before removal: replaying an alias is not preserving the
-	# instance required by volume@1, even if a backend kept some data.
+volume-rm)
 	if claims_volume; then
-		die "sbx cannot recreate instance-owned volumes without removing the instance"
+		die "sbx does not expose explicit retained volume removal"
+	fi
+	;;
+
+recreate)
+	# A claim override cannot supply mounts and storage observations the
+	# adapter does not implement. Refuse before changing the sandbox.
+	if claims_volume; then
+		die "sbx adapter does not implement name-scoped volume lifetime"
 	fi
 	[ "$#" -eq 1 ] || die "sbx adapter does not support changed-composition recreation"
 	# Only the verbs that keep records need one.

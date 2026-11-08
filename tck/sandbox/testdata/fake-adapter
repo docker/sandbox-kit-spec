@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -21,9 +21,34 @@ host-mount-accepts-unclaimed | host-mount-refuses-optional | host-mount-unclaime
   claims="${claims//com.docker.sandbox\/host-mount@1/}"
   ;;
 esac
+auth_helper="$(dirname "${BASH_SOURCE[0]}")/docker-auth-fake.py"
+if [ "${1:-}" = create ]; then
+  # Adapter.Create places Kit references before every option.
+  for arg in "${@:2}"; do
+    case "$arg" in --*) break ;; esac
+    case "${arg##*/}" in
+      docker-auth | docker-auth-optional | docker-auth-absent)
+        exec python3 "$auth_helper" "$state" "$claims" "$broken" "$@" ;;
+    esac
+  done
+elif [ -f "$state/docker-auth/${2:-}.json" ]; then
+  exec python3 "$auth_helper" "$state" "$claims" "$broken" "$@"
+fi
 host_mount_helper="$(dirname "${BASH_SOURCE[0]}")/host-mount-fake.py"
 verb="${1:-}"
 shift || true
+
+# Environment probes keep sandbox identity separate from the adapter handle.
+environment_helper="$(dirname "${BASH_SOURCE[0]}")/sbx-environment-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    if [ "${arg##*/}" = sbx-environment ] || [ "${arg##*/}" = sbx-environment-clean ]; then
+      exec python3 "$environment_helper" "$state" "$broken" "$verb" "$@"
+    fi
+  done
+elif [ -f "$state/sbx-environment/${1:-}.json" ]; then
+  exec python3 "$environment_helper" "$state" "$broken" "$verb" "$@"
+fi
 
 host_port_helper="$(dirname "${BASH_SOURCE[0]}")/host-port-fake.py"
 if [ "$verb" = create ]; then
@@ -60,7 +85,7 @@ if [ "$verb" = create ]; then
       ;;
     esac
   done
-elif [ "$verb" = volume-paths ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
+elif [ "$verb" = volume-paths ] || [ "$verb" = volume-storage ] || [ "$verb" = volume-rm ] || [ -f "$state/volume-instances/${1:-}.json" ]; then
   exec python3 "$volume_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 
@@ -216,8 +241,13 @@ create)
   group_rejected=no
   lifecycle_rejected=no
   sandbox_name=""
+  workspace_mode="${KIT_TCK_FAKE_DEFAULT_WORKSPACE:-internal}"
   while [ $# -gt 0 ]; do
     case "$1" in
+    --workspace-mode)
+      workspace_mode="$2"
+      shift 2
+      ;;
     --name)
       sandbox_name="$2"
       shift 2
@@ -563,6 +593,7 @@ create)
   id="sbx-$$-${RANDOM}"
   dir="$state/$id"
   mkdir -p "$dir"
+  printf '%s' "$workspace_mode" >"$dir/workspace-mode"
   echo running >"$dir/status"
   # The probe the workload fixture ships, which the fake runs itself.
   for kit in "${kits[@]}"; do
@@ -1142,7 +1173,7 @@ exec)
       ;;
     /home/agent/AGENTS.md) cat "$dir/profile" ;;
     /home/sbxagent/AGENTS.md)
-      if [ -f "$dir/sbx" ] && [ "$broken" != "workspace-at-fixed-path" ]; then
+      if [ -f "$dir/sbx" ] && [ "$broken" != "workspace-at-fixed-path" ] && [ "$(cat "$dir/workspace-mode")" != none ]; then
         cat "$dir/profile"
       else
         echo "no such file: $2" >&2

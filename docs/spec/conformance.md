@@ -64,13 +64,15 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <alias>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, and `--git-identity-config <absolute-path>\|off` each at most once | one sandbox id | Compose the Kit set and start it |
-| `exec` | `<id> -- <argv>…` | the command's stdout | Run a command inside |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, and `--docker-auth-config <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
+| `exec` | `<id>`, optional `--cwd <absolute-path>` and zero or more `--env name=value`, then `-- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
-| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container within the same instance, preserving block-volume storage and the `dockerd@1` engine store |
-| `rm` | `<id>` | — | End the instance and delete all its volume storage |
-| `volume-paths` | `<id>` | JSON array of cleaned destination paths | Observe allocated block storage, including unmounted destinations |
+| `recreate` | `<id>`, optionally a replacement `<kit-ref>…` and zero or more `--arg name=value` | — | Replace the container under the same sandbox name, preserving block-volume storage and the `dockerd@1` engine store |
+| `rm` | `<id>` | — | Delete the sandbox, retaining its block-volume storage |
+| `volume-paths` | `<id>` | JSON array of cleaned destination paths | Observe allocated block storage, including unmounted destinations, after deletion too |
+| `volume-storage` | `<name>` | JSON array of cleaned destination paths | List retained block storage by sandbox name, without a live sandbox |
+| `volume-rm` | `<name>` and optionally `<cleaned-path>` | — | Explicitly remove retained block storage and requests for one path or the whole name |
 | `wait-idle` | `<id>` | — | Disconnect the final client session and wait beyond the normal auto-stop grace period |
 | `status` | `<id>` | `running` or `stopped` | Observe sandbox state without starting it or attaching a session |
 | `host-mounts` | `<kit-ref>` | JSON array of `{id, path, hostPath}` | List retained host directories for the resolved Kit identity |
@@ -79,13 +81,48 @@ An adapter **MUST NOT** require interactive input.
 
 `create --env name=value` supplies a container environment override.
 Adapters **MUST** apply it after image defaults and Kit argument exports,
-before expanding `${{ kit.env.NAME }}` references. An empty value is a
+before expanding `${{ kit.env.NAME }}` references. Runtime-owned
+`sbx@1` workspace and sandbox identity values take precedence over these
+inputs, as specified by that capability. An empty value is a
 present override; values are literal and are not shell-expanded. These
 flags do not change the adapter process's own environment. The
 `SPEC-v3 §6/env-expanded` check compares a declared file's content with
 its final environment value: an image default without any argument
 exports, a distinct argument export, a distinct runtime override, and
 an empty override.
+
+Adapters claiming `sbx@1` **MUST** support `create --name` for the identity
+checks. This alias is the requested sandbox name; it need not match the
+adapter's returned handle or `SANDBOX_ID`, which the suite treats as
+separate opaque values.
+
+For `sbx@1` environment checks, `create --workspace-mode` asks the
+adapter to arrange an assigned internal, host-mounted, or cloned
+workspace, or genuinely no assigned workspace (`none`). Host and cloned
+scenarios use suite-owned disposable sources, never user projects, and
+the assigned destination follows the workload's absolute image
+`WORKDIR`. Adapters **MUST** use the runtime's real workspace assignment
+and injection paths, without synthesizing the variables in a wrapper or
+editing the probe output. The suite observes environment values, not the
+workspace mechanism; arranging the requested mechanism is the adapter's
+duty. Workspace preparation need not finish before the environment probe.
+
+An unavailable scenario **MUST** return exit `2` with exactly
+`unsupported workspace mode: <mode>` on stderr, before creating any
+sandbox or other resources. This produces an explicit scenario skip,
+not a pass for that mode. Other refusals remain failures. Without this
+option the runtime's normal create path is always judged. Remote
+adapters that cannot arrange disposable host sources record that limit
+rather than treating an internal workspace as a mounted or cloned one.
+
+The bundled sbx adapter arranges internal workspaces; host and clone
+bindings are not implemented by this adapter, and sbx has no genuinely
+workspace-free mode. Those scenario checks report skips. Its `recreate`
+emulation removes and creates a sandbox, so it cannot establish
+`sbx@1/identity-stable` through container replacement: a changed ID there
+is a finding, not evidence that an actual in-place replacement changes
+identity. Rename is waived in the suite's normative accounting because
+the adapter protocol has no rename operation.
 
 `capabilities` is what makes a partial implementation testable: the suite
 skips the types a runtime does not claim, and asserts that a Kit
@@ -94,6 +131,11 @@ under-provisioned.
 
 `exec` **MUST** proxy the command's exit status as its own, and **MUST
 NOT** allocate a TTY. The argv after `--` is passed through unmodified.
+`--cwd` and `--env` **MUST** be passed through the runtime's process
+launch interface, with its `sbx@1` runtime-owned values applied before
+launch. They are not guest shell assignments: the suite tests runtime
+precedence and a cwd different from the assigned workspace. An adapter
+cannot enforce the result by filtering the requested inputs itself.
 It **MUST** run the command as the sandbox's agent identity: several
 requirements are about who the sandbox does things as, and an `exec` of
 the runtime's choosing would answer for a user the agent never is.
@@ -104,33 +146,67 @@ This pair is what separates the lifecycle phases: `install` hooks run once
 at create, `startup` hooks on every boot.
 
 `recreate` **MUST** replace the container — discarding the writable layer —
-while preserving the instance's block-volume storage, including paths
+while preserving the name's block-volume storage, including paths
 no longer selected. With replacement references, the adapter **MUST**
-recreate the same instance with that composition; without them it reuses
-the previous references. Argument overrides replace values by name;
+re-create under the same owner scope and name with that composition;
+without them it reuses the previous references. Argument overrides replace values by name;
 other create-time inputs, including host bindings, remain unchanged.
 The adapter **MUST** keep the suite-facing id usable after recreation,
 even if the runtime changes its container handle. Deliberate refusal
 returns `2` and leaves the previous composition and storage intact.
+For `dockerd@1`, the engine store survives container replacement within
+an existing sandbox instance; ordinary sandbox deletion ends that store.
+The `volume@1` definition that also preserves data through same-name
+delete/create applies only to its declared volumes. An adapter using
+delete/create for `recreate` still has to satisfy the engine-store
+preservation duty whenever `dockerd@1` is selected.
 Because stop/start preserves the writable layer, it cannot distinguish
 a block volume from an ordinary directory;
 recreate is the observation that can, and the suite verifies the layer was
 really discarded before crediting anything to the volume.
 
 An adapter claiming `volume@1` **MUST** support `create --name`, changed
-composition recreation, and `volume-paths`. The suite uses a fresh alias
-to distinguish recreation from removal followed by creation under the
-same name. `volume-paths` **MUST** report actual runtime-managed block
-storage, including retained unmounted paths and allocations orphaned by
-instance removal. The suite-facing observation handle **MUST** remain
-usable after instance metadata is removed: an absent instance record
-alone does not establish that its backing allocations were deleted.
-An empty array means no associated block allocation remains. The verb
-**MUST NOT** provision storage or merely echo a descriptor or
-adapter-maintained request list. The adapter **MUST NOT**
-simulate persistence by copying data around a runtime remove/create.
-An adapter without an operation that preserves instance identity and
-volume data on recreation cannot claim `volume@1`.
+composition re-create, `volume-paths`, `volume-storage`, and `volume-rm`.
+The suite uses fresh names within the adapter's owner scope. Both
+in-place re-create and delete followed by create under that name preserve
+block storage; a later create may use different Kits with equivalent
+storage requests. An incompatible retained request returns `2` before
+allocating storage or replacing a container, with the path and differing
+setting on stderr. Deleting tmpfs discards both its data and request.
+
+`volume-paths` **MUST** report actual runtime-managed block storage,
+including retained unmounted paths. Its suite-facing observation handle
+**MUST** remain usable after sandbox metadata is removed.
+`volume-storage` **MUST** report the same allocations by sandbox name,
+including names without a live sandbox. An empty array means no
+associated block allocation remains. Observations **MUST NOT** provision
+storage or merely echo a descriptor or adapter-maintained request list.
+The adapter **MUST NOT** simulate persistence by copying data around a
+runtime remove/create.
+
+`volume-rm` **MUST** invoke the runtime's explicit operator removal,
+removing backing allocations and retained configuration for exactly the
+requested name and optional path in the adapter's owner scope. Removing
+an absent destination is idempotent. It **MUST NOT** remove another name's
+storage or an undeclared host directory. The suite invokes it only after
+removing its sandbox. Normal `rm` **MUST NOT** perform this cleanup.
+
+The suite gives its sandboxes unique names and explicitly removes their
+retained storage during final cleanup. The delete-retains check observes
+storage and reattachment before that cleanup. Failure to remove either a
+sandbox or its retained block storage is reported as a cleanup failure.
+An adapter that cannot observe and remove retained storage cannot claim
+`volume@1`.
+
+The suite uses one owner scope, so it cannot judge cross-owner isolation.
+It records waivers for rename and collisions, suspend and host moves,
+retention-policy notifications, infrastructure-loss recovery,
+documentation disclosure, and existing-data markings on the permission
+surface. It also waives initial mode and capacity reservation: the
+protocol has no enforced/advisory size advertisement, and proving
+independence by exhausting root and sibling volumes would risk unrelated
+test storage. These are conformance duties requiring review beyond the
+automated report, not guarantees inferred from a passing data probe.
 
 Volume data probes run as the agent. Mount-root accessibility is a SHOULD,
 so contents observations report SKIP when the initial root's permissions
@@ -212,6 +288,56 @@ directories at those paths for the fixture Kits, after removing their
 sandboxes; adapters **MUST NOT** interpret cleanup as a request to remove
 other Kit directories or user content.
 
+### Docker registry authentication binding
+
+An adapter claiming `com.docker.sandbox/docker-auth@1` **MUST** accept
+`create --docker-auth-config <absolute-path>`. This suite-owned JSON input
+transports synthetic credential bindings and controlled HTTPS routes:
+
+```json
+{
+  "version": 1,
+  "bindings": {
+    "registry.kit-tck.test": {"username": "synthetic-user", "password": "synthetic-password"}
+  },
+  "routes": {
+    "registry.kit-tck.test": "127.0.0.1:12345",
+    "auth.kit-tck.test": "127.0.0.1:12345",
+    "cdn.kit-tck.test": "127.0.0.1:12345"
+  },
+  "trust": "/absolute/path/to/suite-ca.pem"
+}
+```
+
+An absent registry binding is unavailable. The adapter **MUST** translate
+these inputs through its runtime's normal credential-binding and test
+endpoint facilities: route connections for the named hosts to the supplied
+addresses while preserving the original HTTPS URL, Host and TLS server
+name, and arrange trust for the suite CA. Routing **MUST NOT** bypass
+network policy, authentication interception or certificate verification,
+applies only to the test sandboxes, and is removed with them. Routing a
+name grants no network access. The optional `httpRoutes` map supplies separate
+plaintext addresses for HTTP replay probes, preserving their original scheme;
+these routes remain subject to the same policy and credential confinement.
+The adapter **MUST NOT** implement
+credential substitution itself, manufacture probe output, or read or
+modify the user's real registry logins. The binding file and CA path
+remain outside the sandbox.
+
+The workload's `kit-tck-docker-auth` probe resolves the Docker-compatible
+placeholder configuration and makes real HTTPS requests. The suite supplies
+`KIT_TCK_AUTH_CHALLENGE` through `create --env` as a verified fallback for
+explicit exchanges when discovery is completed host-side; a client-visible
+Bearer challenge takes precedence. Adapters claiming
+this capability **MUST** provide its Python 3 runtime, with ordinary HTTPS
+proxy and trust support, without changing its request or observation
+semantics. Checks judge confinement by comparing exact credential values
+at the client interface and in the services' independent request traces,
+not by scanning output. The separate `docker-auth@1/source-private` duty
+is waived: those observations cannot establish the absence of credential
+sources, helper installations or private keys at arbitrary guest paths,
+and passing the suite does not certify that unobservable property.
+
 ### Git identity binding
 
 An adapter claiming `com.docker.sandbox/git-identity@1` **MUST** accept
@@ -266,6 +392,13 @@ identity is recorded as skipped, with its rejected member, and is absent
 from selected records.
 
 ### 2.3 Known values the suite arranges
+
+The suite seeds `WORKSPACE_DIR`, `SANDBOX_NAME`, `SANDBOX_ID`, and
+`IS_SANDBOX` in the adapter's host environment with distinct-from-sandbox
+sentinel values. A later host name change during the stability check
+also detects re-expansion of persisted descriptor references. These
+inputs are never sandbox assignments; an adapter that unsets them before
+invoking its runtime hides accidental host inheritance.
 
 Several requirements are about what must **not** appear, and absence
 cannot be judged against an unknown value. The suite therefore places

@@ -188,7 +188,7 @@ func TestSbxSSHAgentReplaysBindingOnRecreate(t *testing.T) {
 	require.NoError(t, a.Remove(t.Context(), id))
 }
 
-func TestSbxDoesNotRemoveAnInstanceToEmulateVolumeRecreation(t *testing.T) {
+func TestSbxVolumeClaimOverrideRefusesBeforeChangingSandbox(t *testing.T) {
 	a, observed := sshAdapter(t)
 	dir := t.TempDir()
 	removed := filepath.Join(dir, "removed")
@@ -200,13 +200,13 @@ func TestSbxDoesNotRemoveAnInstanceToEmulateVolumeRecreation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "kit-tck-volume-alias", id)
 	err = a.Recreate(t.Context(), id)
-	require.ErrorContains(t, err, "cannot recreate instance-owned volumes")
+	require.ErrorContains(t, err, "does not implement name-scoped volume lifetime")
 	require.NoFileExists(t, removed, "a failed recreation must not destroy the instance")
 	raw, err := os.ReadFile(observed)
 	require.NoError(t, err)
 	require.Equal(t, "unset\n", string(raw), "no replacement create was attempted")
 	_, err = a.VolumePaths(t.Context(), id)
-	require.ErrorContains(t, err, "does not expose retained instance volume storage")
+	require.ErrorContains(t, err, "does not expose retained name-scoped volume storage")
 	require.NoError(t, a.Remove(t.Context(), id))
 	require.FileExists(t, removed, "the stub observes a real removal")
 }
@@ -482,4 +482,28 @@ func mustRead(t *testing.T, path string) []byte {
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return raw
+}
+
+func TestSbxAdapterTransportsProcessInputsBeforeSandboxName(t *testing.T) {
+	dir := t.TempDir()
+	stub, observed := filepath.Join(dir, "sbx"), filepath.Join(dir, "argv")
+	require.NoError(t, os.WriteFile(stub, []byte("#!/bin/sh\nprintf '%s\\000' \"$@\" > \"$OBSERVED\"\n"), 0700))
+	a := New(filepath.Join("..", "adapters", "sbx"))
+	a.Env = []string{"SBX=" + stub, "OBSERVED=" + observed, "SBX_TCK_APP_NAME="}
+	_, err := a.ExecWith(t.Context(), "instance", ExecOptions{Cwd: "/tmp", Env: map[string]string{"SANDBOX_ID": "literal $HOME"}}, "probe", "--env", "argument")
+	require.NoError(t, err)
+	raw, err := os.ReadFile(observed)
+	require.NoError(t, err)
+	require.Equal(t, []string{"exec", "--workdir", "/tmp", "--env", "SANDBOX_ID=literal $HOME", "instance", "probe", "--env", "argument"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
+}
+
+func TestSbxAdapterReportsUnavailableWorkspaceScenarios(t *testing.T) {
+	for _, mode := range []string{"host", "cloned", "none"} {
+		a := New(filepath.Join("..", "adapters", "sbx"))
+		a.Env = []string{"SBX_TCK_STATE=" + filepath.Join(t.TempDir(), "state")}
+		_, err := a.Create(t.Context(), []string{"workload"}, CreateOptions{WorkspaceMode: mode})
+		var refused *RefusedError
+		require.ErrorAs(t, err, &refused)
+		require.Equal(t, "unsupported workspace mode: "+mode, refused.Detail)
+	}
 }

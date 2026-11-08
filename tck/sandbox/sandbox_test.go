@@ -235,6 +235,32 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"docker-auth-header-leak":                                  {"docker-auth@1/token-mediation"},
+	"docker-auth-content-location":                             {"docker-auth@1/redirect-confinement"},
+	"docker-auth-all-bindings":                                 {"docker-auth@1/host-resolution", "docker-auth@1/host-only"},
+	"docker-auth-form-leak":                                    {"docker-auth@1/request-scope"},
+	"docker-auth-encoded-login":                                {"docker-auth@1/host-only"},
+	"docker-auth-identitytoken-leak":                           {"docker-auth@1/host-only"},
+	"docker-auth-wrapped-location":                             {"docker-auth@1/redirect-confinement"},
+	"docker-auth-plaintext":                                    {"docker-auth@1/request-scope", "docker-auth@1/bearer-scope"},
+	"docker-auth-daemon":                                       {"docker-auth@1/no-extra-access"},
+	"docker-auth-substitution-egress":                          {"docker-auth@1/no-extra-access"},
+	"docker-auth-hook-leak":                                    {"docker-auth@1/lifetime"},
+	"docker-auth-skipped-auth":                                 {"docker-auth@1/host-resolution"},
+	"docker-auth-absent-auth":                                  {"docker-auth@1/no-extra-access"},
+	"docker-auth-accepts-missing":                              {"docker-auth@1/host-resolution"},
+	"docker-auth-login-scope":                                  {"docker-auth@1/request-scope"},
+	"docker-auth-login-leak":                                   {"docker-auth@1/host-only"},
+	"docker-auth-token-leak":                                   {"docker-auth@1/token-mediation"},
+	"docker-auth-extra-field-leak":                             {"docker-auth@1/token-mediation"},
+	"docker-auth-unknown-bearer":                               {"docker-auth@1/bearer-scope"},
+	"docker-auth-bearer-scope":                                 {"docker-auth@1/bearer-scope"},
+	"docker-auth-expiry":                                       {"docker-auth@1/bearer-scope"},
+	"docker-auth-location-leak":                                {"docker-auth@1/redirect-confinement"},
+	"docker-auth-upload-leak":                                  {"docker-auth@1/redirect-confinement"},
+	"docker-auth-redirect-policy":                              {"docker-auth@1/redirect-confinement"},
+	"docker-auth-reuses-run":                                   {"docker-auth@1/lifetime"},
+	"docker-auth-egress":                                       {"docker-auth@1/no-extra-access"},
 	"host-port-accepts-family-conflict":                        {"host-port@1/family-honored"},
 	"host-port-ignores-family":                                 {"host-port@1/family-honored"},
 	"host-port-tcp-ipv4-fallback":                              {"host-port@1/family-honored"},
@@ -310,8 +336,8 @@ var mutations = map[string][]string{
 	"volume-root-not-readable+volume-forgets-dormant-config":  {"volume@1/recreate-config-compatible"},
 
 	"volume-renamed-root-not-readable+volume-loses-renamed-away-data": {"volume@1/undeclared-retained"},
-	"volume-root-not-writable+volume-orphans-after-removal":           {"volume@1/removal-deletes-storage"},
-	"volume-root-not-readable+volume-retains-after-removal":           {"volume@1/removal-deletes-storage"},
+	"volume-root-not-writable+volume-keys-on-instance":                {"volume@1/delete-retains-storage"},
+	"volume-root-not-readable+volume-deletes-on-removal":              {"volume@1/delete-retains-storage"},
 	"volume-root-not-readable+volume-forgets-undeclared":              {"volume@1/undeclared-retained"},
 
 	"volume-mounts-retained-with-selection":                                  {"volume@1/undeclared-retained"},
@@ -382,6 +408,17 @@ var mutations = map[string][]string{
 	"volume-root-not-writable+volume-refusal-corrupts-dormant-mode":  {"volume@1/recreate-config-compatible"},
 	"volume-root-not-readable+volume-refusal-corrupts-dormant-mode":  {"volume@1/recreate-config-compatible"},
 
+	"volume-create-refusal-resets-mode":  {"volume@1/create-config-compatible"},
+	"volume-create-reattach-resets-mode": {"volume@1/create-config-compatible"},
+	"volume-removal-wipes-other-data":    {"volume@1/explicit-removal-deletes-storage"},
+	"volume-removal-wipes-sibling-data":  {"volume@1/explicit-removal-deletes-storage"},
+
+	"volume-hides-retained-storage":         {"volume@1/retained-storage-listed"},
+	"volume-ignores-explicit-removal":       {"volume@1/explicit-removal-deletes-storage"},
+	"volume-removal-keeps-config":           {"volume@1/explicit-removal-deletes-storage"},
+	"volume-create-ignores-config":          {"volume@1/create-config-compatible"},
+	"volume-tmpfs-retains-config-on-delete": {"volume@1/tmpfs-cleared"},
+
 	"volume-refusal-destroys-storage":   {"volume@1/recreate-config-compatible"},
 	"volume-refusal-resets-mode":        {"volume@1/recreate-config-compatible"},
 	"volume-refuses-matching":           {"volume@1/matching-requests-merge"},
@@ -390,8 +427,8 @@ var mutations = map[string][]string{
 	"volume-compares-optionality":       {"volume@1/matching-requests-merge"},
 	"volume-raw-paths":                  {"volume@1/matching-requests-merge", "volume@1/no-silent-merge"},
 	"volume-merges-conflicts":           {"volume@1/no-silent-merge"},
-	"volume-shares-instances":           {"volume@1/instance-and-path-identity"},
-	"volume-ignores-path":               {"volume@1/instance-and-path-identity"},
+	"volume-shares-instances":           {"volume@1/name-and-path-identity"},
+	"volume-ignores-path":               {"volume@1/name-and-path-identity"},
 	"volume-keys-on-kit":                {"volume@1/composition-independent"},
 	"volume-setup-probe-error":          {"volume@1/composition-independent", "volume@1/persists-across-recreate"},
 	"volume-retained-read-denied":       {"volume@1/composition-independent", "volume@1/persists-across-recreate"},
@@ -399,9 +436,9 @@ var mutations = map[string][]string{
 	"volume-resets-mode":                {"volume@1/composition-independent"},
 	"volume-forgets-undeclared":         {"volume@1/undeclared-retained"},
 	"volume-mounts-undeclared":          {"volume@1/undeclared-retained"},
-	"volume-retains-after-removal":      {"volume@1/removal-deletes-storage"},
-	"volume-orphans-after-removal":      {"volume@1/removal-deletes-storage"},
-	"volume-reuses-name":                {"volume@1/removal-deletes-storage"},
+	"volume-deletes-on-removal":         {"volume@1/delete-retains-storage"},
+	"volume-keys-on-instance":           {"volume@1/delete-retains-storage"},
+	"volume-drops-dormant-on-delete":    {"volume@1/delete-retains-storage"},
 	"volume-ignores-recreate-config":    {"volume@1/recreate-config-compatible"},
 	"volume-forgets-dormant-config":     {"volume@1/recreate-config-compatible"},
 	"volume-refusal-destroys-container": {"volume@1/recreate-config-compatible"},
@@ -710,6 +747,46 @@ var mutations = map[string][]string{
 	"separate-stores":                        {"agent-skills@1/same-store-at-every-path"},
 	"ignores-readonly":                       {"agent-skills@1/readonly-default-honored"},
 	"ignores-readwrite":                      {"agent-skills@1/readwrite-granted-when-both-allow"},
+
+	"sbx-no-image-no-injection":    {"sbx@1/environment-provided"},
+	"sbx-missing-identity":         {"sbx@1/environment-provided"},
+	"sbx-wrong-name":               {"sbx@1/environment-provided"},
+	"sbx-wrong-marker":             {"sbx@1/environment-provided"},
+	"sbx-injects-after-agent":      {"sbx@1/environment-provided"},
+	"sbx-image-wins":               {"sbx@1/environment-provided"},
+	"sbx-image-id-wins":            {"sbx@1/environment-provided"},
+	"sbx-argument-wins":            {"sbx@1/environment-provided"},
+	"sbx-argument-id-wins":         {"sbx@1/environment-provided"},
+	"sbx-override-wins":            {"sbx@1/environment-provided"},
+	"sbx-override-id-wins":         {"sbx@1/environment-provided"},
+	"sbx-empty-override-wins":      {"sbx@1/environment-provided"},
+	"sbx-inherits-host":            {"sbx@1/environment-provided"},
+	"sbx-workspace-from-internal":  {"sbx@1/environment-internal"},
+	"sbx-workspace-from-host":      {"sbx@1/environment-host"},
+	"sbx-workspace-from-clone":     {"sbx@1/environment-cloned"},
+	"sbx-empty-absent-workspace":   {"sbx@1/environment-none"},
+	"sbx-reexpands-restart":        {"sbx@1/identity-stable"},
+	"sbx-process-override-wins":    {"sbx@1/environment-process", "sbx@1/environment-process-none"},
+	"sbx-process-id-override-wins": {"sbx@1/environment-process", "sbx@1/environment-process-none"},
+	"sbx-ignores-process-cwd":      {"sbx@1/environment-process", "sbx@1/environment-process-none"},
+	"sbx-cwd-changes-workspace":    {"sbx@1/environment-process", "sbx@1/environment-process-none"},
+	"sbx-missing-install-env":      {"sbx@1/environment-hooks"},
+	"sbx-missing-startup-env":      {"sbx@1/environment-hooks"},
+	"sbx-leaks-unrequested-env":    {"sbx@1/environment-hooks"},
+	"sbx-empty-workspace-hook":     {"sbx@1/environment-hooks-none"},
+	"sbx-expands-before-injection": {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal"},
+	"sbx-expands-absent-workspace": {"sbx@1/environment-hooks-none"},
+	"sbx-no-agent-on-start":        {"sbx@1/identity-stable"},
+	"sbx-no-agent-on-recreate":     {"sbx@1/identity-stable"},
+	"sbx-id-changes-on-start":      {"sbx@1/identity-stable"},
+	"sbx-id-changes-on-recreate":   {"sbx@1/identity-stable"},
+	"sbx-keeps-container-layer":    {"sbx@1/identity-stable"},
+	"sbx-reuses-deleted-id":        {"sbx@1/identity-new-after-deletion"},
+
+	"sbx-hooks-share-wrong-name":      {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
+	"sbx-hooks-share-wrong-id":        {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
+	"sbx-hooks-share-wrong-marker":    {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
+	"sbx-hooks-share-wrong-workspace": {"sbx@1/environment-hooks", "sbx@1/environment-hooks-internal", "sbx@1/environment-hooks-none"},
 }
 
 func TestEachCheckFailsWhenItsBehaviorIsAbsent(t *testing.T) {
@@ -802,7 +879,15 @@ func TestEveryCheckHasAMutationCase(t *testing.T) {
 // reason but reports it as an error, which must not count.
 func TestAFailingCreateIsNotMistakenForARefusal(t *testing.T) {
 	t.Parallel()
-	rep := runAgainstFake(t, "refusal-as-error")
+	var refusal check
+	for _, c := range checks {
+		if c.requirement == "SPEC-v3 §7.3/unknown-required-refused" {
+			refusal = c
+			break
+		}
+	}
+	require.NotEmpty(t, refusal.requirement)
+	rep := runAgainstFake(t, "refusal-as-error", refusal)
 	require.Contains(t, failedRequirements(rep), "SPEC-v3 §7.3/unknown-required-refused",
 		"a create that fails for unrelated reasons must not count as a refusal:\n%s", rep)
 }

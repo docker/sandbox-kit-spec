@@ -488,7 +488,12 @@ optional.
 This is the final **container** environment, not the host process's
 `os.Environ` and not only the values declared by Kits. Image defaults are
 composed first, create-argument `env` exports replace them, and explicit
-runtime environment overrides win last.
+runtime environment overrides win last. Capabilities may define
+runtime-owned names: for workloads accepting
+[`sbx@1`](capabilities/com.docker.sandbox/sbx@1.md#workspace-and-sandbox-environment),
+its workspace and sandbox identity values are applied after those inputs,
+including removal of `WORKSPACE_DIR` when no workspace is assigned. These
+values are part of the create-time environment used for expansion.
 
 Runtimes **MUST** expand these references at create, before strict <!-- tck: SPEC-v3 §6/env-expanded -->
 validation, capability selection, reconciliation, and the permission
@@ -820,6 +825,7 @@ behavior** for a runtime supporting the type:
 |---|---|---|
 | `com.docker.sandbox/network-policy@1` | [network-policy@1](capabilities/com.docker.sandbox/network-policy@1.md) | singleton |
 | `com.docker.sandbox/network-policy@2` | [network-policy@2](capabilities/com.docker.sandbox/network-policy@2.md) | singleton, exclusive with `@1` |
+| `com.docker.sandbox/docker-auth@1` | [docker-auth@1](capabilities/com.docker.sandbox/docker-auth@1.md) | whole-entry |
 | `com.docker.sandbox/credential@1` | [credential@1](capabilities/com.docker.sandbox/credential@1.md) | per (service, phase) |
 | `com.docker.sandbox/ssh-agent@1` | [ssh-agent@1](capabilities/com.docker.sandbox/ssh-agent@1.md) | per phase (one entry may name both) |
 | `com.docker.sandbox/volume@1` | [volume@1](capabilities/com.docker.sandbox/volume@1.md) | per path |
@@ -1076,7 +1082,7 @@ error. In that order they reconcile into one descriptor:
 | `args` | The set's own. The listed Kits' are answered at publish, pinned or re-exported. |
 | Display fields | The set's own: the artifact is a new thing with its own name, publisher, and documentation. |
 | Instance-shaped capabilities | Reconcile on the type's own key ([§7.1](#71-arity)) according to its versioned contract, as specified below and in its capability page. The key does not prescribe equality, merging, or compatibility with retained state. |
-| `volume@1` | Matching typed storage configurations at one cleaned path collapse; different sizes, modes, or backing kinds conflict. Storage belongs to the sandbox instance, independently of the declaring Kit. |
+| `volume@1` | Matching typed storage configurations at one cleaned path collapse; different sizes, modes, or backing kinds conflict. Block storage belongs to the owner scope, sandbox name, and path, independently of the declaring Kit, and survives sandbox deletion. |
 | `credential@1` | One owner per (service, phase); overlapping requests conflict even when identical. |
 | `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
 | `dockerd@1` | Presence is the union, and the merged `autoStart` is true when any of them says true or omits it, false only when all say false. It owns `/var/lib/docker`: a `volume@1` or `host-mount@1` at or under that cleaned path conflicts with it, whichever Kit declares either and whether or not the request is optional. |
@@ -1268,9 +1274,12 @@ identified by the lock, which is what makes recreate exact. Local handles,
 state-key representations, and lock formats are runtime concerns outside
 this specification; the descriptor carries no top-level identity name on
 purpose. The volume capability defines the observable storage lifetime:
-restart and recreation preserve an instance, while removal ends it and a
-new create begins another. Kit or lock changes do not change that storage
-identity.
+restart, re-create, and delete followed by create under the same owner
+scope and sandbox name preserve block storage. Explicit storage removal
+or a documented, visible retention-policy removal ends that lifetime.
+Kit or lock changes do not change storage identity. Unlike private
+`volume@1` storage, `host-mount@1` directories are keyed on Kit identity
+and shared across sandboxes composing that Kit.
 
 ---
 

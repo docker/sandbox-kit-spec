@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"slices"
-	"sync"
+	"strings"
 
 	"github.com/docker/sandbox-kit-spec/v3/tck/adapter"
 	"github.com/docker/sandbox-kit-spec/v3/tck/report"
@@ -305,50 +306,287 @@ func sorted(paths []string) []string {
 	return paths
 }
 
-func volumeRemoval(ctx context.Context, e *Env) []report.Finding {
-	opts := adapter.CreateOptions{Name: "kit-tck-volume-" + rand.Text()}
-	kits := []string{fixtureWorkload, "volume-state"}
-	id, cleanup, err := e.sandboxWith(ctx, kits, opts)
-	if err != nil {
+// volumeName keeps sandbox deletion separate from storage cleanup. A failed
+// create can leave retained data without a live id, so cleanup uses the name.
+type volumeName struct {
+	e        *Env
+	name, id string
+}
+
+func newVolumeName(e *Env) *volumeName {
+	return &volumeName{e: e, name: "kit-tck-volume-" + rand.Text()}
+}
+
+func (v *volumeName) create(ctx context.Context, kits []string, args map[string]string) error {
+	refs := make([]string, 0, len(kits))
+	for _, kit := range kits {
+		refs = append(refs, v.e.Fixtures(kit))
+	}
+	id, err := v.e.Adapter.Create(ctx, refs, adapter.CreateOptions{Name: v.name, Args: args})
+	if err == nil {
+		v.id = id
+	}
+	return err
+}
+
+func (v *volumeName) remove(ctx context.Context) error {
+	if v.id == "" {
+		return nil
+	}
+	if err := v.e.Adapter.Remove(ctx, v.id); err != nil {
+		return err
+	}
+	v.id = ""
+	return nil
+}
+
+func (v *volumeName) cleanup(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
+	if err := v.remove(ctx); err != nil {
+		v.e.leaked = append(v.e.leaked, fmt.Sprintf("%s: %v", v.name, err))
+		return
+	}
+	if err := v.e.Adapter.RemoveVolumeStorage(ctx, v.name, ""); err != nil {
+		v.e.volumeLeaks = append(v.e.volumeLeaks, fmt.Sprintf("%s: %v", v.name, err))
+	}
+}
+
+func volumeDeleteRetains(ctx context.Context, e *Env) []report.Finding {
+	v := newVolumeName(e)
+	defer v.cleanup(ctx)
+	if err := v.create(ctx, []string{fixtureWorkload, "volume-state"}, nil); err != nil {
 		return []report.Finding{report.Failf("named create: %v", err)}
 	}
-	remove := sync.OnceFunc(cleanup)
-	defer remove()
 	var findings []report.Finding
+	seeded := map[string]bool{}
 	for _, path := range []string{volumePath, volumeOtherPath} {
-		if f := volumeSeed(ctx, e, id, path, "marker", "old-instance"); len(f) > 0 {
-			if f[0].Severity != report.Skip {
-				return append(findings, f...)
+		f := volumeSeed(ctx, e, v.id, path, "marker", path)
+		if len(f) > 0 && f[0].Severity != report.Skip {
+			return f
+		}
+		findings = append(findings, f...)
+		seeded[path] = len(f) == 0
+		if seeded[path] {
+			if f := volumeProbe(ctx, e, v.id, "set-mode", path, "marker", "0600", ""); len(f) > 0 {
+				return f
 			}
-			findings = append(findings, f...)
 		}
 	}
-	if err := e.Adapter.RecreateWith(ctx, id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
-		return []report.Finding{report.Failf("retain unmounted storage: %v", err)}
+	if err := e.Adapter.RecreateWith(ctx, v.id, []string{e.Fixtures(fixtureWorkload)}, nil); err != nil {
+		return []report.Finding{report.Failf("unselect paths: %v", err)}
 	}
-	remove()
-	paths, err := e.Adapter.VolumePaths(ctx, id)
-	if err != nil || len(paths) != 0 {
-		return append(findings, report.Failf("removed instance retains storage: %v (%v)", paths, err))
+	if f := volumeProbe(ctx, e, v.id, "write", volumeControlPath, "marker", "old-container", ""); len(f) > 0 {
+		return f
 	}
-	fresh, removeFresh, err := e.sandboxWith(ctx, kits, opts)
-	if err != nil {
-		return []report.Finding{report.Failf("new create with same alias: %v", err)}
+	oldID := v.id
+	if err := v.remove(ctx); err != nil {
+		return []report.Finding{report.Failf("delete sandbox: %v", err)}
 	}
-	defer removeFresh()
+	paths, err := e.Adapter.VolumePaths(ctx, oldID)
+	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+		return append(findings, report.Failf("delete must retain unmounted allocations: %v (%v)", paths, err))
+	}
+	// Name lookup is independent of guest permissions and detects storage
+	// orphaned under an old hidden instance id even if no marker was seeded.
+	paths, err = e.Adapter.VolumeStoragePaths(ctx, v.name)
+	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+		return append(findings, report.Failf("retained storage must remain discoverable by name: %v (%v)", paths, err))
+	}
+	// The same name with another Kit identity must reattach both paths.
+	if err := v.create(ctx, []string{"volume-workload", "volume-state-other"}, nil); err != nil {
+		return append(findings, report.Failf("create under retained name: %v", err))
+	}
 	for _, path := range []string{volumePath, volumeOtherPath} {
-		if f := volumeAccess(ctx, e, fresh, path, "readable"); len(f) > 0 {
-			if f[0].Severity != report.Skip {
-				return append(findings, f...)
-			}
-			findings = append(findings, f...)
-			continue
-		}
-		if f := volumeProbe(ctx, e, fresh, "empty", path, "", "", ""); len(f) > 0 {
+		if f := volumeProbe(ctx, e, v.id, "mounted", path, "", "", ""); len(f) > 0 {
 			return append(findings, f...)
+		}
+		if seeded[path] {
+			if f := volumeProbe(ctx, e, v.id, "read", path, "marker", "", path); len(f) > 0 {
+				return append(findings, f...)
+			}
+			if f := volumeProbe(ctx, e, v.id, "mode", path, "marker", "", "600\n"); len(f) > 0 {
+				return append(findings, f...)
+			}
+		}
+	}
+	return append(findings, volumeProbe(ctx, e, v.id, "absent", volumeControlPath, "marker", "", "")...)
+}
+
+func volumeStorageListed(ctx context.Context, e *Env) []report.Finding {
+	v := newVolumeName(e)
+	defer v.cleanup(ctx)
+	if err := v.create(ctx, []string{fixtureWorkload, "volume-state"}, nil); err != nil {
+		return []report.Finding{report.Failf("create: %v", err)}
+	}
+	if err := v.remove(ctx); err != nil {
+		return []report.Finding{report.Failf("delete: %v", err)}
+	}
+	paths, err := e.Adapter.VolumeStoragePaths(ctx, v.name)
+	if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+		return []report.Finding{report.Failf("list deleted name's storage: %v (%v)", paths, err)}
+	}
+	return nil
+}
+
+func volumeExplicitRemoval(ctx context.Context, e *Env) []report.Finding {
+	v, other := newVolumeName(e), newVolumeName(e)
+	defer v.cleanup(ctx)
+	defer other.cleanup(ctx)
+	kits := []string{fixtureWorkload, "volume-state"}
+	var findings []report.Finding
+	seeded := map[string]map[string]bool{}
+	for _, name := range []*volumeName{v, other} {
+		if err := name.create(ctx, kits, nil); err != nil {
+			return []report.Finding{report.Failf("control create: %v", err)}
+		}
+		seeded[name.name] = map[string]bool{}
+		for _, path := range []string{volumePath, volumeOtherPath} {
+			f := volumeSeed(ctx, e, name.id, path, "marker", name.name+":"+path)
+			if len(f) > 0 && f[0].Severity != report.Skip {
+				return f
+			}
+			findings = append(findings, f...)
+			seeded[name.name][path] = len(f) == 0
+		}
+		if err := name.remove(ctx); err != nil {
+			return []report.Finding{report.Failf("delete: %v", err)}
+		}
+	}
+	for _, destination := range []string{volumePath, ""} {
+		if err := e.Adapter.RemoveVolumeStorage(ctx, v.name, destination); err != nil {
+			return []report.Finding{report.Failf("explicit storage removal: %v", err)}
+		}
+		want := []string{volumeOtherPath}
+		if destination == "" {
+			want = nil
+		}
+		paths, err := e.Adapter.VolumeStoragePaths(ctx, v.name)
+		if err != nil || !slices.Equal(sorted(paths), want) {
+			return []report.Finding{report.Failf("allocations after explicit removal of %q: %v (%v)", destination, paths, err)}
+		}
+		paths, err = e.Adapter.VolumeStoragePaths(ctx, other.name)
+		if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+			return []report.Finding{report.Failf("removal altered another name: %v (%v)", paths, err)}
+		}
+		// Allocation directories can survive even when a removal wiped their
+		// contents. Reattach the control name to judge the retained bytes.
+		if err := other.create(ctx, kits, nil); err != nil {
+			return []report.Finding{report.Failf("reattach control name: %v", err)}
+		}
+		for _, path := range []string{volumePath, volumeOtherPath} {
+			if f := volumeProbe(ctx, e, other.id, "mounted", path, "", "", ""); len(f) > 0 {
+				return f
+			}
+			if seeded[other.name][path] {
+				if f := volumeProbe(ctx, e, other.id, "read", path, "marker", "", other.name+":"+path); len(f) > 0 {
+					return f
+				}
+			}
+		}
+		if err := other.remove(ctx); err != nil {
+			return []report.Finding{report.Failf("delete control name: %v", err)}
+		}
+		// A new configuration proves removal cleared retained requests too.
+		mode := "0755"
+		if destination == "" {
+			mode = "0700"
+		}
+		if err := v.create(ctx, kits, map[string]string{"volume_mode": mode}); err != nil {
+			return []report.Finding{report.Failf("create after explicit removal: %v", err)}
+		}
+		freshPaths := []string{volumePath}
+		if destination == "" {
+			freshPaths = append(freshPaths, volumeOtherPath)
+		} else if seeded[v.name][volumeOtherPath] {
+			if f := volumeProbe(ctx, e, v.id, "read", volumeOtherPath, "marker", "", v.name+":"+volumeOtherPath); len(f) > 0 {
+				return f
+			}
+		}
+		for _, path := range freshPaths {
+			if f := volumeAccess(ctx, e, v.id, path, "readable"); len(f) > 0 {
+				if f[0].Severity != report.Skip {
+					return f
+				}
+				findings = append(findings, f...)
+			} else if f := volumeProbe(ctx, e, v.id, "empty", path, "", "", ""); len(f) > 0 {
+				return f
+			}
+		}
+		// Seed bytes so the second removal cannot pass by forgetting only
+		// the allocation index while reusing the old backing directory.
+		if f := volumeSeed(ctx, e, v.id, volumePath, "marker", "discard"); len(f) > 0 && f[0].Severity != report.Skip {
+			return f
+		}
+		if err := v.remove(ctx); err != nil {
+			return []report.Finding{report.Failf("delete new sandbox: %v", err)}
 		}
 	}
 	return findings
+}
+
+func volumeCreateConflicts(ctx context.Context, e *Env) []report.Finding {
+	var observations []report.Finding
+	for _, transition := range volumeRecreateTransitions() {
+		// Deleted tmpfs has no retained request; block-to-tmpfs still
+		// conflicts with block storage retained under the name.
+		if transition.initialFixture == "volume-state-tmpfs" {
+			continue
+		}
+		findings := func() []report.Finding {
+			v := newVolumeName(e)
+			defer v.cleanup(ctx)
+			if err := v.create(ctx, []string{fixtureWorkload, transition.initialFixture}, transition.initialArgs); err != nil {
+				return []report.Finding{report.Failf("control create: %v", err)}
+			}
+			findings := volumeSeed(ctx, e, v.id, volumePath, "marker", "unchanged")
+			seeded := len(findings) == 0
+			if !seeded && findings[0].Severity != report.Skip {
+				return findings
+			}
+			if seeded {
+				if f := volumeProbe(ctx, e, v.id, "set-mode", volumePath, "marker", "0600", ""); len(f) > 0 {
+					return f
+				}
+			}
+			if err := v.remove(ctx); err != nil {
+				return []report.Finding{report.Failf("delete: %v", err)}
+			}
+			err := v.create(ctx, []string{fixtureWorkload, transition.replacementFixture}, transition.replacementArgs)
+			var refused *adapter.RefusedError
+			if !errors.As(err, &refused) {
+				return []report.Finding{report.Failf("%s incompatible create must refuse: %v", transition.name, err)}
+			}
+			field := "size"
+			if strings.Contains(transition.name, "mode") {
+				field = "mode"
+			} else if transition.replacementFixture == "volume-state-tmpfs" {
+				field = "tmpfs"
+			}
+			if !strings.Contains(refused.Detail, volumePath) || !strings.Contains(refused.Detail, field) {
+				return []report.Finding{report.Failf("refusal must name path and %s: %s", field, refused.Detail)}
+			}
+			paths, err := e.Adapter.VolumeStoragePaths(ctx, v.name)
+			if err != nil || !slices.Equal(sorted(paths), []string{volumePath, volumeOtherPath}) {
+				return []report.Finding{report.Failf("refused create changed allocations: %v (%v)", paths, err)}
+			}
+			if err := v.create(ctx, []string{fixtureWorkload, transition.initialFixture}, transition.initialArgs); err != nil {
+				return []report.Finding{report.Failf("create with original settings: %v", err)}
+			}
+			if seeded {
+				if f := volumeProbe(ctx, e, v.id, "read", volumePath, "marker", "", "unchanged"); len(f) > 0 {
+					return f
+				}
+				return volumeProbe(ctx, e, v.id, "mode", volumePath, "marker", "", "600\n")
+			}
+			return findings
+		}()
+		observations = append(observations, findings...)
+		if slices.ContainsFunc(findings, func(f report.Finding) bool { return f.Severity == report.Fail }) {
+			return observations
+		}
+	}
+	return observations
 }
 
 type volumeTransition struct {
@@ -590,6 +828,37 @@ func volumeHookEmpty(ctx context.Context, e *Env, id, hook string) []report.Find
 }
 
 func volumeTmpfs(ctx context.Context, e *Env) []report.Finding {
+	findings := volumeTmpfsRestart(ctx, e)
+	if slices.ContainsFunc(findings, func(f report.Finding) bool { return f.Severity == report.Fail }) {
+		return findings
+	}
+	return append(findings, volumeTmpfsDelete(ctx, e)...)
+}
+
+func volumeTmpfsDelete(ctx context.Context, e *Env) []report.Finding {
+	v := newVolumeName(e)
+	defer v.cleanup(ctx)
+	if err := v.create(ctx, []string{fixtureWorkload, "volume-state-tmpfs"}, nil); err != nil {
+		return []report.Finding{report.Failf("tmpfs create: %v", err)}
+	}
+	findings := volumeSeed(ctx, e, v.id, volumePath, "marker", "scratch")
+	if len(findings) > 0 && findings[0].Severity != report.Skip {
+		return findings
+	}
+	if err := v.remove(ctx); err != nil {
+		return []report.Finding{report.Failf("delete tmpfs sandbox: %v", err)}
+	}
+	// A discarded tmpfs request cannot block a later block allocation.
+	if err := v.create(ctx, []string{fixtureWorkload, "volume-state"}, nil); err != nil {
+		return []report.Finding{report.Failf("discarded tmpfs config must not survive delete: %v", err)}
+	}
+	if f := volumeAccess(ctx, e, v.id, volumePath, "readable"); len(f) > 0 {
+		return append(findings, f...)
+	}
+	return append(findings, volumeProbe(ctx, e, v.id, "empty", volumePath, "", "", "")...)
+}
+
+func volumeTmpfsRestart(ctx context.Context, e *Env) []report.Finding {
 	id, remove, err := e.sandbox(ctx, []string{fixtureWorkload, "volume-state-tmpfs"}, nil)
 	if err != nil {
 		return []report.Finding{report.Failf("tmpfs create: %v", err)}
@@ -661,10 +930,13 @@ func volumeHooks(ctx context.Context, e *Env) []report.Finding {
 var volumeChecks = []check{
 	{requirement: "volume@1/matching-requests-merge", capability: capVolume, run: volumeMatching},
 	{requirement: "volume@1/no-silent-merge", capability: capVolume, run: volumeConflicts},
-	{requirement: "volume@1/instance-and-path-identity", capability: capVolume, run: volumeIdentity},
+	{requirement: "volume@1/name-and-path-identity", capability: capVolume, run: volumeIdentity},
 	{requirement: "volume@1/composition-independent", capability: capVolume, run: volumeRecompose},
 	{requirement: "volume@1/undeclared-retained", capability: capVolume, run: volumeRetained},
-	{requirement: "volume@1/removal-deletes-storage", capability: capVolume, run: volumeRemoval},
+	{requirement: "volume@1/delete-retains-storage", capability: capVolume, run: volumeDeleteRetains},
+	{requirement: "volume@1/retained-storage-listed", capability: capVolume, run: volumeStorageListed},
+	{requirement: "volume@1/explicit-removal-deletes-storage", capability: capVolume, run: volumeExplicitRemoval},
+	{requirement: "volume@1/create-config-compatible", capability: capVolume, run: volumeCreateConflicts},
 	{requirement: "volume@1/recreate-config-compatible", capability: capVolume, run: volumeRecreateConflicts},
 	{requirement: "volume@1/initially-empty", capability: capVolume, run: volumeEmpty},
 	{requirement: "volume@1/tmpfs-cleared", capability: capVolume, run: volumeTmpfs},

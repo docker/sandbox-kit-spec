@@ -1,0 +1,10 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Create-time assigned workspace reference
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - path: /home/sbxagent/.config/sbx-expanded/WORKSPACE_DIR
+          content: '${{ kit.env.WORKSPACE_DIR }}'

@@ -61,8 +61,15 @@ func (a *Adapter) Capabilities(ctx context.Context) ([]string, error) {
 
 // CreateOptions shape one create call beyond the kit set itself.
 type CreateOptions struct {
-	// Name is a suite-owned alias, not the sandbox's storage identity.
+	// DockerAuthConfig supplies suite-owned credential bindings and HTTPS
+	// endpoint routing for registry-auth observations, never guest config.
+	DockerAuthConfig string
+	// Name is suite-owned and keys volume storage within the owner scope.
 	Name string
+	// WorkspaceMode arranges an internal, host-mounted, cloned, or absent
+	// workspace (internal, host, cloned, none). Empty uses the runtime default.
+	// Unsupported modes return ExitRefused without creating a sandbox.
+	WorkspaceMode string
 	// GitIdentityConfig transports a suite-owned test binding in Git config
 	// format, or "off" to withhold it. It does not prescribe runtime storage.
 	GitIdentityConfig string
@@ -73,7 +80,8 @@ type CreateOptions struct {
 	Args map[string]string
 
 	// Env overrides the final container environment, passed as --env name=value.
-	// These values take precedence over image defaults and Kit argument exports.
+	// These values take precedence over image defaults and Kit argument exports,
+	// except for runtime-owned sbx@1 workspace and identity names.
 	Env map[string]string
 
 	// SkillsHostMode, when set, is the host-side skills setting the
@@ -112,6 +120,12 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 	argv := append([]string{"create"}, kits...)
 	if opts.Name != "" {
 		argv = append(argv, "--name", opts.Name)
+	}
+	if opts.WorkspaceMode != "" {
+		argv = append(argv, "--workspace-mode", opts.WorkspaceMode)
+	}
+	if opts.DockerAuthConfig != "" {
+		argv = append(argv, "--docker-auth-config", opts.DockerAuthConfig)
 	}
 	if opts.GitIdentityConfig != "" {
 		argv = append(argv, "--git-identity-config", opts.GitIdentityConfig)
@@ -160,6 +174,26 @@ func (a *Adapter) Exec(ctx context.Context, id string, argv ...string) (Result, 
 	return a.run(ctx, append([]string{"exec", id, "--"}, argv...)...)
 }
 
+// ExecOptions controls a runtime-launched process, without wrapping it in
+// a guest shell whose own assignments would bypass runtime precedence.
+type ExecOptions struct {
+	Env map[string]string
+	Cwd string
+}
+
+// ExecWith launches a process with explicit environment and cwd inputs.
+func (a *Adapter) ExecWith(ctx context.Context, id string, opts ExecOptions, argv ...string) (Result, error) {
+	args := []string{"exec", id}
+	if opts.Cwd != "" {
+		args = append(args, "--cwd", opts.Cwd)
+	}
+	for _, name := range sortedKeys(opts.Env) {
+		args = append(args, "--env", name+"="+opts.Env[name])
+	}
+	args = append(args, "--")
+	return a.run(ctx, append(args, argv...)...)
+}
+
 // WaitIdle exercises final-session disconnection and waits beyond the
 // runtime's own auto-stop grace period without keeping the sandbox alive.
 func (a *Adapter) WaitIdle(ctx context.Context, id string) error {
@@ -184,7 +218,7 @@ func (a *Adapter) Status(ctx context.Context, id string) (string, error) {
 }
 
 // Recreate replaces the sandbox's container — a fresh writable layer —
-// preserving instance-owned block storage, including unmounted paths.
+// preserving name-scoped block storage, including unmounted paths.
 // Stop/start preserves the entire
 // filesystem, so it cannot tell a volume from an ordinary directory;
 // recreate is the observation that can.
@@ -192,7 +226,7 @@ func (a *Adapter) Recreate(ctx context.Context, id string) error {
 	return a.RecreateWith(ctx, id, nil, nil)
 }
 
-// RecreateWith changes the composition within the existing instance.
+// RecreateWith changes the composition under the same sandbox name.
 // Kits replace the previous set when nonempty; args override retained
 // argument values. Create-time host bindings remain unchanged.
 func (a *Adapter) RecreateWith(ctx context.Context, id string, kits []string, args map[string]string) error {

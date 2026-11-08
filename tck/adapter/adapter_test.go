@@ -18,14 +18,15 @@ func TestCreateTransportsContainerEnvironmentLiterally(t *testing.T) {
 	a.Env = []string{"ARGV_FILE=" + argvFile}
 	value := "spaces = equals\nquotes'\" $HOME $(touch forbidden)"
 	id, err := a.Create(t.Context(), []string{"workload", "mixin"}, CreateOptions{
-		Args: map[string]string{"greeting": "argument"},
-		Env:  map[string]string{"Z_VALUE": value, "A_EMPTY": ""},
+		DockerAuthConfig: filepath.Join(dir, "registry binding.json"),
+		Args:             map[string]string{"greeting": "argument"},
+		Env:              map[string]string{"Z_VALUE": value, "A_EMPTY": ""},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "sandbox-id", id)
 	raw, err := os.ReadFile(argvFile)
 	require.NoError(t, err)
-	require.Equal(t, []string{"create", "workload", "mixin", "--arg", "greeting=argument", "--env", "A_EMPTY=", "--env", "Z_VALUE=" + value}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
+	require.Equal(t, []string{"create", "workload", "mixin", "--docker-auth-config", filepath.Join(dir, "registry binding.json"), "--arg", "greeting=argument", "--env", "A_EMPTY=", "--env", "Z_VALUE=" + value}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
 }
 
 func TestRecreateWithPreservesLiteralArgumentsAndRefusalStatus(t *testing.T) {
@@ -79,4 +80,24 @@ func TestVolumePathsRequiresAnArrayAndSuccessfulObservation(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		}
 	}
+}
+
+func TestWorkspaceAndProcessInputsAreTransportedLiterally(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "adapter")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\000' \"$@\" > \"$ARGV_FILE\"\necho sandbox-id\n"), 0700))
+	argvFile := filepath.Join(dir, "argv")
+	a := New(path)
+	a.Env = []string{"ARGV_FILE=" + argvFile}
+	_, err := a.Create(t.Context(), []string{"workload"}, CreateOptions{WorkspaceMode: "none"})
+	require.NoError(t, err)
+	raw, err := os.ReadFile(argvFile)
+	require.NoError(t, err)
+	require.Equal(t, []string{"create", "workload", "--workspace-mode", "none"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
+	value := "spaces $HOME $(touch forbidden)"
+	_, err = a.ExecWith(t.Context(), "sandbox-id", ExecOptions{Cwd: "/other cwd", Env: map[string]string{"IS_SANDBOX": value}}, "probe", "--env", "literal")
+	require.NoError(t, err)
+	raw, err = os.ReadFile(argvFile)
+	require.NoError(t, err)
+	require.Equal(t, []string{"exec", "sandbox-id", "--cwd", "/other cwd", "--env", "IS_SANDBOX=" + value, "--", "probe", "--env", "literal"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
 }

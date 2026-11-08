@@ -126,6 +126,12 @@ A conforming runtime:
 - **SHOULD** attribute a failing hook to its Kit in errors (which Kit, <!-- tck: lifecycle@1/failing-hook-attributed -->
   which hook index).
 
+For workloads accepting [sbx@1](sbx@1.md#workspace-and-sandbox-environment),
+`WORKSPACE_DIR`, `SANDBOX_NAME`, `SANDBOX_ID`, and `IS_SANDBOX` are runtime
+inputs. List the names a hook uses in `env`, as the install example does;
+they are not part of the automatic baseline. With no assigned workspace,
+requesting `WORKSPACE_DIR` leaves it unset.
+
 ## Composition
 
 Install and startup lists concatenate in dependency order across the set;
