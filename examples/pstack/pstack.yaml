@@ -1,0 +1,279 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: pstack
+description: Agent-neutral engineering skills, playbooks, and principles.
+sourceUrl: https://github.com/backnotprop/pstack
+licenses: [MIT]
+version: "${{ kit.args.version }}"
+provides: ["pstack@${{ kit.args.version }}"]
+
+args:
+  version:
+    default: "0.15.36"
+    # The mirror has no release tags; the recipe pins a reviewed snapshot.
+    enum: ["0.15.36"]
+    description: Plugin version verified against the pinned source snapshot
+    buildArg: PSTACK_VERSION
+
+capabilities:
+  # Native discovery when supported; context is a fallback for other agents.
+  # Keep the complete collection: skills refer to their siblings.
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/architect
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/arena
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/automate-me
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/benchmark-checklist
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/blast-radius
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/bro
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/correct
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/create-formal-verification-skill
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/create-verification-skill
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/figure-it-out
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/how
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/in-your-own-words
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/interrogate
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/ketchup
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/ketchup-video
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/maintain-formal-verification-skill
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/maintain-verification-skill
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/make-bot-ui
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/no-comments
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/poteto-help
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/poteto-mode
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-attack-the-premise
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-boundary-discipline
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-build-the-lever
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-encode-lessons-in-structure
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-exhaust-the-design-space
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-experience-first
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-explain-the-number
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-fix-root-causes
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-foundational-thinking
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-guard-the-context-window
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-laziness-protocol
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-make-operations-idempotent
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-migrate-callers-then-delete-legacy-apis
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-minimize-reader-load
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-model-the-domain
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-never-block-on-the-human
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-outcome-oriented-execution
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-prove-it-works
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-redesign-from-first-principles
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-separate-before-serializing-shared-state
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-sequence-verifiable-units
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-subtract-before-you-add
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-test-behavior-not-implementation
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/principle-type-system-discipline
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/recall
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/reflect
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/setup-pstack
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/sharpen
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/show-me-your-work
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/statechart
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/swarm
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/tdd
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/teach
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/technical-writing
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/typescript-best-practices
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/unslop
+  - type: com.docker.sandbox/agent-skill@1
+    optional: true
+    config:
+      path: /usr/share/pstack/skills/why
+
+  # Offer both context versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        ## pstack skills
+
+        The pstack skill collection is bundled at /usr/share/pstack/skills/.
+        Read /usr/share/pstack/README.md for the catalog and dependencies.
+        Each skill has a SKILL.md; supporting files, sibling skills, guides,
+        and agent templates are available in the same source tree.
+
+        When the user invokes a pstack skill, read its SKILL.md there.
+        Start with poteto-help/SKILL.md for help choosing a skill, or
+        poteto-mode/SKILL.md when the user asks to use the main workflow.
+        If native skill discovery is unavailable, read these absolute paths
+        directly. Resolve links from the bundled source tree so references
+        to sibling skills, ../../docs, and ../../agents stay together.
+
+        Use the consuming agent's own tools and available models. The kit
+        does not install Cursor plugins, register custom subagents, or
+        supply external services referenced by individual workflows.
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
