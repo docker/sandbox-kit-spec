@@ -225,10 +225,12 @@ capabilities:
         Codex CLI is installed at `/usr/local/bin/codex`. Run `codex` for an
         interactive session or `codex exec "<prompt>"` for a one-shot run.
 
-        Authentication is proxy-mediated: `OPENAI_API_KEY` in this container is a
-        sentinel — the sandbox proxy substitutes the real key bound on the host
-        (`sbx secret set openai`) on requests to `api.openai.com`. Without a
-        bound key, `codex` will ask you to log in.
+        Authentication is managed on the host with `sbx secret set openai`.
+        API-key mode uses an `OPENAI_API_KEY` sentinel; ChatGPT mode uses a
+        native identity cache with filtered claims and unusable token
+        signatures. The sandbox proxy supplies the real credentials on
+        authorized requests. If authentication is missing, sign in on the
+        host and recreate the sandbox.
 
   - type: com.docker.sandbox/agent-context@2
     optional: true

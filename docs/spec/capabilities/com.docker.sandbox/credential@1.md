@@ -65,17 +65,23 @@ errors. Each placeholder renders in the target encoding's own type.
 The additional credential-file placeholders have these runtime contracts:
 
 - **MUST** render `{{.IDToken}}` for `service: openai` as a new JWT-shaped <!-- tck: credential@1/openai-identity-masked -->
-  identity placeholder with a constant header and base64url-encoded
-  `proxy-managed` signature. Only the typed claims listed below pass
+  identity placeholder with header `{"alg":"RS256"}` and signature
+  `proxy-managed`, both encoded as unpadded base64url. Only the typed claims listed below pass
   through; original headers, unknown claims, and signatures are excluded.
 - **MUST** apply the same constant header, signature replacement, and <!-- tck: credential@1/openai-access-token-masked -->
   claim allowlist to JWT-shaped `{{.AccessToken}}` values for
   `service: openai`.
 - **MUST** apply the same identity filtering to `id_token` and JWT-shaped <!-- tck: credential@1/openai-identity-refresh-masked -->
   `access_token` in intercepted OpenAI token responses. Malformed identity
-  tokens are omitted or cause the response to be rejected.
+  tokens cause the response to be rejected. Successful
+  responses contain only the filtered tokens, string `account_id`, integer
+  `expires_in`, and constant `token_type: Bearer`; other provider fields
+  and headers are excluded. Error responses retain only `invalid_grant`,
+  `refresh_token_expired`, `refresh_token_reused`, or
+  `refresh_token_invalidated`; other errors become `token_refresh_failed`.
 - **MUST** fail rendering when `{{.IDToken}}` is referenced but the host <!-- tck: credential@1/openai-identity-required -->
   identity token is empty or unparseable, or the service is not `openai`.
+  This fails configuration even when the credential is optional.
 - **MUST** render `{{.AccountID}}` as the host's ChatGPT account ID for <!-- tck: credential@1/openai-account-id -->
   `service: openai`, or an empty string when absent or for other services.
 - **MUST** render `{{.LastRefresh}}` as the time the runtime renders the <!-- tck: credential@1/credential-render-timestamp -->
@@ -86,6 +92,16 @@ The identity allowlist contains string `email`, integer `exp`, string
 `https://api.openai.com/auth`: strings `chatgpt_plan_type`,
 `chatgpt_user_id`, `user_id`, `chatgpt_account_id`,
 `chatgpt_account_user_id`, and boolean `chatgpt_account_is_fedramp`.
+
+A JWT-shaped input has three nonempty segments, a base64url JSON object
+header with a nonempty string `alg`, and a base64url JSON object payload.
+A wrong-typed allowlisted claim makes it unparseable. Opaque or malformed
+access tokens use `oauth.sentinels.accessToken` instead.
+
+The boundary recognizes a JWT-shaped access placeholder by its fixed
+`proxy-managed` signature segment. It resolves the real token from the
+host store for the bound `openai` service, not from the placeholder claims,
+and substitutes it only on authorized requests to `resourceHosts`.
 
 Allowed identity claims remain readable inside the sandbox. These placeholders
 require a runtime implementing this extension; older runtimes reject
@@ -108,7 +124,8 @@ A conforming runtime:
   real credential on outbound requests matching the
   `inject` rules or `resourceHosts`.
 - **MUST** intercept the OAuth `tokenEndpoint` and serve sentinel tokens <!-- tck: credential@1/oauth-token-endpoint-intercepted -->
-  or the OpenAI identity placeholders defined above, refreshing host-side; `passthrough: true` is the explicit opt-out and a
+  or the OpenAI identity placeholders defined above, refreshing host-side;
+  `passthrough: true` is the explicit opt-out and a
   security downgrade a runtime MAY refuse.
 - **MUST** scope by phase: an install-only credential is injectable only while <!-- tck: credential@1/phase-scoped -->
   install hooks run and is revoked before the workload's entrypoint starts;

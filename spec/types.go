@@ -814,8 +814,10 @@ type CredentialFile struct {
 	// (a number), {{.Scopes}} (an array), and {{.PrimaryApiKey}} (a
 	// string whose enclosing key is omitted when no key is captured);
 	// each placeholder renders in the target encoding's own type.
-	// OpenAI also supports {{.IDToken}} (signature-masked JWT),
+	// OpenAI also supports {{.IDToken}} (a JWT-shaped identity placeholder),
 	// {{.AccountID}} (ChatGPT account ID), and {{.LastRefresh}} (RFC 3339).
+	// Its header is constant, claims are typed and allowlisted, and its signature
+	// is proxy-managed. JWT-shaped OpenAI access tokens use the same filtering.
 	// Unknown placeholders are errors.
 	Structure map[string]any `json:"structure,omitempty" yaml:"structure,omitempty"`
 	// Format selects the encoding of the substituted structure: "json"
