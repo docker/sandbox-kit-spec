@@ -492,6 +492,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
+	CapabilityOpenURL:                  true,
 }
 
 // deref unwraps pointer and interface layers, the way JSON marshaling
@@ -578,6 +579,7 @@ var configlessCapabilities = map[string]bool{
 	CapabilityKitRegistry: true,
 	CapabilitySbx:         true,
 	CapabilityLongRunning: true,
+	CapabilityOpenURL:     true,
 }
 
 // validateCapabilityEntries checks the typed capability list. Type syntax and

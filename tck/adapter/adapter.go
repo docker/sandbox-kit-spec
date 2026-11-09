@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -61,6 +62,12 @@ func (a *Adapter) Capabilities(ctx context.Context) ([]string, error) {
 
 // CreateOptions shape one create call beyond the kit set itself.
 type CreateOptions struct {
+	// OpenURLIsolated replaces the host browser opener with an inert test
+	// opener through the runtime's normal dispatch path, never a guest shim.
+	OpenURLIsolated bool
+	// OpenURLBudget reserves this many immediate attempts using sandbox-local
+	// runtime limiter state. It is valid only with OpenURLIsolated.
+	OpenURLBudget int
 	// DockerAuthConfig supplies suite-owned credential bindings and HTTPS
 	// endpoint routing for registry-auth observations, never guest config.
 	DockerAuthConfig string
@@ -123,6 +130,12 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 	}
 	if opts.WorkspaceMode != "" {
 		argv = append(argv, "--workspace-mode", opts.WorkspaceMode)
+	}
+	if opts.OpenURLIsolated {
+		argv = append(argv, "--open-url-isolated")
+	}
+	if opts.OpenURLBudget > 0 {
+		argv = append(argv, "--open-url-budget", strconv.Itoa(opts.OpenURLBudget))
 	}
 	if opts.DockerAuthConfig != "" {
 		argv = append(argv, "--docker-auth-config", opts.DockerAuthConfig)
