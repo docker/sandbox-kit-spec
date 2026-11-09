@@ -244,6 +244,8 @@ var mutations = map[string][]string{
 	"exact-required-no-locations":                              {exactVersionRequirement},
 	"exact-skips-required":                                     {exactVersionRequirement},
 	"exact-conflict-no-locations":                              {exactVersionRequirement},
+	"exact-leaks-skipped-lower":                                {exactVersionRequirement},
+	"exact-inlines-skipped-lower":                              {exactVersionRequirement},
 	"exact-drops-lower-with-higher":                            {exactVersionRequirement},
 	"docker-auth-header-leak":                                  {"docker-auth@1/token-mediation"},
 	"docker-auth-content-location":                             {"docker-auth@1/redirect-confinement"},

@@ -67,6 +67,13 @@ if verb == "create":
             body = "/usr/share/sandbox/kit/" + request["fixture"] + "/context.txt"
         else:
             body = config.get("content", "exact-context-v1")
+        if capability["type"].endswith("@2"):
+            for skipped in denied:
+                if skipped["capability"]["type"].endswith("@1"):
+                    if broken == "exact-leaks-skipped-lower":
+                        body += "\n/usr/share/sandbox/kit/" + skipped["fixture"] + "/context.txt"
+                    elif broken == "exact-inlines-skipped-lower":
+                        body += "\nlegacy-guidance-version-one"
         files[config["directory"] + "/" + config["filename"]] = body
     identity = "exact-versions-" + uuid.uuid4().hex
     (root / (identity + ".json")).write_text(json.dumps({"selection": selection, "surface": {}, "files": files}))

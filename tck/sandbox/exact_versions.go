@@ -160,6 +160,17 @@ func exactContextSelection(ctx context.Context, e *Env, authored []exactContextR
 	if profile.ExitCode != 0 || !strings.Contains(profile.Stdout, want) || (request.version == 1 && strings.Contains(profile.Stdout, "inline-guidance-version-two")) {
 		return []report.Finding{report.Failf("%s must retain its authored version's profile behavior, want %q: %+v", fixtureFor(request), want, profile)}
 	}
+	for _, request := range denied {
+		unwanted := []string{"inline-guidance-version-two"}
+		if request.version == 1 {
+			unwanted = []string{StagedKitRoot + "/" + fixtureFor(request) + "/context.txt", "legacy-guidance-version-one"}
+		}
+		for _, marker := range unwanted {
+			if strings.Contains(profile.Stdout, marker) {
+				return []report.Finding{report.Failf("skipped %s %s contributed guidance %q: %s", fixtureFor(request), pathFor(request), marker, profile.Stdout)}
+			}
+		}
+	}
 	return nil
 }
 
