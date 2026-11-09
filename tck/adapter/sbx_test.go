@@ -852,3 +852,47 @@ func TestSbxExactContextRelativeStateUsesLocalReference(t *testing.T) {
 		})
 	}
 }
+
+func TestSbxExactContextStatePreservesTrailingNewlines(t *testing.T) {
+	for _, existing := range []bool{true, false} {
+		t.Run(fmt.Sprintf("existing-%t", existing), func(t *testing.T) {
+			a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1")
+			root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+			require.NoError(t, err)
+			dir := t.TempDir()
+			state := filepath.Join(dir, "private\n\n")
+			sibling := filepath.Join(dir, "private")
+			if existing {
+				require.NoError(t, os.Mkdir(state, 0700))
+			} else {
+				state = filepath.Join(dir, "parent\n\n", "private\n\n")
+			}
+			require.NoError(t, os.Mkdir(sibling, 0700))
+			require.NoError(t, os.Chmod(sibling, 0777))
+			stub := filepath.Join(dir, "sbx")
+			script := strings.Replace(selectionStub, `printf '%s\n' "$*" >>"$STUB_OBSERVED"`, `printf '%s\0' "$@" >"$STUB_OBSERVED"`, 1)
+			require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+			a.Env = append(a.Env, "SBX="+stub, "SBX_TCK_STATE="+state)
+			id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), filepath.Join(root, "exact-context-pair-optional")}, CreateOptions{})
+			require.NoError(t, err)
+			for _, suffix := range []string{".create", ".kits", ".selection-policy", ".selection.json", ".skills-mode", ".skills-store"} {
+				require.FileExists(t, filepath.Join(state, id+suffix))
+			}
+			entries, err := os.ReadDir(sibling)
+			require.NoError(t, err)
+			require.Empty(t, entries, "the unchecked writable sibling must receive no adapter state")
+			argv := strings.Split(string(mustRead(t, observed)), "\x00")
+			var consumed string
+			for i, arg := range argv {
+				if arg == "--kit" {
+					consumed = argv[i+1]
+				}
+			}
+			physical, err := filepath.EvalSymlinks(state)
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(physical, id+".exact-context", "exact-context-pair-optional"), consumed)
+			require.DirExists(t, consumed)
+			require.NoError(t, a.Remove(t.Context(), id))
+		})
+	}
+}

@@ -193,7 +193,10 @@ stat_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 # Checked rather than assumed, because the default path is predictable.
 prepare_state() {
 	if [ ! -d "$state" ]; then
-		mkdir -p "$(dirname "$state")"
+		local parent
+		# The sentinel preserves pathname newlines through command substitution.
+		parent="$(dirname -- "$state" && printf .)" || die "cannot resolve state parent"
+		mkdir -p "${parent%$'\n.'}"
 		mkdir -m 700 "$state"
 	fi
 	[ ! -L "$state" ] || die "$state is a symlink; the adapter's state has to be a directory it owns"
@@ -201,7 +204,8 @@ prepare_state() {
 		die "$state belongs to another user; set SBX_TCK_STATE to a directory of this one's"
 	[ "$(stat_mode "$state")" = 700 ] ||
 		die "$state is writable beyond its owner; the adapter acts on what this directory says"
-	state="$(CDPATH= cd -- "$state" && pwd -P)" || die "cannot resolve state directory"
+	state="$(CDPATH= cd -- "$state" && pwd -P && printf .)" || die "cannot resolve state directory"
+	state="${state%$'\n.'}"
 }
 
 # Host state the adapter created, taken back once the last sandbox it
