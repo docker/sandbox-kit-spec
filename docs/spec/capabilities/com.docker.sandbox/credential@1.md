@@ -50,7 +50,7 @@ sole source; a Kit declares the need, the user's bindings answer it.
 | `apiKey.inject[].scheme` / `username` | string | Non-header presentation, e.g. `basic` with `username` (credential as password). |
 | `oauth.tokenEndpoint` | object | `host` REQUIRED when `tokenEndpoint` is set. |
 | `oauth.resourceHosts` | list\<string\> | API hosts where the bearer is used. |
-| `oauth.sentinels` | object | The placeholder access/refresh tokens rendered in-container. |
+| `oauth.sentinels` | object | The placeholder access/refresh tokens rendered in-container. OpenAI JWT access tokens use the identity placeholder defined below instead of `accessToken`. |
 | `oauth.credentialFile` | object | Renders sentinels into a file the agent reads. `structure` is a declarative nested map, encoded after substitution — output is well-formed regardless of values. |
 | `oauth.credentialFile.format` | string | Encoding of the substituted structure: `json` (default) or `toml`, for agents that read TOML credential files. Nested maps become TOML tables. |
 | `oauth.responseFields` | object | Maps a provider's nonstandard token-response field names: `accessToken`, `refreshToken`, `expiresIn`. The refresh mapping also covers providers that reuse one field for both tokens. |
@@ -64,9 +64,16 @@ errors. Each placeholder renders in the target encoding's own type.
 
 The additional credential-file placeholders have these runtime contracts:
 
-- **MUST** render `{{.IDToken}}` for `service: openai` from the host's <!-- tck: credential@1/openai-identity-masked -->
-  JWT header and claims, replacing its signature with base64url-encoded
-  `proxy-managed`. The real signature never enters the sandbox.
+- **MUST** render `{{.IDToken}}` for `service: openai` as a new JWT-shaped <!-- tck: credential@1/openai-identity-masked -->
+  identity placeholder with a constant header and base64url-encoded
+  `proxy-managed` signature. Only the typed claims listed below pass
+  through; original headers, unknown claims, and signatures are excluded.
+- **MUST** apply the same constant header, signature replacement, and <!-- tck: credential@1/openai-access-token-masked -->
+  claim allowlist to JWT-shaped `{{.AccessToken}}` values for
+  `service: openai`.
+- **MUST** apply the same identity filtering to `id_token` and JWT-shaped <!-- tck: credential@1/openai-identity-refresh-masked -->
+  `access_token` in intercepted OpenAI token responses. Malformed identity
+  tokens are omitted or cause the response to be rejected.
 - **MUST** fail rendering when `{{.IDToken}}` is referenced but the host <!-- tck: credential@1/openai-identity-required -->
   identity token is empty or unparseable, or the service is not `openai`.
 - **MUST** render `{{.AccountID}}` as the host's ChatGPT account ID for <!-- tck: credential@1/openai-account-id -->
@@ -74,7 +81,13 @@ The additional credential-file placeholders have these runtime contracts:
 - **MUST** render `{{.LastRefresh}}` as the time the runtime renders the <!-- tck: credential@1/credential-render-timestamp -->
   credential file, in RFC 3339 format.
 
-Identity claims remain readable inside the sandbox. These placeholders
+The identity allowlist contains string `email`, integer `exp`, string
+`email` inside `https://api.openai.com/profile`, and these fields inside
+`https://api.openai.com/auth`: strings `chatgpt_plan_type`,
+`chatgpt_user_id`, `user_id`, `chatgpt_account_id`,
+`chatgpt_account_user_id`, and boolean `chatgpt_account_is_fedramp`.
+
+Allowed identity claims remain readable inside the sandbox. These placeholders
 require a runtime implementing this extension; older runtimes reject
 them when rendering the file.
 
@@ -90,11 +103,12 @@ A conforming runtime:
   name where a secret lives, only what it needs.
 - **MUST NOT** place the real secret in the container when `proxyManaged` <!-- tck: credential@1/secret-absent-in-sandbox -->
   or OAuth sentinels are in play: where the Kit names a variable or file,
-  the container sees sentinel values there, and the boundary (proxy)
-  substitutes the real credential on outbound requests matching the
+  the container sees sentinel values or the OpenAI identity placeholders
+  defined above. The boundary recognizes both forms and substitutes the
+  real credential on outbound requests matching the
   `inject` rules or `resourceHosts`.
-- **MUST** intercept the OAuth `tokenEndpoint` and serve sentinel tokens, <!-- tck: credential@1/oauth-token-endpoint-intercepted -->
-  refreshing host-side; `passthrough: true` is the explicit opt-out and a
+- **MUST** intercept the OAuth `tokenEndpoint` and serve sentinel tokens <!-- tck: credential@1/oauth-token-endpoint-intercepted -->
+  or the OpenAI identity placeholders defined above, refreshing host-side; `passthrough: true` is the explicit opt-out and a
   security downgrade a runtime MAY refuse.
 - **MUST** scope by phase: an install-only credential is injectable only while <!-- tck: credential@1/phase-scoped -->
   install hooks run and is revoked before the workload's entrypoint starts;
