@@ -91,16 +91,20 @@ func exactContextSelection(ctx context.Context, e *Env, authored []exactContextR
 		if !errors.As(err, &refused) {
 			return []report.Finding{report.Failf("%v rejected %v must refuse exact requests: %v", kits, rejected, err)}
 		}
-		attributed := denied
-		if !requiredRefusal {
-			attributed = selected
+		identifies := func(request exactContextRequest) bool {
+			return (e.claims(request.capability()) || strings.Contains(refused.Detail, request.capability())) && strings.Contains(refused.Detail, fixtureFor(request)) && strings.Contains(refused.Detail, pathFor(request))
 		}
-		for _, request := range attributed {
-			if requiredRefusal && request.optional {
-				continue
+		if requiredRefusal {
+			if !slices.ContainsFunc(denied, func(request exactContextRequest) bool {
+				return !request.optional && identifies(request)
+			}) {
+				return []report.Finding{report.Failf("exact-version refusal must identify a rejected required request: %s", refused.Detail)}
 			}
-			if (!e.claims(request.capability()) && !strings.Contains(refused.Detail, request.capability())) || !strings.Contains(refused.Detail, fixtureFor(request)) || !strings.Contains(refused.Detail, pathFor(request)) {
-				return []report.Finding{report.Failf("exact-version refusal must identify the request %s %s %s: %s", request.capability(), fixtureFor(request), pathFor(request), refused.Detail)}
+		} else {
+			for _, request := range selected {
+				if !identifies(request) {
+					return []report.Finding{report.Failf("exact-version conflict must identify the request %s %s %s: %s", request.capability(), fixtureFor(request), pathFor(request), refused.Detail)}
+				}
 			}
 		}
 		return nil
@@ -149,11 +153,11 @@ func exactContextSelection(ctx context.Context, e *Env, authored []exactContextR
 		return nil
 	}
 	request := selected[0]
-	want := "exact-context-v2"
+	want := "inline-guidance-version-two"
 	if request.version == 1 {
 		want = StagedKitRoot + "/" + fixtureFor(request) + "/context.txt"
 	}
-	if profile.ExitCode != 0 || !strings.Contains(profile.Stdout, want) || (request.version == 1 && strings.Contains(profile.Stdout, "exact-context-v2")) {
+	if profile.ExitCode != 0 || !strings.Contains(profile.Stdout, want) || (request.version == 1 && strings.Contains(profile.Stdout, "inline-guidance-version-two")) {
 		return []report.Finding{report.Failf("%s must retain its authored version's profile behavior, want %q: %+v", fixtureFor(request), want, profile)}
 	}
 	return nil

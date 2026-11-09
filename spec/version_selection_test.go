@@ -179,3 +179,53 @@ func TestVersionSelectionPublicationPreservesProvenanceAndNetworkUnion(t *testin
 		})
 	}
 }
+
+func TestExactVersionSelectionAfterPublishedNetworkUnion(t *testing.T) {
+	for _, grouped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("grouped=%t", grouped), func(t *testing.T) {
+			var inputs []Contribution
+			for i, typ := range []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2} {
+				capability := Capability{Type: typ, Optional: true, Config: map[string]any{"runtime": map[string]any{"allow": []any{fmt.Sprintf("v%d.example", i+1)}}}}
+				if grouped {
+					capability.Optional = false
+					capability = Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{capability}}}
+				}
+				inputs = append(inputs, Contribution{Reference: fmt.Sprintf("kit%d", i), Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{capability}}})
+			}
+			published, err := Merge(inputs, MergeOptions{})
+			require.NoError(t, err)
+			raw, err := json.Marshal(published.Descriptor)
+			require.NoError(t, err)
+			decoded, err := Decode(raw)
+			require.NoError(t, err)
+			_, err = ValidatePublished(raw, decoded)
+			require.NoError(t, err)
+			for _, typ := range []string{CapabilityNetworkPolicy, CapabilityNetworkPolicyV2} {
+				selected, err := SelectCapabilities(t.Context(), "published", decoded, Supported(typ))
+				require.NoError(t, err)
+				effective := *decoded
+				effective.Capabilities = selected.Capabilities
+				composed, err := Compose([]Contribution{{Reference: "published", Descriptor: &effective}})
+				require.NoError(t, err)
+				if !grouped && typ == CapabilityNetworkPolicy {
+					require.Empty(t, composed.Capabilities, "concrete publication emits @2, which @1 support cannot select")
+					continue
+				}
+				network, err := NetworkPolicyV2Of(composed.Capabilities)
+				require.NoError(t, err)
+				want := []string{"v1.example", "v2.example"}
+				if grouped {
+					want = []string{"v1.example"}
+					if typ == CapabilityNetworkPolicyV2 {
+						want = []string{"v2.example"}
+					}
+				}
+				var hosts []string
+				for _, grant := range network.Runtime.Allow {
+					hosts = append(hosts, grant.Hosts...)
+				}
+				require.ElementsMatch(t, want, hosts)
+			}
+		})
+	}
+}

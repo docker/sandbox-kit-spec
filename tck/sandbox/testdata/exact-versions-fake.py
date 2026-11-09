@@ -33,7 +33,10 @@ if verb == "create":
             (accepted if eligible else denied).append(request)
     required = [r for r in denied if not r["capability"].get("optional", False)]
     if required and broken != "exact-skips-required":
-        print("refusing: " + " ".join(f'{r["fixture"]} {r["path"]} {r["capability"]["type"]}' for r in required), file=sys.stderr)
+        if broken == "exact-required-no-locations":
+            print("refusing: unavailable required request", file=sys.stderr)
+            sys.exit(2)
+        print("refusing: " + " ".join(f'{r["fixture"]} {r["path"]} {r["capability"]["type"]}' for r in required[:1]), file=sys.stderr)
         sys.exit(2)
     if len(accepted) > 1:
         if broken == "exact-prefers-highest" or (broken == "exact-prefers-per-kit" and len({r["fixture"] for r in accepted}) == 1):
@@ -60,7 +63,7 @@ if verb == "create":
     for request in accepted:
         capability = request["capability"]
         config = capability["config"]
-        if (capability["type"].endswith("@1") and broken != "exact-upgrades-single") or broken == "exact-downgrades-single":
+        if (capability["type"].endswith("@1") and broken != "exact-upgrades-single") or (broken == "exact-downgrades-single" and request["fixture"].startswith("exact-context-v2-")):
             body = "/usr/share/sandbox/kit/" + request["fixture"] + "/context.txt"
         else:
             body = config.get("content", "exact-context-v1")

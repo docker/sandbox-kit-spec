@@ -9,7 +9,7 @@ capabilities:
       "config": {
         "filename": "AGENTS.md",
         "directory": "/home/agent/.kit-tck/exact",
-        "content": "exact-context-v2"
+        "content": "inline-guidance-version-two"
       }
     }
   ]

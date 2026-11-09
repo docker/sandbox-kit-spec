@@ -241,6 +241,7 @@ var mutations = map[string][]string{
 	"exact-prefers-required":                                   {exactVersionRequirement},
 	"exact-upgrades-single":                                    {exactVersionRequirement},
 	"exact-ignores-policy":                                     {exactVersionRequirement},
+	"exact-required-no-locations":                              {exactVersionRequirement},
 	"exact-skips-required":                                     {exactVersionRequirement},
 	"exact-conflict-no-locations":                              {exactVersionRequirement},
 	"exact-drops-lower-with-higher":                            {exactVersionRequirement},

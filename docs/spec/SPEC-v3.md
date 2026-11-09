@@ -818,10 +818,9 @@ already present on reused volumes.
 
 ### 7.1.2 Capability versions and selection
 
-Schema 3 has no version-alternatives construct. Each ordinary declaration
-is an independent request for its exact versioned type. `optional: true`
-permits omission of that request; it does not identify another request
-as its replacement. Groups couple requests atomically, without making
+Each ordinary declaration is an independent request for its exact
+versioned type. `optional: true` permits omission of that request; it
+does not identify another request as its replacement. Groups couple requests atomically, without making
 separate groups mutually exclusive or assigning them a preference.
 
 A runtime **MUST** select requests by their exact declared type, without <!-- tck: SPEC-v3 §7.1.2/exact-version -->
@@ -868,10 +867,16 @@ Different instances and contributions from different Kits follow these
 same rules; a common family name does not make them replacements.
 
 Selection is separate from cross-version reconciliation. The
-`network-policy` union in §9.5 retains every selected grant and emits
-`@2` when any selected contribution uses it. That operation is not a
-choice between declarations. Selected `agent-context@1` and `@2`
-requests still refuse composition, even with inline `@1` content.
+`network-policy` union in §9.5 retains the contributing grants and emits
+`@2` when any contribution uses it. For concrete ungrouped declarations,
+publication performs that union before runtime selection. The published
+request therefore requires support for the resulting exact type. An
+`@1`-only runtime cannot select an optional published `@2` union, even
+when it could have selected an original `@1` contribution directly.
+Groups and other deferred forms retain their selection boundaries as
+specified in §9.5. The union combines grants rather than choosing
+between declarations. Selected `agent-context@1` and `@2` requests still
+refuse composition, even with inline `@1` content.
 Existing declaration-block validation applies before selection.
 
 For a portable Kit, publish the contract version the Kit requires and
@@ -890,8 +895,8 @@ list. `fetch.DefaultCapabilitySelector` accepts all library-known exact
 types, without a version preference. Consumers supply their actual
 claims and policy through `WithCapabilitySelector` or
 `Options.CapabilitySelector`. Publication preserves conditional
-declarations instead of selecting against build-host support. Selection
-persists across restart and is evaluated afresh on recreation under
+declarations under §9.5 instead of selecting against build-host support.
+Selection persists across restart and is evaluated afresh on recreation under
 §7.1.1. Skipped requests contribute no runtime files, hooks, guidance, or
 grants; image layers remain independent of selection.
 
