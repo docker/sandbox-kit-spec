@@ -235,6 +235,7 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"ordering-no-trace-mapping":        {"SPEC-v3 §7.1.2/no-partial-application"},
 	"ordering-runs-whole-entry":        {"SPEC-v3 §7.1.2/numeric-order"},
 	"ordering-accepts-order-conflict":  {"SPEC-v3 §7.1.2/reconciled-order"},
 	"ordering-applies-skipped":         {"SPEC-v3 §7.1.2/numeric-order"},

@@ -3,12 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
-	"net"
-	"net/http"
-	"strconv"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/docker/sandbox-kit-spec/v3/tck/adapter"
 	"github.com/docker/sandbox-kit-spec/v3/tck/report"
@@ -152,29 +147,32 @@ func orderedContradiction(ctx context.Context, e *Env) []report.Finding {
 }
 
 func orderedNoEffectsBeforeRefusal(ctx context.Context, e *Env) []report.Finding {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	service, err := newHostPortService()
 	if err != nil {
 		return []report.Finding{report.Failf("listen for forbidden hook effects: %v", err)}
 	}
-	var calls atomic.Int64
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(http.StatusOK)
-	}), ReadHeaderTimeout: 5 * time.Second}
-	serveDone := make(chan error, 1)
-	go func() { serveDone <- server.Serve(listener) }()
-	defer func() {
-		_ = server.Close()
-		<-serveDone
-	}()
-	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
-	_, cleanup, createErr := e.sandbox(ctx, []string{"ordering-workload", "ordering-invalid"}, map[string]string{"host_port": port})
+	defer service.start()()
+	args := map[string]string{"host_port": service.port(), "auto_start": "false"}
+	control, removeControl, err := e.sandbox(ctx, []string{"ordering-workload", "ordering-invalid"}, args)
+	defer removeControl()
+	if err != nil {
+		return []report.Finding{report.Failf("trace control create: %v", err)}
+	}
+	if f := orderingValue(ctx, e, control, "/var/tmp/ordering-contradiction", service.token); f != nil {
+		return f
+	}
+	before := service.requests.Load()
+	if before == 0 {
+		return []report.Finding{report.Failf("trace control hook did not reach the host")}
+	}
+	args["auto_start"] = "true"
+	_, cleanup, createErr := e.sandbox(ctx, []string{"ordering-workload", "ordering-invalid"}, args)
 	defer cleanup()
 	var refused *adapter.RefusedError
 	if !errors.As(createErr, &refused) {
 		return []report.Finding{report.Failf("contradictory order was not refused: %v", createErr)}
 	}
-	if calls.Load() != 0 {
+	if service.requests.Load() != before {
 		return []report.Finding{report.Failf("a lifecycle hook reached the host before invalid ordering was refused")}
 	}
 	return nil

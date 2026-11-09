@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
-import urllib.request
+import tempfile
 
 state, claims, broken, verb, *args = sys.argv[1:]
 base = pathlib.Path(state) / 'ordering'
@@ -36,10 +36,10 @@ def load_plan(kits, rejected, overrides):
         'Kits': paths, 'Claims': claims.split(','), 'Rejected': rejected, 'Args': overrides,
     }), text=True, capture_output=True, check=False)
     if result.returncode:
-        if broken == 'ordering-applies-before-refusal':
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open('http://127.0.0.1:' + overrides['host_port'] + '/trace', timeout=2) as response:
-                response.read()
+        if broken == 'ordering-applies-before-refusal' and overrides.get('auto_start') == 'true':
+            with tempfile.TemporaryDirectory(dir=base) as directory:
+                control = load_plan(kits, rejected, overrides | {'auto_start': 'false'})
+                boot({'plan': control, 'once': [], 'boots': 0}, pathlib.Path(directory) / 'root')
         if broken not in ('ordering-accepts-contradiction', 'ordering-accepts-order-conflict'):
             print(result.stderr, file=sys.stderr, end='')
             sys.exit(2)
@@ -47,7 +47,7 @@ def load_plan(kits, rejected, overrides):
     return json.loads(result.stdout)
 
 
-def run_hooks(hooks, root, seen):
+def run_hooks(hooks, root, seen, bindings):
     for hook in hooks:
         command = hook['command']
         signature = json.dumps(command)
@@ -58,6 +58,10 @@ def run_hooks(hooks, root, seen):
             argv = ['sh', '-c', remap(command, root)]
         else:
             argv = [remap(word, root) for word in command]
+        for i, word in enumerate(argv):
+            for guest, host in bindings.items():
+                word = word.replace('http://localhost:' + str(guest) + '/', 'http://127.0.0.1:' + str(host) + '/')
+            argv[i] = word
         result = subprocess.run(argv, text=True, capture_output=True, check=False,
                                 env={'PATH': os.environ['PATH'], 'HOME': str(root)})
         if result.returncode:
@@ -96,6 +100,7 @@ def boot(data, root):
     if broken == 'ordering-batches-files':
         steps.sort(key=lambda step: step['action'] == 'files')
     seen = set()
+    bindings = {}
     entries = {}
     engine = None
     try:
@@ -111,7 +116,10 @@ def boot(data, root):
                     continue
             if stage == 'install' and identity in data['once'] and broken != 'ordering-reinstalls':
                 continue
-            if typ.endswith('/lifecycle@1'):
+            if typ.endswith('/host-port@1') and action == 'bind':
+                if broken != 'ordering-no-trace-mapping':
+                    bindings[config['container']] = config['host']
+            elif typ.endswith('/lifecycle@1'):
                 if action == 'files':
                     if data['boots'] and broken == 'ordering-files-once':
                         continue
@@ -122,13 +130,13 @@ def boot(data, root):
                             continue
                         destination.write_text(entry['content'])
                 elif action == 'install':
-                    run_hooks(config.get('install', []), root, seen)
+                    run_hooks(config.get('install', []), root, seen, bindings)
                 elif action == 'startup':
                     if broken == 'ordering-runs-whole-entry':
-                        run_hooks(config.get('install', []), root, seen)
+                        run_hooks(config.get('install', []), root, seen, bindings)
                     if data['boots'] and broken == 'ordering-startup-once':
                         continue
-                    run_hooks(config.get('startup', []), root, seen)
+                    run_hooks(config.get('startup', []), root, seen, bindings)
             elif typ.endswith('/dockerd@1') and stage == 'start':
                 if broken == 'ordering-service-not-ready':
                     continue
