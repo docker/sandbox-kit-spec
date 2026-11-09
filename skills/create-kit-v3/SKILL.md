@@ -51,6 +51,13 @@ profile.d only when a value is likely to collide, because two mixins setting
 one variable to different values is a hard composition failure, or when the
 value genuinely only makes sense in an interactive shell.
 
+For host-managed OpenAI OAuth, declare a credential file with masked
+`{{.IDToken}}`, `{{.AccessToken}}`, and `{{.RefreshToken}}` plus
+`{{.AccountID}}` and `{{.LastRefresh}}`. In OAuth mode, let the runtime
+seed that file. An install hook must not pre-create it or remove a
+native cache. These identity placeholders need a runtime implementing
+the OpenAI credential-file extension.
+
 ## Layout
 
 The default authoring form is a companion pair, found by filename stem:

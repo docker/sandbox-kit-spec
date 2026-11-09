@@ -314,7 +314,9 @@ unchanged. `phase` also accepts a non-empty list of distinct phases:
   `{{.AccessToken}}`, `{{.RefreshToken}}`, `{{.ExpiresAt}}` (a number),
   `{{.Scopes}}` (an array) and `{{.PrimaryApiKey}}` (whose enclosing key is
   omitted when no key is captured). `format: toml` is available for agents that
-  read TOML.
+  read TOML. OpenAI caches also support `{{.IDToken}}` (signature-masked),
+  `{{.AccountID}}`, and `{{.LastRefresh}}` (RFC 3339), requiring a runtime
+  implementing that extension.
 - Validation enforces that every `inject[].domain` appears in **every
   listed phase's** allow list. An inject domain outside it would be a
   credential mapped onto a connection that can never occur — which is how the claude migration

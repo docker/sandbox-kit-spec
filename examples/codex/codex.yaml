@@ -86,23 +86,28 @@ capabilities:
           - {domain: openai.com, header: Authorization, format: "Bearer %s"}
       oauth:
         tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
-        # OAuth-mode model calls route through chatgpt.com/backend-api/codex
-        # with the sentinel bearer — resourceHosts is what tells the proxy
-        # to substitute the real token there, not just at the token
-        # endpoint.
+        # Native ChatGPT mode sends model and connector requests here.
         resourceHosts:
           - chatgpt.com
         sentinels:
           accessToken: oai-oat01-proxy-managed
           refreshToken: oai-ort01-proxy-managed
+        credentialFile:
+          path: ~/.codex/auth.json
+          structure:
+            auth_mode: chatgpt
+            tokens:
+              id_token: "{{.IDToken}}"
+              access_token: "{{.AccessToken}}"
+              refresh_token: "{{.RefreshToken}}"
+              account_id: "{{.AccountID}}"
+            last_refresh: "{{.LastRefresh}}"
 
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # Seed ~/.codex/config.toml + ~/.codex/auth.json, branching on the
-        # auth mode surfaced via SBX_CRED_OPENAI_MODE — identical to the
-        # codex-mixin's seed, because a workload gets no seeding from
-        # anywhere else. Deterministic from the mode, so idempotent.
+        # OAuth auth.json is rendered by the host from masked credentials.
+        # API-key mode keeps its existing placeholder cache.
         - command: |
             set -e
             mkdir -p /home/agent/.codex /home/agent/.agents
@@ -121,7 +126,7 @@ capabilities:
             EOF
             # Model selection from the create-phase args. These are
             # top-level keys, so they must land here, before the
-            # model_providers and projects tables below would capture
+            # features and projects tables below would capture
             # them. The args' patterns admit no quote or backslash, so
             # the expanded value is safe inside the TOML string.
             model='${{ kit.args.model }}'
@@ -129,27 +134,20 @@ capabilities:
             [ -z "$model" ] || printf 'model = "%s"\n' "$model" >> /home/agent/.codex/config.toml
             [ -z "$effort" ] || printf 'model_reasoning_effort = "%s"\n' "$effort" >> /home/agent/.codex/config.toml
             case "$MODE" in
-              oauth|apikey)
+              oauth)
                 cat >> /home/agent/.codex/config.toml << 'EOF'
-            forced_login_method = "api"
+            forced_login_method = "chatgpt"
+            cli_auth_credentials_store = "file"
+
+            [features]
+            apps = true
             EOF
                 ;;
+              apikey)
+                echo 'forced_login_method = "api"' >> /home/agent/.codex/config.toml
+                ;;
             esac
-            if [ "$MODE" = oauth ]; then
-              cat >> /home/agent/.codex/config.toml << 'EOF'
-
-            model_provider = "sandboxd"
-
-            [model_providers.sandboxd]
-            name = "Sandbox Proxy"
-            base_url = "https://chatgpt.com/backend-api/codex"
-            experimental_bearer_token = "oai-oat01-proxy-managed"
-            requires_openai_auth = false
-            EOF
-            fi
             # Trust the workspace for launches outside the entrypoint too.
-            # Keep this after all top-level config keys: the projects
-            # table would otherwise capture settings like model_provider.
             ws="${WORKSPACE_DIR:-/home/agent/workspace}"
             esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
             cat >> /home/agent/.codex/config.toml <<EOF
@@ -158,7 +156,14 @@ capabilities:
             trust_level = "trusted"
             EOF
             case "$MODE" in
-              oauth|apikey)
+              oauth)
+                # Clear the old API placeholder without deleting a native cache
+                # that the runtime may already have rendered.
+                if [ -f /home/agent/.codex/auth.json ] && grep -q '"OPENAI_API_KEY"[[:space:]]*:[[:space:]]*"' /home/agent/.codex/auth.json; then
+                  rm -f /home/agent/.codex/auth.json
+                fi
+                ;;
+              apikey)
                 cat > /home/agent/.codex/auth.json << 'EOF'
             {
               "OPENAI_API_KEY": "proxy-managed"

@@ -81,30 +81,28 @@ capabilities:
           - {domain: openai.com, header: Authorization, format: "Bearer %s"}
       oauth:
         tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
-        # The oauth-mode model_provider configured below routes model
-        # calls through chatgpt.com/backend-api/codex with the sentinel
-        # bearer — resourceHosts is what tells the proxy to also
-        # substitute the real token there, not just at the token endpoint.
+        # Native ChatGPT mode sends model and connector requests here.
         resourceHosts:
           - chatgpt.com
         sentinels:
           accessToken: oai-oat01-proxy-managed
           refreshToken: oai-ort01-proxy-managed
+        credentialFile:
+          path: ~/.codex/auth.json
+          structure:
+            auth_mode: chatgpt
+            tokens:
+              id_token: "{{.IDToken}}"
+              access_token: "{{.AccessToken}}"
+              refresh_token: "{{.RefreshToken}}"
+              account_id: "{{.AccountID}}"
+            last_refresh: "{{.LastRefresh}}"
 
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # Seed ~/.codex/config.toml + ~/.codex/auth.json, branching on the
-        # auth mode surfaced via SBX_CRED_OPENAI_MODE:
-        #   - oauth  -> forced API-key login + the sandboxd model_provider
-        #               block; auth.json proxy-managed placeholder.
-        #   - apikey -> forced API-key login, no provider block; auth.json
-        #               proxy-managed placeholder.
-        #   - none   -> neither; auth.json removed so codex prompts for
-        #               login (a stale placeholder would 401 verbatim).
-        # Rewritten unconditionally on every (re)create; deterministic
-        # from the mode, so idempotent. The MCP block is NOT written here
-        # — the startup append below is its single writer.
+        # OAuth auth.json is rendered by the host from masked credentials.
+        # API-key mode keeps its existing placeholder cache.
         - command: |
             set -e
             mkdir -p /home/agent/.codex /home/agent/.agents
@@ -126,44 +124,28 @@ capabilities:
             EOF
             # Model selection from the create-phase args. These are
             # top-level keys, so they must land here, before the
-            # model_providers and projects tables below would capture
+            # features and projects tables below would capture
             # them. The args' patterns admit no quote or backslash, so
             # the expanded value is safe inside the TOML string.
             model='${{ kit.args.model }}'
             effort='${{ kit.args.reasoningEffort }}'
             [ -z "$model" ] || printf 'model = "%s"\n' "$model" >> /home/agent/.codex/config.toml
             [ -z "$effort" ] || printf 'model_reasoning_effort = "%s"\n' "$effort" >> /home/agent/.codex/config.toml
-            # Managed modes must not let remote clients replace the proxy
-            # placeholder with sandbox-local ChatGPT OAuth. None mode
-            # deliberately permits login.
             case "$MODE" in
-              oauth|apikey)
+              oauth)
                 cat >> /home/agent/.codex/config.toml << 'EOF'
-            forced_login_method = "api"
+            forced_login_method = "chatgpt"
+            cli_auth_credentials_store = "file"
+
+            [features]
+            apps = true
             EOF
                 ;;
+              apikey)
+                echo 'forced_login_method = "api"' >> /home/agent/.codex/config.toml
+                ;;
             esac
-            if [ "$MODE" = oauth ]; then
-              cat >> /home/agent/.codex/config.toml << 'EOF'
-
-            model_provider = "sandboxd"
-
-            [model_providers.sandboxd]
-            name = "Sandbox Proxy"
-            base_url = "https://chatgpt.com/backend-api/codex"
-            experimental_bearer_token = "oai-oat01-proxy-managed"
-            requires_openai_auth = false
-            EOF
-            fi
-            # Pre-trust the workspace so codex skips its "do you trust this
-            # directory" onboarding — the v2 kit skipped it via its
-            # --dangerously-bypass-approvals-and-sandbox entrypoint, which a
-            # mixin (plain `codex` from the base shell) doesn't have. MUST
-            # stay after every top-level key append: [projects."…"] opens a
-            # TOML table, and any key appended after it would silently land
-            # inside that table (which is exactly how model_provider once
-            # vanished, sending codex to api.openai.com with a ChatGPT
-            # token and a scopes 401).
+            # Trust the workspace for launches outside the entrypoint too.
             ws="${WORKSPACE_DIR:-/home/agent/workspace}"
             esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
             cat >> /home/agent/.codex/config.toml <<EOF
@@ -172,7 +154,14 @@ capabilities:
             trust_level = "trusted"
             EOF
             case "$MODE" in
-              oauth|apikey)
+              oauth)
+                # Clear the old API placeholder without deleting a native cache
+                # that the runtime may already have rendered.
+                if [ -f /home/agent/.codex/auth.json ] && grep -q '"OPENAI_API_KEY"[[:space:]]*:[[:space:]]*"' /home/agent/.codex/auth.json; then
+                  rm -f /home/agent/.codex/auth.json
+                fi
+                ;;
+              apikey)
                 cat > /home/agent/.codex/auth.json << 'EOF'
             {
               "OPENAI_API_KEY": "proxy-managed"

@@ -62,6 +62,18 @@ and `{{.RefreshToken}}` (strings), `{{.ExpiresAt}}` (a number),
 enclosing key is omitted when no key is captured). Unknown placeholders are
 errors. Each placeholder renders in the target encoding's own type.
 
+For `service: openai`, the runtime supplies `{{.IDToken}}` (the host's
+JWT with its signature replaced by base64url-encoded `proxy-managed`)
+and `{{.AccountID}}` (the host's ChatGPT account ID). Both fields are
+empty for other services. Referencing an empty or unparseable
+`{{.IDToken}}` fails at rendering time; an absent account ID renders as
+an empty string. `{{.LastRefresh}}` is the time the runtime renders the
+credential file, in RFC 3339 format.
+
+Identity claims remain readable inside the sandbox; reusable token
+signatures do not. These placeholders require a runtime implementing
+this extension; older runtimes reject them when rendering the file.
+
 Scalar phase declarations remain valid. The list form requires a reader
 implementing this extension; older readers reject it.
 
