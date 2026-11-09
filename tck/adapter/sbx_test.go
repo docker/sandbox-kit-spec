@@ -815,25 +815,40 @@ esac
 }
 
 func TestSbxExactContextRelativeStateUsesLocalReference(t *testing.T) {
-	a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1")
-	adapterPath, err := filepath.Abs(a.Path)
-	require.NoError(t, err)
-	a.Path = adapterPath
-	root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
-	require.NoError(t, err)
-	t.Chdir(t.TempDir())
-	a.Env = append(a.Env, "SBX_TCK_STATE=relative-state")
-	id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), filepath.Join(root, "exact-context-pair-optional")}, CreateOptions{})
-	require.NoError(t, err)
-	argv := strings.Fields(string(mustRead(t, observed)))
-	var consumed string
-	for i, arg := range argv {
-		if arg == "--kit" {
-			consumed = argv[i+1]
-		}
+	for _, mode := range []string{"unset", "current", "search"} {
+		t.Run(mode, func(t *testing.T) {
+			a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1")
+			adapterPath, err := filepath.Abs(a.Path)
+			require.NoError(t, err)
+			a.Path = adapterPath
+			root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+			require.NoError(t, err)
+			var cdpath string
+			if mode == "current" {
+				cdpath = "."
+			}
+			if mode == "search" {
+				cdpath = t.TempDir()
+				require.NoError(t, os.Mkdir(filepath.Join(cdpath, "relative-state"), 0700))
+			}
+			workdir := t.TempDir()
+			t.Chdir(workdir)
+			a.Env = append(a.Env, "SBX_TCK_STATE=relative-state", "CDPATH="+cdpath)
+			id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), filepath.Join(root, "exact-context-pair-optional")}, CreateOptions{})
+			require.NoError(t, err)
+			argv := strings.Fields(string(mustRead(t, observed)))
+			var consumed string
+			for i, arg := range argv {
+				if arg == "--kit" {
+					consumed = argv[i+1]
+				}
+			}
+			require.NotEmpty(t, consumed)
+			physical, err := filepath.EvalSymlinks(workdir)
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(physical, "relative-state", id+".exact-context", "exact-context-pair-optional"), consumed)
+			require.DirExists(t, consumed)
+			require.NoError(t, a.Remove(t.Context(), id))
+		})
 	}
-	require.NotEmpty(t, consumed)
-	require.True(t, filepath.IsAbs(consumed), "generated fixture must remain an unambiguous local reference: %s", consumed)
-	require.DirExists(t, consumed)
-	require.NoError(t, a.Remove(t.Context(), id))
 }
