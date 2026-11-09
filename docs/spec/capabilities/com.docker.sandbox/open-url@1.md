@@ -10,6 +10,13 @@ silently substitute the client's browser.
 - **Permission surface**: yes — permission to request host browser
   navigation without per-URL confirmation.
 
+## Execution plan
+
+The default `order` is 200. The scheduled action is `setup:provide`.
+Completion supplies the helper and its host request route before hooks.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

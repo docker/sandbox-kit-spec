@@ -45,6 +45,7 @@ func BuiltinExecutionContracts() map[string]ExecutionContract {
 		CapabilityHostMount:                mount,
 		CapabilityAgentSkills:              mount,
 		CapabilityGitIdentity:              provide,
+		CapabilityOpenURL:                  provide,
 		CapabilityKitRegistry:              provide,
 		CapabilityCredential:               access,
 		CapabilitySSHAgent:                 access,

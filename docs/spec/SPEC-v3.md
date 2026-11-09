@@ -974,6 +974,7 @@ relative to install hooks and service startup.
 | `com.docker.sandbox/agent-skill@1` | 300 | setup:materialize |
 | `com.docker.sandbox/agent-skills@1` | 100 | setup:mount |
 | `com.docker.sandbox/git-identity@1` | 200 | setup:provide |
+| `com.docker.sandbox/open-url@1` | 200 | setup:provide |
 | `com.docker.sandbox/kit-registry@1` | 200 | setup:provide |
 | `com.docker.sandbox/acp@1` | 0 | - |
 | `com.docker.sandbox/agent-sessions@1` | 0 | - |
