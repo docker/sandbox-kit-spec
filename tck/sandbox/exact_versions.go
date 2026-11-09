@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/docker/sandbox-kit-spec/v3/tck/adapter"
 	"github.com/docker/sandbox-kit-spec/v3/tck/report"
@@ -92,8 +94,8 @@ func exactContextSelection(ctx context.Context, e *Env, authored []exactContextR
 			return []report.Finding{report.Failf("%v rejected %v must refuse exact requests: %v", kits, rejected, err)}
 		}
 		identifies := func(request exactContextRequest) bool {
-			sourceNamed := strings.Contains(refused.Detail, fixtureFor(request)) || strings.Contains(refused.Detail, e.Fixtures(fixtureFor(request)))
-			return (e.claims(request.capability()) || strings.Contains(refused.Detail, request.capability())) && sourceNamed && strings.Contains(refused.Detail, pathFor(request))
+			sourceNamed := diagnosticNames(refused.Detail, fixtureFor(request)) || diagnosticNames(refused.Detail, e.Fixtures(fixtureFor(request)))
+			return (e.claims(request.capability()) || diagnosticNames(refused.Detail, request.capability())) && sourceNamed && strings.Contains(refused.Detail, pathFor(request))
 		}
 		if requiredRefusal {
 			if !slices.ContainsFunc(denied, func(request exactContextRequest) bool {
@@ -173,6 +175,35 @@ func exactContextSelection(ctx context.Context, e *Env, authored []exactContextR
 		}
 	}
 	return nil
+}
+
+func diagnosticNames(detail, identity string) bool {
+	if identity == "" {
+		return false
+	}
+	identityRune := func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsNumber(r) || strings.ContainsRune("._-/:@+", r)
+	}
+	for offset := 0; offset < len(detail); {
+		index := strings.Index(detail[offset:], identity)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		offset = start + len(identity)
+		left, _ := utf8.DecodeLastRuneInString(detail[:start])
+		right, size := utf8.DecodeRuneInString(detail[offset:])
+		rightBoundary := !identityRune(right) && right != '['
+		// A colon or period can end a diagnostic's reference or location.
+		if right == ':' || right == '.' {
+			next, _ := utf8.DecodeRuneInString(detail[offset+size:])
+			rightBoundary = !identityRune(next) && next != '['
+		}
+		if !identityRune(left) && rightBoundary {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
