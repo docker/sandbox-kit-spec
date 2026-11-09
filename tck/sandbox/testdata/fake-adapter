@@ -26,7 +26,7 @@ if [ "${1:-}" = create ]; then
   for arg in "${@:2}"; do
     case "$arg" in --*) break ;; esac
     case "${arg##*/}" in
-      ordering | ordering-docker | ordering-invalid | ordering-workload | ordering-provider | ordering-requirer | ordering-volume-first | ordering-volume-second)
+      ordering | ordering-refusal | ordering-docker | ordering-invalid | ordering-workload | ordering-provider | ordering-requirer | ordering-volume-first | ordering-volume-second)
         exec python3 "$ordering_helper" "$state" "$claims" "$broken" "$@" ;;
     esac
   done

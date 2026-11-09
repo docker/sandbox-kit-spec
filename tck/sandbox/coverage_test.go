@@ -28,10 +28,9 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
-	"SPEC-v3 §7.1.2/no-partial-application": {"SPEC-v3 §7.1.1/selection-before-application", "SPEC-v3 §7.1.1/conflicts-before-application"},
-	"SPEC-v3 §7.1.2/numeric-order":          {"SPEC-v3 §7.1.2/stable-order", "SPEC-v3 §7.1.2/lifecycle-boundaries", "lifecycle@1/entry-actions"},
-	"SPEC-v3 §7.1.2/readiness":              {"dockerd@1/files-ordered"},
-	"SPEC-v3 §7.1.2/stage-lifetime":         {"SPEC-v3 §7.1.2/durable-state"},
+	"SPEC-v3 §7.1.2/numeric-order":  {"SPEC-v3 §7.1.2/stable-order", "SPEC-v3 §7.1.2/lifecycle-boundaries", "lifecycle@1/entry-actions"},
+	"SPEC-v3 §7.1.2/readiness":      {"dockerd@1/files-ordered"},
+	"SPEC-v3 §7.1.2/stage-lifetime": {"SPEC-v3 §7.1.2/durable-state"},
 
 	"sbx@1/environment-hooks-internal":            {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
 	"sbx@1/environment-process-none":              {"sbx@1/environment-authoritative"},

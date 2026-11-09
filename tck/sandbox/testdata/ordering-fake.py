@@ -26,6 +26,9 @@ def remap(value, root):
 
 
 def load_plan(kits, rejected, overrides):
+    if broken == 'ordering-refuses-engine' and any(pathlib.Path(kit).name == 'ordering-invalid' for kit in kits):
+        print('engine elevation refused by policy', file=sys.stderr)
+        sys.exit(2)
     paths = []
     for kit in kits:
         path = pathlib.Path(kit)
@@ -36,6 +39,14 @@ def load_plan(kits, rejected, overrides):
         'Kits': paths, 'Claims': claims.split(','), 'Rejected': rejected, 'Args': overrides,
     }), text=True, capture_output=True, check=False)
     if result.returncode:
+        premature = (broken == 'ordering-applies-before-selection' and rejected or
+                     broken == 'ordering-applies-before-conflict' and
+                     any(pathlib.Path(kit).name == 'ordering-refusal' for kit in kits) and
+                     any(pathlib.Path(kit).name == 'ordering' for kit in kits))
+        if premature:
+            with tempfile.TemporaryDirectory(dir=base) as directory:
+                control = load_plan([kit for kit in kits if pathlib.Path(kit).name in ('workload', 'ordering-refusal')], [], overrides)
+                boot({'plan': control, 'once': [], 'boots': 0}, pathlib.Path(directory) / 'root')
         if broken == 'ordering-applies-before-refusal' and overrides.get('auto_start') == 'true':
             with tempfile.TemporaryDirectory(dir=base) as directory:
                 control = load_plan(kits, rejected, overrides | {'auto_start': 'false'})
@@ -97,6 +108,8 @@ def boot(data, root):
             while j < len(steps) and (steps[j]['stage'], steps[j]['order']) == (steps[i]['stage'], steps[i]['order']):
                 j += 1
             steps[i:j] = reversed(steps[i:j])
+    if broken == 'ordering-files-before-install':
+        steps.sort(key=lambda step: step['action'] != 'files')
     if broken == 'ordering-batches-files':
         steps.sort(key=lambda step: step['action'] == 'files')
     seen = set()

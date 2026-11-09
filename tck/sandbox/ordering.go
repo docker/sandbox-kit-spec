@@ -16,13 +16,15 @@ const (
 
 func init() {
 	checks = append(checks,
+		check{requirement: "SPEC-v3 §7.1.1/selection-before-application", capability: capLifecycle, needs: []string{capHostPort, capVolume}, run: orderedSelectionRefusal},
+		check{requirement: "SPEC-v3 §7.1.1/conflicts-before-application", capability: capLifecycle, needs: []string{capHostPort}, run: orderedConflictRefusal},
 		check{requirement: "SPEC-v3 §7.1.2/reconciled-order", capability: capVolume, run: orderedReconciliation},
 		check{requirement: "lifecycle@1/hooks-dependency-order", capability: capLifecycle, run: orderedDependencies},
 		check{requirement: "SPEC-v3 §7.1.2/no-partial-application", capability: capDockerd, needs: []string{capLifecycle, capHostPort}, run: orderedNoEffectsBeforeRefusal},
 		check{requirement: "SPEC-v3 §7.1.2/numeric-order", capability: capLifecycle, run: orderedLifecycle},
 		check{requirement: "SPEC-v3 §7.1.2/stage-lifetime", capability: capLifecycle, run: orderedLifetime},
 		check{requirement: "SPEC-v3 §7.1.2/readiness", capability: capDockerd, needs: []string{capLifecycle}, run: orderedDocker},
-		check{requirement: "SPEC-v3 §7.1.2/prerequisites", capability: capDockerd, needs: []string{capLifecycle}, run: orderedContradiction},
+		check{requirement: "SPEC-v3 §7.1.2/prerequisites", capability: capDockerd, needs: []string{capLifecycle, capHostPort}, run: orderedContradiction},
 	)
 }
 
@@ -153,10 +155,10 @@ func orderedNoEffectsBeforeRefusal(ctx context.Context, e *Env) []report.Finding
 	}
 	defer service.start()()
 	args := map[string]string{"host_port": service.port(), "auto_start": "false"}
-	control, removeControl, err := e.sandbox(ctx, []string{"ordering-workload", "ordering-invalid"}, args)
+	control, removeControl, findings := dockerSandboxWith(ctx, e, []string{"ordering-workload", "ordering-invalid"}, adapter.CreateOptions{Args: args})
 	defer removeControl()
-	if err != nil {
-		return []report.Finding{report.Failf("trace control create: %v", err)}
+	if findings != nil {
+		return findings
 	}
 	if f := orderingValue(ctx, e, control, "/var/tmp/ordering-contradiction", service.token); f != nil {
 		return f
@@ -209,6 +211,47 @@ func orderedReconciliation(ctx context.Context, e *Env) []report.Finding {
 		if !strings.Contains(refused.Detail, contributor) {
 			return []report.Finding{report.Failf("order conflict did not name contributor %s: %s", contributor, refused.Detail)}
 		}
+	}
+	return nil
+}
+
+func orderedSelectionRefusal(ctx context.Context, e *Env) []report.Finding {
+	return orderedRefusalTrace(ctx, e, "ordering-volume-first", []string{capVolume})
+}
+
+func orderedConflictRefusal(ctx context.Context, e *Env) []report.Finding {
+	return orderedRefusalTrace(ctx, e, "ordering", nil)
+}
+
+func orderedRefusalTrace(ctx context.Context, e *Env, additionalKit string, rejected []string) []report.Finding {
+	service, err := newHostPortService()
+	if err != nil {
+		return []report.Finding{report.Failf("listen for forbidden hook effects: %v", err)}
+	}
+	defer service.start()()
+	kits := []string{fixtureWorkload, "ordering-refusal"}
+	opts := adapter.CreateOptions{Args: map[string]string{"host_port": service.port()}}
+	control, removeControl, err := e.sandboxWith(ctx, kits, opts)
+	defer removeControl()
+	if err != nil {
+		return []report.Finding{report.Failf("trace control create: %v", err)}
+	}
+	if f := orderingValue(ctx, e, control, "/var/tmp/ordering-refusal", service.token); f != nil {
+		return f
+	}
+	before := service.requests.Load()
+	if before == 0 {
+		return []report.Finding{report.Failf("trace control hook did not reach the host")}
+	}
+	opts.RejectCapabilities = rejected
+	_, cleanup, createErr := e.sandboxWith(ctx, append(kits, additionalKit), opts)
+	defer cleanup()
+	var refused *adapter.RefusedError
+	if !errors.As(createErr, &refused) {
+		return []report.Finding{report.Failf("invalid composition was not refused: %v", createErr)}
+	}
+	if service.requests.Load() != before {
+		return []report.Finding{report.Failf("a lifecycle hook reached the host before selection or composition was refused")}
 	}
 	return nil
 }

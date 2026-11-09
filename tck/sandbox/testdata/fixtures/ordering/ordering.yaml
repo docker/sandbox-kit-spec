@@ -7,7 +7,7 @@ capabilities:
     order: 300
     config:
       install:
-        - command: "printf 'C,' >> /var/tmp/ordering-install"
+        - command: "test ! -e /var/tmp/ordering-file && printf 'C,' >> /var/tmp/ordering-install"
       startup:
         - command: "printf 'C,' >> /var/tmp/ordering-startup"
   - type: com.docker.sandbox/lifecycle@1
@@ -17,7 +17,7 @@ capabilities:
         - path: /var/tmp/ordering-file
           content: "file,"
       install:
-        - command: "printf 'A,' >> /var/tmp/ordering-install"
+        - command: "test ! -e /var/tmp/ordering-file && printf 'A,' >> /var/tmp/ordering-install"
       startup:
         - command: "printf 'A1,' >> /var/tmp/ordering-startup"
         - command: "printf 'A2,' >> /var/tmp/ordering-startup; cat /var/tmp/ordering-file >> /var/tmp/ordering-observed; rm /var/tmp/ordering-file"
@@ -25,14 +25,14 @@ capabilities:
     order: 200
     config:
       install:
-        - command: "printf 'R,' >> /var/tmp/ordering-install"
+        - command: "test ! -e /var/tmp/ordering-file && printf 'R,' >> /var/tmp/ordering-install"
       startup:
         - command: "printf 'B1,' >> /var/tmp/ordering-startup"
   - type: com.docker.sandbox/lifecycle@1
     order: 200
     config:
       install:
-        - command: "printf 'R,' >> /var/tmp/ordering-install"
+        - command: "test ! -e /var/tmp/ordering-file && printf 'R,' >> /var/tmp/ordering-install"
       startup:
         - command: "printf 'B2,' >> /var/tmp/ordering-startup"
   - type: com.docker.sandbox/lifecycle@1

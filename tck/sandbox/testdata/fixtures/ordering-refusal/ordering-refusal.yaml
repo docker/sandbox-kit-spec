@@ -1,0 +1,19 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Observable effects before refusal
+args:
+  host_port:
+    default: "18436"
+capabilities:
+  - type: com.docker.sandbox/host-port@1
+    config:
+      host: "${{ kit.args.host_port }}"
+      container: 18436
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - path: /var/tmp/ordering-file
+          content: "trace control"
+      startup:
+        - command: "curl --noproxy '*' --fail --silent --show-error --max-time 5 http://localhost:18436/trace > /var/tmp/ordering-refusal"
