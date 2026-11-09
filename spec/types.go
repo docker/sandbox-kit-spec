@@ -547,6 +547,10 @@ const (
 	// sessions. Workloads and mixins can request it; it takes no config.
 	CapabilityLongRunning = "com.docker.sandbox/long-running@1"
 
+	// CapabilityOpenURL permits HTTP/HTTPS navigation in the runtime host's
+	// default browser. It takes no config and grants no sandbox egress.
+	CapabilityOpenURL = "com.docker.sandbox/open-url@1"
+
 	// CapabilityKitRegistry requests the runtime's kit registry — the daemon's
 	// registry facade over the engine image store, where kit builds push
 	// results and pull the kit frontend. Reaching it is the host's

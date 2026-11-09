@@ -160,6 +160,8 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 	{requirement: "SPEC-v3 §7.1.1/lifetime", capability: capLifecycle, needs: []string{"com.docker.sandbox/volume@1"}, run: groupLifetime},
 	{requirement: "SPEC-v3 §7.1.1/execution", capability: capLifecycle, run: groupExecution},
 
+	{requirement: "open-url@1/guest-helper", capability: capOpenURL, run: openURLGuestHelper},
+	{requirement: "open-url@1/invalid-requests-rejected", capability: capOpenURL, run: openURLRejectsInvalid},
 	{requirement: "long-running@1/survives-session-disconnect", capability: capLongRunning, run: survivesSessionDisconnect},
 	{requirement: "long-running@1/explicit-stop-honored", capability: capLongRunning, run: longRunningStop},
 	{requirement: "conformance.md §2.2/optional-long-running-accepted", run: optionalLongRunning},
@@ -218,6 +220,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 			}{
 				{capability: capSbx, fixture: fixtureSbxWorkload, alone: true},
 				{capability: capLongRunning, fixture: fixtureLongRunning},
+				{capability: capOpenURL, fixture: "open-url"},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},
 				{capability: capDockerAuth, fixture: "docker-auth"},
 				{capLifecycle, fixtureHooks, false},

@@ -640,7 +640,7 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
-`agent-interactive-sessions@1`, `lifecycle@1`, `sbx@1`, `long-running@1`,
+`agent-interactive-sessions@1`, `lifecycle@1`, `sbx@1`, `long-running@1`, `open-url@1`,
 `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
@@ -920,6 +920,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/resources@1` | [resources@1](capabilities/com.docker.sandbox/resources@1.md) | singleton |
 | `com.docker.sandbox/privileged@1` | [privileged@1](capabilities/com.docker.sandbox/privileged@1.md) | singleton, config-less |
 | `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
+| `com.docker.sandbox/open-url@1` | [open-url@1](capabilities/com.docker.sandbox/open-url@1.md) | singleton, config-less |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |

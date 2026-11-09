@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+case "${BROWSER:-}" in /*) ;; *) exit 1 ;; esac
+[ -x "$BROWSER" ]
+command -v xdg-open >/dev/null
+case "$1" in
+interface) ;;
+invalid)
+  # The adapter isolates the host opener before this mode is invoked.
+  for helper in "$BROWSER" xdg-open; do
+    "$helper" http://example.invalid/accepted
+    "$helper" https://example.invalid/accepted
+    if "$helper"; then exit 1; fi
+    if "$helper" http://example.invalid/one https://example.invalid/two; then exit 1; fi
+    for url in 'file:///tmp/example' '/tmp/example' 'mailto:user@example.invalid' \
+      'https://' 'https://user:password@example.invalid/' \
+      'https://example.invalid/a b' 'https://example.invalid/\path' \
+      "$(printf 'https://example.invalid/a\tb')" \
+      "$(printf 'https://example.invalid/a\nb')" \
+      "$(printf 'https://example.invalid/a\001b')"; do
+      if "$helper" "$url"; then exit 1; fi
+    done
+  done
+  ;;
+*) exit 1 ;;
+esac

@@ -107,7 +107,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -138,6 +138,7 @@ var kitCovers = map[string][]string{
 		"agent-skill@1/name-valid",
 		"agent-skill@1/source-literal",
 		"long-running@1/no-config",
+		"open-url@1/no-config",
 		"dockerd@1/engine-store-owned",
 		"git-identity@1/no-config",
 		"SPEC-v3 §7.1.1/group-grammar",
@@ -204,6 +205,14 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"open-url@1/guest-interface":  "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
+	"open-url@1/opener-result":    "the isolated probe checks successful HTTP/HTTPS requests and validation failures; transport and host opener failures, and shell interpretation, remain unobserved",
+	"open-url@1/url-validation":   "the runtime probe checks rejection through the guest helper; the adapter cannot send raw host-service requests to distinguish guest-only validation from host enforcement",
+	"open-url@1/fixed-opener":     "the adapter exposes no host process invocation trace or configurable opener to observe argument boundaries safely",
+	"open-url@1/bounded-requests": "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
+	"open-url@1/url-private":      "the adapter exposes no runtime audit or diagnostic log inventory",
+	"open-url@1/revoked":          "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
+
 	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
 	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",
 	"docker-auth@1/source-private":          "the adapter supplies synthetic bindings but exposes no inventory of runtime credential sources, helper installations or interception keys, nor their mapping into guest paths; client and network observations cannot prove absence of copies at arbitrary paths",

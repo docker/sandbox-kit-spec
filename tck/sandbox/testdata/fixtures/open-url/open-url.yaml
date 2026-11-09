@@ -1,0 +1,6 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Host browser navigation
+capabilities:
+  - type: com.docker.sandbox/open-url@1

@@ -1,0 +1,5 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Host browser helper probe
+provides: ["kit-tck-open-url-workload@1.0.0"]

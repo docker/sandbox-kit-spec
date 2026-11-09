@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -249,6 +249,8 @@ create)
   offered_agent=""
   known_hosts=""
   identity_config=""
+  open_url_isolated=no
+  open_url_budget=0
   group_rejected=no
   lifecycle_rejected=no
   sandbox_name=""
@@ -275,6 +277,14 @@ create)
       if [ "$2" = com.docker.sandbox/volume@1 ]; then group_rejected=yes; fi
       if [ "$2" = com.docker.sandbox/lifecycle@1 ]; then lifecycle_rejected=yes; fi
       shift 2
+      ;;
+    --open-url-budget)
+      open_url_budget="$2"
+      shift 2
+      ;;
+    --open-url-isolated)
+      open_url_isolated=yes
+      shift
       ;;
     --git-identity-config)
       identity_config="$2"
@@ -413,6 +423,8 @@ create)
       *long-running-optional*)
         if [ "$broken" = "refuses-optional-long-running" ]; then exit 2; fi
         ;;
+      *open-url-workload*) ;;
+      *open-url*) need="com.docker.sandbox/open-url@1" ;;
       *long-running-workload*) ;;
       *long-running*) need="com.docker.sandbox/long-running@1" ;;
       */ssh-agent-optional) ;;
@@ -606,6 +618,8 @@ create)
   mkdir -p "$dir"
   printf '%s' "$workspace_mode" >"$dir/workspace-mode"
   echo running >"$dir/status"
+  printf '%s' "$open_url_isolated" >"$dir/open-url-isolated"
+  printf '%s' "$open_url_budget" >"$dir/open-url-budget"
   # The probe the workload fixture ships, which the fake runs itself.
   for kit in "${kits[@]}"; do
     if [[ "$kit" == */workload ]]; then printf '%s' "$kit/kit-tck-ssh-agent.py" >"$dir/ssh-agent-probe"; fi
@@ -1124,6 +1138,14 @@ exec)
     *) exit 1 ;;
     esac
     ;;
+  kit-tck-open-url)
+    if [ "$broken" = open-url-missing-helper ]; then exit 1; fi
+    if [ "$2" = invalid ]; then
+      [ "$(cat "$dir/open-url-isolated")" = yes ] || exit 1
+      [ "$(cat "$dir/open-url-budget")" -ge 28 ] || exit 1
+      case "$broken" in open-url-accepts-invalid | open-url-accepts-multiple-urls | open-url-always-rejects | open-url-accepts-controls) exit 1 ;; esac
+    fi
+    ;;
   kit-tck-background)
     if [ "$2" = start ]; then echo original >"$dir/background"; fi
     if [ ! -f "$dir/background" ]; then echo "background process is gone" >&2; exit 1; fi
@@ -1131,6 +1153,9 @@ exec)
     ;;
   cat)
     case "$2" in
+    /var/tmp/kit-tck-open-url-interface)
+      if [ "$broken" = open-url-missing-workload-interface ]; then echo 1; else echo 0; fi
+      ;;
     /var/tmp/group-order) cat "$dir/group-order" ;;
     /var/tmp/group-feature) cat "$dir/group-feature" ;;
     /var/tmp/ordinary-feature) cat "$dir/ordinary-feature" ;;

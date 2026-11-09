@@ -1,0 +1,6 @@
+#!/bin/sh
+status=0
+kit-tck-open-url interface || status=$?
+printf '%s\n' "$status" >/var/tmp/kit-tck-open-url-interface.tmp
+mv /var/tmp/kit-tck-open-url-interface.tmp /var/tmp/kit-tck-open-url-interface
+exec sleep infinity

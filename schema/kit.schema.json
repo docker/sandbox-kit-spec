@@ -736,6 +736,25 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/open-url@1"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/open-url@1.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/long-running@1"
               }
             },
