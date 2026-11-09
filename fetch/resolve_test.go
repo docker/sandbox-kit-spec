@@ -119,9 +119,12 @@ func TestResolvePreservesExpandedInputsAndIdentity(t *testing.T) {
 		require.Equal(t, message, lifecycle.Files[0].Content)
 	}
 	require.Empty(t, result.Descriptor.Requires, "the merged view drops satisfied relations; individual Kits retain them")
-	lifecycle, err := spec.LifecycleOf(result.Descriptor.Capabilities)
+	lifecycles, err := spec.LifecyclesOf(result.Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Len(t, lifecycle.Files, 2)
+	require.Len(t, lifecycles, 2)
+	for _, lifecycle := range lifecycles {
+		require.Len(t, lifecycle.Files, 1)
+	}
 	require.Equal(t, map[string]string{"MESSAGE_0": "custom workload", "MESSAGE_1": "default base"}, result.ContainerEnv)
 	after, err := json.Marshal(kits)
 	require.NoError(t, err)

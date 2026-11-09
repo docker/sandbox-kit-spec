@@ -10,6 +10,13 @@ is a workload or a mixin.
   access separately when `mode` is `readwrite`. Bundled content itself
   grants no host access.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`setup:mount`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

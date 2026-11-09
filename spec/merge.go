@@ -84,6 +84,9 @@ type MergeOptions struct {
 // @2 publication preserves declarations inline, with selection boundaries.
 // Runtime consumers use Compose and retain the input contributions.
 func Merge(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
+	if err := validatePublicationHookOrder(contributions); err != nil {
+		return nil, err
+	}
 	result, err := mergeForPublication(contributions, opts)
 	if err != nil {
 		return nil, err
@@ -442,8 +445,8 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 //
 // Instance-shaped types union on their own key. Policy-shaped types
 // admit one entry, so each has a rule for what several contributors
-// asking at once means: network policies union, lifecycle hooks
-// concatenate, the engine starts if any asker wants it, and the types
+// asking at once means: network policies union, lifecycle entries
+// stay independent, the engine starts if any asker wants it, and the types
 // that describe the whole sandbox rather than a grant to it (resources,
 // agent-sessions, agent-interactive-sessions) admit one author, because
 // two different answers cannot both be the sandbox's.
@@ -452,15 +455,22 @@ func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSou
 		byKey:    map[string]keyed{},
 		optional: map[string]bool{},
 	}
+	position := 0
 	for _, c := range contributions {
 		for i, n := range c.Descriptor.Capabilities {
+			n.mergePosition = position
+			position++
 			if n.Group != nil {
 				return nil, nil, fmt.Errorf("compose: %s capabilities[%d]: select groups before composition", c.Reference, i)
 			}
 			reference := fmt.Sprintf("%s capabilities[%d]", c.Reference, i)
-			if n.Source != nil {
-				reference = fmt.Sprintf("%s (%s %s)", c.Reference, n.Source.Kit, n.Source.Path)
+			if len(n.executionOrigins) > 0 {
+				reference = executionLocations(n.executionOrigins)
 			}
+			if n.Source != nil {
+				reference += fmt.Sprintf(" (source %s %s)", n.Source.Kit, n.Source.Path)
+			}
+			n.mergeReferences = []string{reference}
 			if n.Type == CapabilityCredential {
 				var credential Credential
 				if err := decodeForMerge(reference, n, &credential); err != nil {
@@ -579,22 +589,23 @@ type capabilityMerge struct {
 }
 
 type networkAsk struct {
-	reference string
-	name      string
-	v2        bool
-	policy    *PhasedNetworkV2
-	optional  bool
+	capability Capability
+	reference  string
+	name       string
+	v2         bool
+	policy     *PhasedNetworkV2
+	optional   bool
 }
 
 type lifecycleAsk struct {
-	reference string
-	name      string
-	lifecycle *Lifecycle
-	optional  bool
+	capability Capability
+	reference  string
+	lifecycle  *Lifecycle
 }
 
 type contextAsk struct {
-	reference string
+	capability Capability
+	reference  string
 	// Content lookup uses the consuming Kit, while diagnostics retain member paths.
 	contribution string
 	name         string
@@ -625,11 +636,12 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 			return fmt.Errorf("merge: %s: %w", reference, err)
 		}
 		m.network = append(m.network, networkAsk{
-			reference: reference,
-			name:      n.Name,
-			v2:        n.Type == CapabilityNetworkPolicyV2,
-			policy:    p,
-			optional:  n.Optional,
+			capability: n,
+			reference:  reference,
+			name:       n.Name,
+			v2:         n.Type == CapabilityNetworkPolicyV2,
+			policy:     p,
+			optional:   n.Optional,
 		})
 		return nil
 
@@ -638,7 +650,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if err := decodeForMerge(reference, n, &l); err != nil {
 			return err
 		}
-		m.lifecycle = append(m.lifecycle, lifecycleAsk{reference: reference, name: n.Name, lifecycle: &l, optional: n.Optional})
+		m.lifecycle = append(m.lifecycle, lifecycleAsk{capability: n, reference: reference, lifecycle: &l})
 		return nil
 
 	case CapabilityAgentContextV2:
@@ -646,7 +658,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if err := decodeForMerge(reference, n, &a); err != nil {
 			return err
 		}
-		m.context = append(m.context, contextAsk{reference: reference, name: n.Name,
+		m.context = append(m.context, contextAsk{capability: n, reference: reference, name: n.Name,
 			context:  &AgentContext{Directory: a.Directory, Filename: a.Filename, Content: a.Content},
 			optional: n.Optional, v2: true})
 		return nil
@@ -656,7 +668,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if err := decodeForMerge(reference, n, &a); err != nil {
 			return err
 		}
-		m.context = append(m.context, contextAsk{reference: reference, name: n.Name, context: &a, optional: n.Optional})
+		m.context = append(m.context, contextAsk{capability: n, reference: reference, name: n.Name, context: &a, optional: n.Optional})
 		return nil
 
 	case CapabilityResources:
@@ -707,6 +719,10 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		m.optional[key] = n.Optional
 		return nil
 	}
+	if err := mergeEntryMetadata(&prev.capability, n); err != nil {
+		return err
+	}
+	m.byKey[key] = prev
 	// A host directory belongs to one declaring Kit, so even an identical
 	// restatement cannot collapse: doing so would silently choose whose
 	// shared data the other Kit receives. Volumes occupy the same mount
@@ -811,6 +827,9 @@ func (m *capabilityMerge) addDockerd(reference string, n Capability) error {
 		return nil
 	}
 	held := m.byKey[CapabilityDockerd].capability
+	if err := mergeEntryMetadata(&held, n); err != nil {
+		return err
+	}
 	// The only config is autoStart, so two different asks have at least
 	// one true between them. Spelled as the default, the merged entry
 	// reads the same whichever order the Kits come in.
@@ -858,6 +877,9 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 	if *slot == nil {
 		*slot = &keyed{reference: reference, capability: n}
 		return nil
+	}
+	if err := mergeEntryMetadata(&(*slot).capability, n); err != nil {
+		return err
 	}
 	if sameRequest((*slot).capability, n) {
 		if (*slot).capability.Name == "" {
@@ -1007,8 +1029,8 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 	}
 	if lifecycle, err := m.mergedLifecycle(); err != nil {
 		return nil, nil, err
-	} else if lifecycle != nil {
-		out = append(out, *lifecycle)
+	} else {
+		out = append(out, lifecycle...)
 	}
 
 	contexts, sources, err := m.mergedContext()
@@ -1016,6 +1038,11 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 		return nil, nil, err
 	}
 	out = append(out, contexts...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].mergePosition < out[j].mergePosition })
+	for i := range out {
+		out[i].mergePosition = 0
+		out[i].mergeReferences = nil
+	}
 	return out, sources, nil
 }
 
@@ -1077,6 +1104,12 @@ func (m *capabilityMerge) mergedNetwork() (*Capability, error) {
 	}
 	c.Optional = optional
 	c.Name = name
+	copyEntryMetadata(c, m.network[0].capability)
+	for _, ask := range m.network[1:] {
+		if err := mergeEntryMetadata(c, ask.capability); err != nil {
+			return nil, err
+		}
+	}
 	return c, nil
 }
 
@@ -1218,27 +1251,13 @@ func hasReference(argv []string) bool {
 	return slices.ContainsFunc(argv, func(a string) bool { return ContainsArgRef(a) || ContainsEnvRef(a) })
 }
 
-// mergedLifecycle concatenates the contributors' hooks in composition
-// order, which is the order a runtime would have run them in.
-//
-// The interactive tail is the exception: it is the workload's launch
-// argv, not an addition to it, so two contributors stating one cannot
-// both be honored.
-func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
-	if len(m.lifecycle) == 0 {
-		return nil, nil
-	}
-	merged := &Lifecycle{}
+// mergedLifecycle preserves independently scheduled entries. The cross-entry
+// conflicts remain global because one file or launch has one author.
+func (m *capabilityMerge) mergedLifecycle() ([]Capability, error) {
+	var out []Capability
 	interactiveFrom := ""
-	name := ""
-	optional := true
 	seenFile := map[string]string{}
 	for _, ask := range m.lifecycle {
-		if name == "" {
-			name = ask.name
-		}
-		merged.Install = append(merged.Install, ask.lifecycle.Install...)
-		merged.Startup = append(merged.Startup, ask.lifecycle.Startup...)
 		for _, f := range ask.lifecycle.Files {
 			if ContainsArgRef(f.Path) {
 				return nil, fmt.Errorf("merge: %s: lifecycle file path %q resolves at create; pin the path", ask.reference, f.Path)
@@ -1249,27 +1268,15 @@ func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
 			}
 			seenFile[clean] = ask.reference
 		}
-		merged.Files = append(merged.Files, ask.lifecycle.Files...)
 		if ask.lifecycle.Interactive != nil {
 			if interactiveFrom != "" {
-				return nil, fmt.Errorf("merge: %s and %s both declare a lifecycle interactive tail; it replaces the launch command's arguments, so it has one author",
-					interactiveFrom, ask.reference)
+				return nil, fmt.Errorf("merge: %s and %s both declare a lifecycle interactive tail; it replaces the launch command's arguments, so it has one author", interactiveFrom, ask.reference)
 			}
 			interactiveFrom = ask.reference
-			merged.Interactive = ask.lifecycle.Interactive
 		}
-		if !ask.optional {
-			optional = false
-		}
+		out = append(out, ask.capability)
 	}
-
-	c, err := capabilityFrom(CapabilityLifecycle, merged)
-	if err != nil {
-		return nil, err
-	}
-	c.Optional = optional
-	c.Name = name
-	return c, nil
+	return out, nil
 }
 
 // mergedContext folds the contributors' agent-context into the profiles a
@@ -1380,6 +1387,22 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		}
 		c.Optional = optional[i]
 		c.Name = names[i]
+		metadataSet := false
+		for _, ask := range m.context {
+			// Shared bodies affect every profile. A declaration without a
+			// destination contributes to the default profile as well.
+			body := ask.context.Content != "" || ask.context.ContentFile != ""
+			profile := ask.context.Directory == "" && i == 0 || ask.context.Directory != "" && destination(ask.context) == destination(&profiles[i])
+			if !body && !profile {
+				continue
+			}
+			if !metadataSet {
+				copyEntryMetadata(c, ask.capability)
+				metadataSet = true
+			} else if err := mergeEntryMetadata(c, ask.capability); err != nil {
+				return nil, nil, err
+			}
+		}
 		out = append(out, *c)
 	}
 	if v2 {
@@ -1510,4 +1533,53 @@ func KitArgValues(decls map[string]Arg, supplied map[string]string) (map[string]
 		values[name] = value
 	}
 	return values, nil
+}
+
+// Order reconciliation uses contract defaults rather than first-writer wins.
+// Runtime composition resolves third-party defaults before reaching this code.
+func mergeEntryMetadata(into *Capability, from Capability) error {
+	a, aKnown := mergeEffectiveOrder(*into)
+	b, bKnown := mergeEffectiveOrder(from)
+	if aKnown != bKnown || aKnown && a != b {
+		locations := append(slices.Clone(into.mergeReferences), from.mergeReferences...)
+		return fmt.Errorf("merge: %s: conflicting effective orders for %s (%s and %s)", strings.Join(locations, " and "), into.Type, describeMergeOrder(a, aKnown), describeMergeOrder(b, bKnown))
+	}
+	if into.Order == nil {
+		into.Order = from.Order
+	}
+	into.mergePosition = min(into.mergePosition, from.mergePosition)
+	into.mergeReferences = append(slices.Clone(into.mergeReferences), from.mergeReferences...)
+	for _, origin := range from.executionOrigins {
+		duplicate := slices.ContainsFunc(into.executionOrigins, func(previous ExecutionOrigin) bool {
+			return previous.Contribution == origin.Contribution && previous.Target == origin.Target
+		})
+		if !duplicate {
+			into.executionOrigins = append(slices.Clone(into.executionOrigins), origin)
+		}
+	}
+	return nil
+}
+
+func copyEntryMetadata(into *Capability, from Capability) {
+	into.Order = from.Order
+	into.mergePosition = from.mergePosition
+	into.mergeReferences = slices.Clone(from.mergeReferences)
+	into.executionOrigins = slices.Clone(from.executionOrigins)
+}
+
+func mergeEffectiveOrder(c Capability) (int32, bool) {
+	if c.Order != nil {
+		return *c.Order, true
+	}
+	if contract, ok := BuiltinExecutionContracts()[c.Type]; ok {
+		return contract.DefaultOrder, true
+	}
+	return 0, false
+}
+
+func describeMergeOrder(order int32, known bool) string {
+	if !known {
+		return "omitted without registered default"
+	}
+	return fmt.Sprint(order)
 }

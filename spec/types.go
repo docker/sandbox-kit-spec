@@ -276,6 +276,14 @@ type Kit struct {
 // a descriptor schema-major bump; RELEASES.md defines when versions move
 // and the maintainer-approved draft-stage exception.
 type Capability struct {
+	// Order overrides the exact-version contract default within each execution stage.
+	// A pointer distinguishes explicit zero from omission.
+	Order *int32 `json:"order,omitempty" yaml:"order,omitempty"`
+
+	executionOrigins []ExecutionOrigin
+	mergePosition    int
+	mergeReferences  []string
+
 	// Group is the alternative to an ordinary entry. It is not a capability
 	// type and must be selected before typed accessors are used.
 	Group *CapabilityGroup `json:"group,omitempty" yaml:"group,omitempty"`
@@ -338,6 +346,9 @@ func (c *Capability) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 	// YAML coerces numbers and booleans into Go strings and accepts null.
 	// Match the schema's string-only label instead of silently renaming it.
+	if order, ok := keys["order"]; ok && order.ShortTag() != "!!int" {
+		return fmt.Errorf("capability order must be a signed 32-bit integer")
+	}
 	if name, ok := keys["name"]; ok && name.ShortTag() != "!!str" {
 		return fmt.Errorf("capability name must be a string")
 	}
@@ -359,7 +370,7 @@ func (c *Capability) UnmarshalYAML(unmarshal func(any) error) error {
 		return fmt.Errorf("capability source must be an object")
 	}
 	if c.groupSet {
-		for _, key := range []string{"type", "name", "description", "optional", "config"} {
+		for _, key := range []string{"type", "name", "description", "optional", "config", "order"} {
 			if _, ok := keys[key]; ok {
 				return fmt.Errorf("group item must not state %s", key)
 			}
@@ -381,6 +392,9 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return err
+	}
+	if order, ok := keys["order"]; ok && bytes.Equal(bytes.TrimSpace(order), []byte("null")) {
+		return fmt.Errorf("capability order must be a signed 32-bit integer")
 	}
 	if name, ok := keys["name"]; ok && bytes.Equal(bytes.TrimSpace(name), []byte("null")) {
 		return fmt.Errorf("capability name must be a string")
@@ -407,7 +421,7 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("capability source must be an object")
 	}
 	if c.groupSet {
-		for _, key := range []string{"type", "name", "description", "optional", "config"} {
+		for _, key := range []string{"type", "name", "description", "optional", "config", "order"} {
 			if _, ok := keys[key]; ok {
 				return fmt.Errorf("group item must not state %s", key)
 			}

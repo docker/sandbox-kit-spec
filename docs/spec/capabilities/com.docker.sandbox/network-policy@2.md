@@ -14,6 +14,13 @@ run, what the agent may reach in steady state, and what it may do there.
 more than a host. A `@1` config is a `@2` whose entries are all bare,
 which is what it means: every method and path on the hosts it allows.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`install:policy`, `start:policy`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

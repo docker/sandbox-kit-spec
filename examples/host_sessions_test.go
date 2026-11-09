@@ -158,15 +158,27 @@ func TestHostSessionsComposeAfterAgentSetup(t *testing.T) {
 				for _, unit := range resolution.Topological() {
 					contributions = append(contributions, spec.Contribution{Reference: unit.Reference, Descriptor: unit.Descriptor})
 				}
-				composed, err := spec.Compose(contributions)
+				composed, err := spec.ComposeRuntime(t.Context(), contributions, spec.RuntimeOptions{Select: spec.Supported(spec.KnownCapabilities()...)})
 				require.NoError(t, err)
-				lifecycle, err := spec.LifecycleOf(composed.Capabilities)
-				require.NoError(t, err)
-				require.Greater(t, len(lifecycle.Install), 1)
-				last := lifecycle.Install[len(lifecycle.Install)-1]
+				var install []spec.InstallHook
+				for _, stage := range composed.Plan.Stages {
+					if stage.Stage != spec.StageInstall {
+						continue
+					}
+					for _, step := range stage.Steps {
+						if step.Capability.Type != spec.CapabilityLifecycle {
+							continue
+						}
+						lifecycle, err := spec.LifecycleOf([]spec.Capability{step.Capability})
+						require.NoError(t, err)
+						install = append(install, lifecycle.Install...)
+					}
+				}
+				require.Greater(t, len(install), 1)
+				last := install[len(install)-1]
 				require.Contains(t, last.Description, "host-shared directory")
 				if agent == "claude" {
-					for _, c := range composed.Capabilities {
+					for _, c := range composed.Descriptor.Capabilities {
 						if c.Type == spec.CapabilityVolume {
 							require.NotContains(t, c.Config["path"], "/home/agent/.claude/")
 						}

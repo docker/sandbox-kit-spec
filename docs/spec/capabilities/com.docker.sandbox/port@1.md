@@ -8,6 +8,13 @@ service exposure — distinct from the outbound
   duplicates rejected.
 - **Permission surface**: yes — `port/transport`.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`configure:configure`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

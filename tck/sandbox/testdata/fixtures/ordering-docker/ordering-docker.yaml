@@ -1,0 +1,18 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Configuration before Docker readiness
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    order: 1000
+    config:
+      startup:
+        - command: "curl --fail --silent --unix-socket /var/run/docker.sock http://localhost/_ping >> /var/tmp/ordering-ping"
+        - command: "cat /var/tmp/ordering-engine-config >> /var/tmp/ordering-config-observed"
+  - type: com.docker.sandbox/dockerd@1
+  - type: com.docker.sandbox/lifecycle@1
+    order: 400
+    config:
+      files:
+        - path: /etc/docker/daemon.json
+          content: '{"hosts":["unix:///var/run/docker.sock"],"data-root":"/var/lib/docker","ordering":"from-lifecycle"}'

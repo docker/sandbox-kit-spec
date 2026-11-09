@@ -112,7 +112,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityKitRegistry:              AritySingleton,
 		CapabilityAgentSessions:            AritySingleton,
 		CapabilityAgentInteractiveSessions: AritySingleton,
-		CapabilityLifecycle:                AritySingleton,
+		CapabilityLifecycle:                ArityRepeated,
 		CapabilitySbx:                      AritySingleton,
 		CapabilityLongRunning:              AritySingleton,
 		CapabilityOpenURL:                  AritySingleton,
@@ -742,7 +742,7 @@ func TestValidationAgreesWithInstanceKeys(t *testing.T) {
 	}
 	sameRequest := func(i, j int) bool {
 		a, b := pool[i], pool[j]
-		if a.Type == b.Type && reflect.DeepEqual(a.Config, b.Config) {
+		if a.Type == b.Type && ArityOf(a.Type) != ArityRepeated && reflect.DeepEqual(a.Config, b.Config) {
 			return true
 		}
 		switch ArityOf(a.Type) {

@@ -285,6 +285,12 @@
           "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$",
           "description": "<namespace>/<name>@<capability-contract-version>. The namespace admits host-specific capability types. The version covers the config schema and observable behavior, including composition and persistent-state transitions. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception."
         },
+        "order": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647,
+          "description": "Execution order within each lifecycle stage. Omission uses the exact-version contract default; explicit zero is distinct from omission."
+        },
         "name": {
           "type": "string",
           "description": "Optional human-readable display label. Spaces and duplicate names are allowed; the label does not change identity, merging, or permissions."

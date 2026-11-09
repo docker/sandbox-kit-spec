@@ -7,6 +7,13 @@ any other grant.
 - **Shape**: instance; exact-duplicate entries rejected.
 - **Permission surface**: yes — `vendor:product` or `class:<class>`.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`configure:configure`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

@@ -1,0 +1,54 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Ordered lifecycle entries
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    order: 300
+    config:
+      install:
+        - command: "printf 'C,' >> /var/tmp/ordering-install"
+      startup:
+        - command: "printf 'C,' >> /var/tmp/ordering-startup"
+  - type: com.docker.sandbox/lifecycle@1
+    order: 100
+    config:
+      files:
+        - path: /var/tmp/ordering-file
+          content: "file,"
+      install:
+        - command: "printf 'A,' >> /var/tmp/ordering-install"
+      startup:
+        - command: "printf 'A1,' >> /var/tmp/ordering-startup"
+        - command: "printf 'A2,' >> /var/tmp/ordering-startup; cat /var/tmp/ordering-file >> /var/tmp/ordering-observed; rm /var/tmp/ordering-file"
+  - type: com.docker.sandbox/lifecycle@1
+    order: 200
+    config:
+      install:
+        - command: "printf 'R,' >> /var/tmp/ordering-install"
+      startup:
+        - command: "printf 'B1,' >> /var/tmp/ordering-startup"
+  - type: com.docker.sandbox/lifecycle@1
+    order: 200
+    config:
+      install:
+        - command: "printf 'R,' >> /var/tmp/ordering-install"
+      startup:
+        - command: "printf 'B2,' >> /var/tmp/ordering-startup"
+  - type: com.docker.sandbox/lifecycle@1
+    order: 100
+    config:
+      startup:
+        - command: "printf 'A3,' >> /var/tmp/ordering-startup"
+  - group:
+      optional: true
+      capabilities:
+        - type: test.invalid/unavailable@1
+        - type: com.docker.sandbox/lifecycle@1
+          order: 0
+          config:
+            files:
+              - path: /var/tmp/ordering-skipped
+                content: skipped
+            startup:
+              - command: "printf 'skipped,' >> /var/tmp/ordering-startup"

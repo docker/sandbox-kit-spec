@@ -74,19 +74,19 @@ func TestGroupValidationPathsAndBlocks(t *testing.T) {
 	require.ErrorContains(t, err, "capabilities[1].group.capabilities[1].config.path")
 	d.Capabilities[1].Group.Capabilities = d.Capabilities[1].Group.Capabilities[:1]
 	_, err = Validate(d)
-	require.NoError(t, err, "singleton arity is per declaration block")
+	require.NoError(t, err, "lifecycle entries are independent")
 	d.Capabilities = append(d.Capabilities, groupHook("duplicate"))
 	_, err = Validate(d)
-	require.ErrorContains(t, err, "capabilities[2].type")
+	require.NoError(t, err)
 	d.Capabilities = d.Capabilities[:2]
 	d.Capabilities[1].Group.Capabilities = append(d.Capabilities[1].Group.Capabilities, groupHook("duplicate"))
 	_, err = Validate(d)
-	require.ErrorContains(t, err, "capabilities[1].group.capabilities[1].type")
+	require.NoError(t, err)
 }
 
 func TestDuplicateDiagnosticsRetainOriginalPaths(t *testing.T) {
 	for _, duplicate := range []Capability{
-		groupHook("same"),
+		{Type: CapabilityPrivileged},
 		{Type: CapabilityVolume, Config: map[string]any{"path": "/cache"}},
 	} {
 		group := Capability{Group: &CapabilityGroup{Capabilities: []Capability{{Type: "com.example/feature@1"}}}}
@@ -216,12 +216,12 @@ func TestSelectedCompositionAndPublishedOrder(t *testing.T) {
 			effective.Capabilities = selection.Capabilities
 			fromSet, err := Compose([]Contribution{{Reference: "published", Descriptor: &effective}})
 			require.NoError(t, err)
-			want, err := LifecycleOf(merged.Capabilities)
+			want, err := LifecyclesOf(merged.Capabilities)
 			require.NoError(t, err)
-			got, err := LifecycleOf(fromSet.Capabilities)
+			got, err := LifecyclesOf(fromSet.Capabilities)
 			require.NoError(t, err)
 			require.Equal(t, want, got)
-			require.Len(t, got.Startup, 2+map[bool]int{true: 1}[accept], "identical hooks are not deduplicated")
+			require.Len(t, got, 2+map[bool]int{true: 1}[accept], "identical hooks are not deduplicated")
 		})
 	}
 }

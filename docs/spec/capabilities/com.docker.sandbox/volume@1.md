@@ -8,6 +8,13 @@ is scratch storage.
   duplicates rejected. Matching requests across Kits merge.
 - **Permission surface**: yes — the path.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`setup:mount`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

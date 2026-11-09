@@ -430,8 +430,9 @@ A runtime supplies decisions on expanded entries; the API owns atomic
 selection and ordering. Validate all member configs even in skipped
 groups. Selected entries must still satisfy cross-entry rules, and a
 composition conflict is an error rather than a reason to skip another
-group. Singleton arity is per declaration block; lifecycle lists from
-selected blocks concatenate, and duplicate file paths are errors.
+group. Singleton arity is per declaration block. Lifecycle entries repeat
+independently, retaining order and optionality across selected blocks;
+duplicate file paths and multiple interactive tails are errors.
 
 Published sets may carry `declarationBlocks` on ordinary items or
 one-member group wrappers. Preserve these descriptor-local IDs when
@@ -496,3 +497,30 @@ or finished preparation. It is unset with no workspace, and then a
 `${{ kit.env.WORKSPACE_DIR }}` reference fails at create. A process cwd
 does not change the assigned workspace. Hooks list each of these inputs
 they consume in `env`; none is in lifecycle's automatic baseline.
+
+## Order capability effects
+
+An ordinary entry or group member can declare signed 32-bit `order`.
+Omission uses the exact-version default; zero is explicit. A group wrapper
+cannot carry order. Use separate lifecycle entries to place file writes
+before a service and startup hooks after it. Keep every entry through set
+publication, including repeated commands and optional entries.
+
+The stages are configure, setup, install, and start. Mounts and identity
+are ready after setup. Install hooks run once at create, before lifecycle
+files. Start writes files and runs startup hooks every boot. Within start,
+files at 400 can precede Docker readiness at its default 500; ordinary
+startup hooks default to 1000. A lifecycle entry's own files precede its
+startup hooks. No engine is promised during install. Files still need
+agent ownership and write access.
+
+Runtimes use `spec.ComposeRuntime` after dependency resolution and final
+argument/environment expansion. They execute its stage/action plan,
+retain once-only state across host restarts, and preserve selection
+records separately. Sorting a descriptor or batching hooks by type loses
+the contract. Planning rejects reversed prerequisites and differing
+orders on requests that otherwise reconcile. Selected third-party types
+need registered exact-version execution metadata even with explicit
+order. See [execution order](../../docs/spec/SPEC-v3.md#712-execution-order)
+for the complete default table and readiness rules. These are draft
+schema-3 extensions requiring a matching reader.

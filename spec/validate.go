@@ -489,7 +489,6 @@ var singletonCapabilities = map[string]bool{
 	CapabilityKitRegistry:              true,
 	CapabilityAgentSessions:            true,
 	CapabilityAgentInteractiveSessions: true,
-	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
 	CapabilityOpenURL:                  true,
@@ -639,6 +638,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 	// defers decoding and is judged on the effective descriptor, as is a
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string
+	lifecycleFiles := map[string]int{}
 	newSessionAt, interactiveAt := -1, -1
 	// Both session capabilities enumerate the same sessions whichever
 	// mode opened them, so a Kit declaring list on both states one
@@ -675,7 +675,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 		}
 		// surface is set for every entry that reaches here: checkEntry
 		// returns before setting it only for the two cases skipped above.
-		if prev, dup := seenExact[c.surface]; dup {
+		if prev, dup := seenExact[c.surface]; dup && n.Type != CapabilityLifecycle {
 			if !duplicateSingleton && reported.first(ruleIdentical, c, checks[prev], noKey) {
 				errs.add(fieldErrorf(path, "capabilities[%d]: identical to capabilities[%d]", i, prev))
 			}
@@ -791,7 +791,19 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 			newSession, newSessionAt = c.newSession, i
 			interactiveList, interactiveListAt = c.interactiveList, i
 		case CapabilityLifecycle:
-			interactive, interactiveAt = c.interactive, i
+			if c.interactive != nil {
+				if interactiveAt >= 0 && reported.first(ruleLifecycleInteractive, c, checks[interactiveAt], noKey) {
+					errs.add(fieldErrorf(path+".config.interactive", "capabilities[%d] and capabilities[%d] both declare lifecycle interactive", interactiveAt, i))
+				}
+				interactive, interactiveAt = c.interactive, i
+			}
+			for _, file := range c.lifecycleFiles {
+				clean := containerpath.Clean(file.Path)
+				if prev, exists := lifecycleFiles[clean]; exists && prev != i && reported.first(ruleLifecycleFile, c, checks[prev], clean) {
+					errs.add(fieldErrorf(path+".config.files", "capabilities[%d] and capabilities[%d] both write lifecycle file %s", prev, i, clean))
+				}
+				lifecycleFiles[clean] = i
+			}
 		}
 	}
 
@@ -881,6 +893,7 @@ type entryCheck struct {
 	// The decoded argvs the block compares across entries, set only when
 	// the typed checks decoded the config.
 	newSession, interactive       []string
+	lifecycleFiles                []File
 	headlessList, interactiveList CommandLine
 }
 
@@ -1210,6 +1223,7 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 			return false
 		}
 		c.interactive = l.Interactive
+		c.lifecycleFiles = l.Files
 		if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
 			c.errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
 		}
@@ -1308,6 +1322,8 @@ const (
 	ruleContextBody           = "context-body"
 	ruleContextProfile        = "context-profile"
 	ruleInteractive           = "interactive"
+	ruleLifecycleInteractive  = "lifecycle-interactive"
+	ruleLifecycleFile         = "lifecycle-file"
 	ruleList                  = "list"
 	ruleNetworkPolicyVersions = "network-policy-versions"
 	ruleEngineStore           = "engine-store"

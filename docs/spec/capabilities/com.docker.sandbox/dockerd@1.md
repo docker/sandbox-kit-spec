@@ -11,6 +11,13 @@ the Kit. The host may refuse.
   storage, as a [`volume@1`](volume@1.md) there would be. Its lifetime
   follows this capability's rules below, ending at sandbox deletion.
 
+## Execution plan
+
+The default `order` is 500. The scheduled actions are
+`configure:configure`, `setup:prepare`, `start:start`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml
@@ -99,10 +106,15 @@ With `autoStart` true or omitted, the runtime:
   or relies on the image's `daemon.json` setting `group`.
 
 No engine is promised during `install` hooks: the duty above covers
-`startup` hooks only. This page orders no `lifecycle@1` `files` write
-relative to the engine start, so a file the engine reads when it
-starts, such as `daemon.json`, belongs in the image rather than in
-`files`.
+`startup` hooks only. Configuration establishes elevation before container creation; preparation
+establishes storage in setup. The start action starts the engine and awaits readiness on each
+boot. With `autoStart: false`, there is no automatic start action.
+
+Lifecycle file writes ordered before this entry MUST finish before the <!-- tck: dockerd@1/files-ordered -->
+engine starts, on every boot. A files-only entry at 400 can supply
+`daemon.json` before the engine's default order 500. A startup hook ordered
+before automatic engine readiness is a planning error. Lifecycle's file
+ownership and write-access rules still apply.
 
 With `autoStart: false`, the Kit starts the engine from its own hook
 (a [`lifecycle@1`](lifecycle@1.md) `startup` hook with `user: "0"`, for

@@ -17,6 +17,13 @@ socket nor a particular key.
 - **Permission surface**: yes — the phase, and what the entry lets the
   agent sign in each phase.
 
+## Execution plan
+
+The default `order` is 200. The scheduled actions are
+`install:provide`, `start:provide`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

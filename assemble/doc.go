@@ -9,7 +9,8 @@
 // image naming, and container creation belong to the runtime. Container
 // environment overrides remain separate from the image defaults.
 //
-// The declaration half is spec.Compose for runtime use or spec.Merge for
+// The declaration half is spec.ComposeRuntime for runtime execution planning,
+// spec.Compose for reconciliation alone, or spec.Merge for
 // publishing. fetch.Client.Resolve handles registry-backed descriptor resolution;
 // fetch.Client.LoadImage is the registry-backed image loader.
 package assemble

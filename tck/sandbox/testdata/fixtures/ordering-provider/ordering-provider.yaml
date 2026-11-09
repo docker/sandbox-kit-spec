@@ -1,0 +1,12 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Ordered hook provider
+provides: ["kit-tck-order-provider@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: "printf 'provider,' >> /var/tmp/ordering-dependencies-install"
+      startup:
+        - command: "printf 'provider,' >> /var/tmp/ordering-dependencies-startup"

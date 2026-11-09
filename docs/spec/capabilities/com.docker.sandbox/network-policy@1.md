@@ -12,6 +12,13 @@ This version remains valid and is what a Kit that gates egress by host
 alone should state. [`@2`](network-policy@2.md) adds HTTP rules that
 narrow method and path over the connections these lists permit.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`install:policy`, `start:policy`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

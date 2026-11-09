@@ -227,9 +227,8 @@ capabilities:
 	require.False(t, policy.Runtime.Allow[1].Bounded())
 }
 
-// Hooks concatenate in composition order — the order a runtime would
-// have run them in.
-func TestMergeLifecycleConcatenatesInOrder(t *testing.T) {
+// Lifecycle entries retain their boundaries in composition order.
+func TestMergeLifecyclePreservesEntriesInOrder(t *testing.T) {
 	first := contribute(t, "first", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
@@ -254,13 +253,15 @@ capabilities:
         - {path: /etc/one, content: "1"}
 `)
 
-	lifecycle, err := LifecycleOf(mergeOK(t, first, second).Descriptor.Capabilities)
+	lifecycles, err := LifecyclesOf(mergeOK(t, first, second).Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Len(t, lifecycle.Install, 2)
-	require.Equal(t, CommandLine{"sh", "-c", "echo base"}, lifecycle.Install[0].Command)
-	require.Equal(t, CommandLine{"sh", "-c", "echo overlay"}, lifecycle.Install[1].Command)
-	require.Len(t, lifecycle.Startup, 1)
-	require.Equal(t, []string{"--interactive"}, lifecycle.Interactive)
+	require.Len(t, lifecycles, 2)
+	require.Len(t, lifecycles[0].Install, 1)
+	require.Len(t, lifecycles[1].Install, 1)
+	require.Equal(t, CommandLine{"sh", "-c", "echo base"}, lifecycles[0].Install[0].Command)
+	require.Equal(t, CommandLine{"sh", "-c", "echo overlay"}, lifecycles[1].Install[0].Command)
+	require.Len(t, lifecycles[1].Startup, 1)
+	require.Equal(t, []string{"--interactive"}, lifecycles[0].Interactive)
 }
 
 // The interactive tail replaces the launch command's arguments rather

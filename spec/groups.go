@@ -316,7 +316,7 @@ func validateCapabilityEntries(d *Descriptor) error {
 			}
 			continue
 		}
-		if c.Type != "" || c.Name != "" || c.Description != "" || c.Optional || c.optionalSet || c.ConfigStated() {
+		if c.Type != "" || c.Name != "" || c.Description != "" || c.Optional || c.optionalSet || c.ConfigStated() || c.Order != nil {
 			errs.add(fieldErrorf(at, "item must be exactly one ordinary entry or group"))
 		}
 		if len(c.Group.Capabilities) == 0 {
@@ -527,6 +527,7 @@ func SelectCapabilities(ctx context.Context, reference string, d *Descriptor, se
 }
 
 func contributionsNeedDeferredMerge(contributions []Contribution) bool {
+	unknownOrders := map[string]bool{}
 	for _, c := range contributions {
 		if c.Descriptor == nil {
 			continue
@@ -535,6 +536,14 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 			return true
 		}
 		for _, item := range c.Descriptor.Capabilities {
+			if ArityOf(item.Type) == ArityUnknown {
+				key := capabilityIdentity(item)
+				explicit := item.Order != nil
+				if previous, seen := unknownOrders[key]; seen && previous != explicit {
+					return true
+				}
+				unknownOrders[key] = explicit
+			}
 			// Inline guidance stays with its original selectable declaration.
 			// Combining it now would couple optional bodies to profile selection
 			// and duplicate shared guidance when this set is composed again.
@@ -587,6 +596,11 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 	for i, c := range contributions {
 		d := &Descriptor{SchemaVersion: c.Descriptor.SchemaVersion, Kind: c.Descriptor.Kind}
 		check := func(item Capability, source CapabilitySource) {
+			// The trusted runtime owns third-party defaults. Publication cannot
+			// compare an omitted order with an explicit number for these types.
+			if ArityOf(item.Type) == ArityUnknown && item.Order == nil {
+				return
+			}
 			if item.Type == CapabilityAgentContext || item.Type == CapabilityAgentContextV2 {
 				return
 			}

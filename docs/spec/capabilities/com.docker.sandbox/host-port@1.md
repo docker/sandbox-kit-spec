@@ -16,6 +16,13 @@ normal required/optional selection rules apply.
   transport and host address family, separately from published ports and
   network policy.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`setup:bind`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

@@ -8,6 +8,13 @@ sole source; a Kit declares the need, the user's bindings answer it.
   (service, phase) pairs in the same declaration block are rejected.
 - **Permission surface**: yes — the service name, per phase.
 
+## Execution plan
+
+The default `order` is 200. The scheduled actions are
+`install:provide`, `start:provide`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

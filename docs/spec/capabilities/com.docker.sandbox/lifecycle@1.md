@@ -7,7 +7,7 @@ capability rather than grammar fields so a host that cannot execute them
 refuses the Kit by name at preflight instead of silently never running its
 setup.
 
-- **Shape**: singleton — at most one entry per descriptor.
+- **Shape**: independently repeated entries; identical entries stay separate.
 - **Permission surface**: **no** — hooks and files run inside the sandbox
   on the entrypoint's trust plane; nothing crosses the boundary the gate
   guards. What hooks can *reach* is bounded by the other capabilities
@@ -17,6 +17,13 @@ setup.
 Background hooks detach from boot; they do not by themselves prevent
 session-based sandbox auto-stop. A Kit that needs to survive its
 last client disconnecting declares [long-running@1](long-running@1.md).
+
+## Execution plan
+
+The default `order` is 1000. The scheduled actions are
+`install:install`, `start:files`, `start:startup`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
 
 ## Config
 
@@ -74,6 +81,16 @@ validation rejects a mismatch. `agent-interactive-sessions@1`
 `newSession` defaults to this tail when omitted.
 
 ## Runtime behavior
+
+A lifecycle entry MUST lower to an `install` action in the install stage <!-- tck: lifecycle@1/entry-actions -->
+when it has install hooks, then `files` followed by `startup` in the start
+stage when those lists are present. Within an action, list order is
+unchanged. On create, install hooks finish before lifecycle files are
+written; install hooks cannot rely on files declared through this
+capability. Files are written again on every boot according to overwrite
+policy. The interactive tail is declarative and creates no scheduled
+operation. Another entry's actions may run between independently ordered
+entries; do not flatten their hooks into one batch.
 
 A conforming runtime:
 
@@ -134,8 +151,8 @@ requesting `WORKSPACE_DIR` leaves it unset.
 
 ## Composition
 
-Install and startup lists concatenate in dependency order across the set;
-files likewise. Composition MUST reject duplicate file paths and multiple <!-- tck: lifecycle@1/shared-paths-avoided -->
-`interactive` declarations, including contributions from selected groups.
-Repeated hook commands remain separate hooks. Singleton arity applies per
-declaration block; selected contributions produce one effective entry.
+Each entry remains separate in dependency/declaration order, with its own
+order and optionality. Composition MUST reject duplicate file paths and <!-- tck: lifecycle@1/shared-paths-avoided -->
+multiple `interactive` declarations across all selected entries, including
+selected groups and entries with different orders. Repeated hook commands
+remain separate hooks.

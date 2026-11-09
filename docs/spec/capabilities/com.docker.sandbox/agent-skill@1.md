@@ -8,6 +8,13 @@ composed agent's skill directories. A workload or a mixin can supply it.
   plane. Host sharing is governed by the destination
   `agent-skills@1` declaration and host policy.
 
+## Execution plan
+
+The default `order` is 300. The scheduled actions are
+`setup:materialize`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

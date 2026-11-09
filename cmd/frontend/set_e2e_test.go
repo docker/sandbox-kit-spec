@@ -216,6 +216,9 @@ kits:
 		require.NoError(t, err)
 		require.NoError(t, report.Err(), "the published set conforms:\n%s", report)
 	}
+	t.Run("ordered lifecycle", func(t *testing.T) {
+		(&e2e{t: t, builder: e.builder}).orderedLifecycleSet(frontend, registry)
+	})
 	t.Run("inline context v2", func(t *testing.T) {
 		(&e2e{t: t, builder: e.builder}).inlineContextSet(frontend, registry)
 	})
@@ -695,11 +698,13 @@ kits:
 			return spec.CapabilityDecision{Accepted: accept || c.Type != "com.example/feature@1"}
 		}))
 		require.NoError(t, err)
-		lc, err := spec.LifecycleOf(resolved.Descriptor.Capabilities)
+		lifecycles, err := spec.LifecyclesOf(resolved.Descriptor.Capabilities)
 		require.NoError(t, err)
 		var commands []string
-		for _, hook := range lc.Startup {
-			commands = append(commands, strings.Join(hook.Command, " "))
+		for _, lifecycle := range lifecycles {
+			for _, hook := range lifecycle.Startup {
+				commands = append(commands, strings.Join(hook.Command, " "))
+			}
 		}
 		expected := []string{"sh -c before", "sh -c after"}
 		if accept {
@@ -894,4 +899,50 @@ capabilities:
 	failed, err := command.CombinedOutput()
 	require.Error(t, err, "expanded guidance above 512 KiB must fail publication")
 	require.Contains(t, string(failed), "over the 524288 byte budget")
+}
+
+func (e *e2e) orderedLifecycleSet(frontend, registry string) {
+	t := e.t
+	dir := t.TempDir()
+	ref := registry + "/sbx-kit-ordered:1.0.0"
+	e.publish(dir, "ordered", ref, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: mixin
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    order: 400
+    config:
+      files:
+        - path: /home/agent/engine-config
+          content: ready
+  - type: com.docker.sandbox/dockerd@1
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup: [{command: [docker, info]}]
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup: [{command: [docker, info]}]
+`, nil)
+	original := e.manifest(registry, "sbx-kit-ordered", "1.0.0").Annotations[spec.AnnotationDescriptor]
+	d, err := spec.Decode([]byte(original))
+	require.NoError(t, err)
+	opts := spec.RuntimeOptions{Select: spec.Supported(spec.KnownCapabilities()...)}
+	direct, err := spec.ComposeRuntime(t.Context(), []spec.Contribution{{Reference: ref, Descriptor: d}}, opts)
+	require.NoError(t, err)
+	want := observablePlan(t, direct.Plan)
+	stem := "ordered-set"
+	next := registry + "/sbx-kit-" + stem + ":1.0.0"
+	e.publish(dir, stem, next, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: set
+kits:
+  - ref: `+ref+`
+`, nil)
+	raw := e.manifest(registry, "sbx-kit-"+stem, "1.0.0").Annotations[spec.AnnotationDescriptor]
+	published, err := spec.Decode([]byte(raw))
+	require.NoError(t, err)
+	require.Len(t, spec.DeclaredCapabilities(published.Capabilities), 4)
+	result, err := spec.ComposeRuntime(t.Context(), []spec.Contribution{{Reference: next, Descriptor: published}}, opts)
+	require.NoError(t, err)
+	require.JSONEq(t, want, observablePlan(t, result.Plan))
 }

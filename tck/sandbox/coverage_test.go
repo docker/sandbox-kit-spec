@@ -28,6 +28,11 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"SPEC-v3 §7.1.2/no-partial-application": {"SPEC-v3 §7.1.1/selection-before-application", "SPEC-v3 §7.1.1/conflicts-before-application"},
+	"SPEC-v3 §7.1.2/numeric-order":          {"SPEC-v3 §7.1.2/stable-order", "SPEC-v3 §7.1.2/lifecycle-boundaries", "lifecycle@1/entry-actions"},
+	"SPEC-v3 §7.1.2/readiness":              {"dockerd@1/files-ordered"},
+	"SPEC-v3 §7.1.2/stage-lifetime":         {"SPEC-v3 §7.1.2/durable-state"},
+
 	"sbx@1/environment-hooks-internal":            {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
 	"sbx@1/environment-process-none":              {"sbx@1/environment-authoritative"},
 	"sbx@1/environment-provided":                  {"sbx@1/environment-authoritative", "sbx@1/identity-consistent", "sbx@1/workspace-at-workdir"},
@@ -130,6 +135,7 @@ var kitCovers = map[string][]string{
 	// decodes, and refuses the authoring-only kind: set — a published
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
+		"SPEC-v3 §7.1.2/order-grammar",
 		"host-port@1/config-valid",
 		"docker-auth@1/config-valid",
 		"host-port@1/published-port-conflict",
@@ -205,13 +211,16 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
-	"open-url@1/guest-interface":  "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
-	"open-url@1/opener-result":    "the isolated probe checks successful HTTP/HTTPS requests and validation failures; transport and host opener failures, and shell interpretation, remain unobserved",
-	"open-url@1/url-validation":   "the runtime probe checks rejection through the guest helper; the adapter cannot send raw host-service requests to distinguish guest-only validation from host enforcement",
-	"open-url@1/fixed-opener":     "the adapter exposes no host process invocation trace or configurable opener to observe argument boundaries safely",
-	"open-url@1/bounded-requests": "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
-	"open-url@1/url-private":      "the adapter exposes no runtime audit or diagnostic log inventory",
-	"open-url@1/revoked":          "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
+	"open-url@1/guest-interface":        "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
+	"open-url@1/opener-result":          "the isolated probe checks successful HTTP/HTTPS requests and validation failures; transport and host opener failures, and shell interpretation, remain unobserved",
+	"open-url@1/url-validation":         "the runtime probe checks rejection through the guest helper; the adapter cannot send raw host-service requests to distinguish guest-only validation from host enforcement",
+	"open-url@1/fixed-opener":           "the adapter exposes no host process invocation trace or configurable opener to observe argument boundaries safely",
+	"open-url@1/bounded-requests":       "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
+	"open-url@1/url-private":            "the adapter exposes no runtime audit or diagnostic log inventory",
+	"open-url@1/revoked":                "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
+	"SPEC-v3 §7.1.2/host-prerequisites": "reserved host preparation has no adapter effect trace; stage and prerequisite validation is exercised by ComposeRuntime API tests",
+	"SPEC-v3 §7.1.2/contracts":          "trusted exact-version execution registrations are host API inputs, not observable through the runtime adapter; ComposeRuntime tests check missing and replacement contracts",
+	"SPEC-v3 §7.1.2/identity":           "planner tests judge origin-based identities; adapter observations cannot read internal entry/action identities",
 
 	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
 	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",
@@ -230,10 +239,8 @@ var waived = map[string]string{
 	"acp@1/declaration-grants-nothing": "permission projection rule, judged by TestACPSurface",
 	"acp@1/composition":                "composition rule, judged by TestACPComposition, including sets and selected groups",
 
-	"git-identity@1/source-private":               "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
-	"SPEC-v3 §7.1.1/selection-before-application": "the adapter exposes only final files, records, and grants, not an effect trace during selection; effects applied before selection and then rolled back cannot be observed",
-	"SPEC-v3 §7.1.1/conflicts-before-application": "a refused create returns no sandbox ID and the adapter exposes no failed-create effect trace; the suite can observe conflict refusal but cannot inspect files or hooks applied before that refusal",
-	"SPEC-v3 §7.1.1/publishing":                   "publisher ordering, provenance, and separate conditional context staging are judged by spec group publication tests and frontend end-to-end tests; the runtime adapter cannot compare original build inputs with the published artifact",
+	"git-identity@1/source-private": "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
+	"SPEC-v3 §7.1.1/publishing":     "publisher ordering, provenance, and separate conditional context staging are judged by spec group publication tests and frontend end-to-end tests; the runtime adapter cannot compare original build inputs with the published artifact",
 	// SPEC-v3: composition is the resolver's contract, judged by the
 	// resolve package's own tests; the gate is host UX over surface
 	// diffs, judged by the spec package's tests; authoring rules are the
@@ -310,7 +317,6 @@ var waived = map[string]string{
 	"agent-context@1/content-neutralized":    "SHOULD; neutralization has no reliable in-sandbox symptom",
 
 	"lifecycle@1/install-before-entrypoint": "needs an entrypoint that records what it observed at first run; no fixture yet",
-	"lifecycle@1/hooks-dependency-order":    "needs a two-kit ordered-hooks fixture; not exercised yet",
 	"lifecycle@1/files-overwrite-honored":   "needs a fixture whose image carries the target file; not exercised yet",
 	"lifecycle@1/files-before-entrypoint":   "needs an entrypoint that records what it observed at first run; no fixture yet",
 

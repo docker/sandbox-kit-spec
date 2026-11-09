@@ -327,9 +327,16 @@ unchanged. `phase` also accepts a non-empty list of distinct phases:
 
 ### lifecycle@1
 
-One entry holding `install:`, `startup:`, `files:` and `interactive:`. Commands,
-`user:` and `description:` carry over verbatim. `interactive` names the same
-launch as `agent-interactive-sessions@1`'s `newSession`, which defaults to it.
+One or more independently ordered entries hold `install:`, `startup:`,
+`files:`, and `interactive:`. Commands, `user:`, and `description:` carry
+over verbatim. Entries default to order 1000 and retain their boundaries
+through composition. Install runs once at create, before lifecycle files;
+files and startup run in the start stage on each boot. Separate file-only
+entries can precede services with a lower order. Automatic Docker readiness
+still precedes every startup hook, and no engine is promised to install
+hooks. Duplicate file destinations and multiple interactive tails remain
+errors across entries. `interactive` names the same launch as
+`agent-interactive-sessions@1`'s `newSession`, which defaults to it.
 
 **First ask whether the hook should exist at all.** In v2 a mixin had no content
 mechanism, so an install hook was the only way for one to install anything. v3

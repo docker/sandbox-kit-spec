@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Conflicting ordered volume contribution
+capabilities:
+  - type: com.docker.sandbox/volume@1
+    order: 200
+    config:
+      path: /var/tmp/ordering-volume

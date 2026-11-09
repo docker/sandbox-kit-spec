@@ -7,6 +7,13 @@ configure, and the host may refuse.
   validation error.
 - **Permission surface**: yes — the strongest single widening.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`configure:configure`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

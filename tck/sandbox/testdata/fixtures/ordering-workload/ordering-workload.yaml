@@ -1,0 +1,4 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Ordering probe workload

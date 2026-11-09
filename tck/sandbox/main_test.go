@@ -18,10 +18,9 @@ func TestSSHRelayProtocol(t *testing.T) {
 	require.NoError(t, err, "%s", out)
 }
 
-// TestMain builds the fake runtime's SSH agent relay once for every test
-// that drives the fake: the relay has to verify session-binding
-// signatures, which is Go's job rather than the shell's, and building it
-// per exec would multiply the suite's run time by the build.
+// TestMain builds the fake's Go helpers once. The relay verifies SSH
+// signatures and the ordering helper uses the public planning API;
+// rebuilding either per adapter invocation would multiply the suite's cost.
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
@@ -43,6 +42,17 @@ func run(m *testing.M) int {
 	// Inherited by every fake-adapter run, whichever test builds the
 	// adapter's environment.
 	if err := os.Setenv("KIT_TCK_FAKE_RELAY", relay); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	ordering := filepath.Join(dir, "ordering-runtime")
+	buildOrdering := exec.Command("go", "build", "-o", ordering, "./testdata/ordering-runtime")
+	buildOrdering.Stdout, buildOrdering.Stderr = os.Stderr, os.Stderr
+	if err := buildOrdering.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "build the fake's ordering planner:", err)
+		return 1
+	}
+	if err := os.Setenv("KIT_TCK_FAKE_ORDERING", ordering); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}

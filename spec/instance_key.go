@@ -24,6 +24,8 @@ const (
 	// exact entry: two entries are one request only when they are
 	// identical. usb-device@1 is one.
 	ArityWholeEntry Arity = "whole-entry"
+	// ArityRepeated preserves every entry independently, including exact repeats.
+	ArityRepeated Arity = "repeated"
 	// ArityUnknown is a type this library does not define. Its config
 	// rides opaquely (§7.3); composition deduplicates its entries as
 	// whole entries, but what identifies them is the type's own contract.
@@ -36,6 +38,8 @@ func ArityOf(typ string) Arity {
 		return ArityInstance
 	}
 	switch {
+	case typ == CapabilityLifecycle:
+		return ArityRepeated
 	case singletonCapabilities[typ]:
 		return AritySingleton
 	case typ == CapabilityUSBDevice || typ == CapabilityDockerAuth:

@@ -10,6 +10,13 @@ is needed to recover the guidance from an effective configuration.
   declaration block. Several profiles may each carry content.
 - **Permission surface**: **no** — prose on the agent's trust plane.
 
+## Execution plan
+
+The default `order` is 300. The scheduled actions are
+`setup:materialize`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

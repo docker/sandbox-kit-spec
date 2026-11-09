@@ -9,6 +9,13 @@ registry reachable: the typed request literally is the enforcement.
   validation error.
 - **Permission surface**: yes — as a service entry (the bare type).
 
+## Execution plan
+
+The default `order` is 200. The scheduled actions are
+`setup:provide`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

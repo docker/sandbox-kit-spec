@@ -10,6 +10,13 @@ one.
 - **Permission surface**: **no** — instruction text the agent reads, on the
   entrypoint's trust plane.
 
+## Execution plan
+
+The default `order` is 300. The scheduled actions are
+`setup:materialize`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

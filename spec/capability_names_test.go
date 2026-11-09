@@ -162,9 +162,17 @@ func TestMergeCapabilityNames(t *testing.T) {
 					inputs[i].Descriptor.Capabilities[0].Name = name
 				}
 				named := mergeOK(t, inputs...)
-				require.Len(t, named.Descriptor.Capabilities, 1)
-				require.Equal(t, wantName, named.Descriptor.Capabilities[0].Name)
-				named.Descriptor.Capabilities[0].Name = ""
+				if tc.name == "lifecycle" {
+					require.Len(t, named.Descriptor.Capabilities, len(names))
+					for i, name := range names {
+						require.Equal(t, name, named.Descriptor.Capabilities[i].Name)
+						named.Descriptor.Capabilities[i].Name = ""
+					}
+				} else {
+					require.Len(t, named.Descriptor.Capabilities, 1)
+					require.Equal(t, wantName, named.Descriptor.Capabilities[0].Name)
+					named.Descriptor.Capabilities[0].Name = ""
+				}
 				require.Equal(t, unnamed, named, "labels change no other merge result")
 				for i, name := range names {
 					require.Equal(t, name, inputs[i].Descriptor.Capabilities[0].Name, "merge must not mutate its inputs")

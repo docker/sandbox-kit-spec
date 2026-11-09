@@ -9,6 +9,13 @@ Authentication uses separate grants such as `credential@1`.
 - **Permission surface**: **yes** — presence discloses the selected name
   and email to the sandbox.
 
+## Execution plan
+
+The default `order` is 200. The scheduled actions are
+`setup:provide`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

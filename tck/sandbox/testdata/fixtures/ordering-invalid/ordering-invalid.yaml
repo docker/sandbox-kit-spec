@@ -1,0 +1,19 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Contradictory startup order
+args:
+  host_port:
+    default: "18435"
+capabilities:
+  - type: com.docker.sandbox/host-port@1
+    optional: true
+    config:
+      host: "${{ kit.args.host_port }}"
+      container: 18435
+  - type: com.docker.sandbox/lifecycle@1
+    order: 400
+    config:
+      startup:
+        - command: "printf 'too-early' > /var/tmp/ordering-contradiction; curl --fail --silent http://localhost:18435/trace"
+  - type: com.docker.sandbox/dockerd@1

@@ -132,6 +132,20 @@ that previously allowed these overrides or supplied only some values
 need to change to match this draft. Descriptor fields, capability config,
 and `schemaVersion` are unchanged.
 
+The in-place capability-order and repeated-lifecycle extension in
+[issue #205](https://github.com/docker/sandbox-kit-spec/issues/205) uses
+this draft exception, approved by maintainer @cdupuis's instruction to
+implement the proposal. The exception covers the shared capability-entry
+`order` field, lifecycle arity and reconciliation, and stage/action
+execution semantics. Schema version remains 3 and capability versions
+remain unchanged. Older strict readers reject `order` and repeated
+lifecycle declarations. Consumers need matching draft implementations;
+reconciliation-only consumers must migrate to the execution-plan API.
+Defaults preserve existing prerequisites, while lifecycle files are now
+explicitly after install hooks and can precede automatic Docker startup.
+Lifecycle's singular Go accessor refuses multiple entries rather than
+silently dropping later work.
+
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new

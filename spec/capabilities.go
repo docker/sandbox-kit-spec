@@ -614,9 +614,27 @@ func ResourcesOf(needs []Capability) (*Resources, error) {
 	return nil, nil
 }
 
-// LifecycleOf returns the lifecycle declaration's config, or nil when
-// none is declared.
+// LifecycleOf returns a sole lifecycle config, or nil when none is declared.
+// Multiple entries are an error: flattening them would erase interleaving.
+// Runtime consumers execute ComposeRuntime's stage-specific actions.
 func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
+	entries, err := LifecyclesOf(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) > 1 {
+		return nil, fmt.Errorf("multiple lifecycle entries; execute ComposeRuntime's plan or inspect each entry with LifecyclesOf")
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	return &entries[0], nil
+}
+
+// LifecyclesOf decodes lifecycle entries in declaration order without combining
+// their files or hooks. It is an inspection API, not an execution schedule.
+func LifecyclesOf(capabilities []Capability) ([]Lifecycle, error) {
+	var out []Lifecycle
 	for _, c := range capabilities {
 		if c.Type != CapabilityLifecycle {
 			continue
@@ -625,9 +643,9 @@ func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
 		if err := DecodeCapabilityConfig(c, &l); err != nil {
 			return nil, err
 		}
-		return &l, nil
+		out = append(out, l)
 	}
-	return nil, nil
+	return out, nil
 }
 
 // AgentContextOf returns the first agent-context entry's config, or nil

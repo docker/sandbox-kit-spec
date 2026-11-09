@@ -9,6 +9,13 @@ command, its environment, and the protocol major version.
   another composed Kit.
 - **Permission surface**: **no**.
 
+## Execution plan
+
+The default `order` is 0. This contract has no independently scheduled
+action; its launch, platform, or lifetime behavior remains in force.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

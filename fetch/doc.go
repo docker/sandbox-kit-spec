@@ -25,6 +25,9 @@
 // reconciles the selected descriptors with
 // spec.Compose, and validates the final descriptor. ResolvePartial performs the
 // same checks while allowing a mixin-only set. There is no validation bypass.
+// Resolve reconciles declarations; its returned descriptor is not an execution
+// schedule. Runtime execution planning belongs to spec.ComposeRuntime, which
+// takes expanded contributions before selection and retains their targets.
 //
 // WithCapabilitySelector supplies runtime decisions over expanded entries.
 // Callbacks receive the operation context, a SelectionTarget with the consumption

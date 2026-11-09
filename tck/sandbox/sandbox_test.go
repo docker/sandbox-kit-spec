@@ -235,6 +235,22 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"ordering-runs-whole-entry":        {"SPEC-v3 §7.1.2/numeric-order"},
+	"ordering-accepts-order-conflict":  {"SPEC-v3 §7.1.2/reconciled-order"},
+	"ordering-applies-skipped":         {"SPEC-v3 §7.1.2/numeric-order"},
+	"ordering-reverses-provider-hooks": {"lifecycle@1/hooks-dependency-order"},
+	"ordering-applies-before-refusal":  {"SPEC-v3 §7.1.2/no-partial-application"},
+	"ordering-ignores-order":           {"SPEC-v3 §7.1.2/numeric-order"},
+	"ordering-unstable-ties":           {"SPEC-v3 §7.1.2/numeric-order"},
+	"ordering-first-entry-only":        {"SPEC-v3 §7.1.2/numeric-order"},
+	"ordering-deduplicates-hooks":      {"SPEC-v3 §7.1.2/numeric-order"},
+	"ordering-reinstalls":              {"SPEC-v3 §7.1.2/stage-lifetime"},
+	"ordering-startup-once":            {"SPEC-v3 §7.1.2/stage-lifetime"},
+	"ordering-files-once":              {"SPEC-v3 §7.1.2/stage-lifetime"},
+	"ordering-batches-files":           {"SPEC-v3 §7.1.2/readiness"},
+	"ordering-service-not-ready":       {"SPEC-v3 §7.1.2/readiness"},
+	"ordering-accepts-contradiction":   {"SPEC-v3 §7.1.2/prerequisites"},
+
 	"docker-auth-header-leak":                                  {"docker-auth@1/token-mediation"},
 	"docker-auth-content-location":                             {"docker-auth@1/redirect-confinement"},
 	"docker-auth-all-bindings":                                 {"docker-auth@1/host-resolution", "docker-auth@1/host-only"},

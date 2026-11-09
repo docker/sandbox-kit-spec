@@ -609,6 +609,7 @@ capabilities:
 |---|---|---|
 | `type` | string | REQUIRED. `<namespace>/<name>@<version>`: dotted lowercase namespace, hyphenated lowercase name, integer capability-contract version. The version covers the config schema and observable behavior — capability types evolve without a descriptor schema-major bump. [RELEASES.md](../../RELEASES.md#capability-versions) defines when it moves, including the draft-stage exception. |
 | `name` | string | optional. Human-readable display label; spaces and duplicate names are allowed. |
+| `order` | integer | optional, signed 32-bit. Omission uses the exact capability contract's default; explicit zero is distinct. See [§7.1.2](#712-execution-order). |
 | `optional` | bool | The Kit degrades gracefully without it: an unknown or unprovidable optional entry is skipped and recorded; a required one fails resolution closed. |
 | `config` | map | Type-specific request payload. Strictly decoded for well-known types (unknown config keys are errors); carried opaquely for unknown types. |
 | `description` | string | optional. |
@@ -640,7 +641,7 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
-`agent-interactive-sessions@1`, `lifecycle@1`, `sbx@1`, `long-running@1`, `open-url@1`,
+`agent-interactive-sessions@1`, `sbx@1`, `long-running@1`, `open-url@1`,
 `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
@@ -664,7 +665,9 @@ undirected-entry limit, and allows content on each explicit profile.
 `usb-device@1` is instance-shaped with no dedup key beyond the exact
 entry.
 
-Exact-duplicate entries of any type are rejected.
+**Lifecycle entries repeat independently**, including identical entries.
+Their positions and optionality survive composition and publication. All
+other types retain their existing arity and exact-duplicate rules.
 
 Across selected contributions, keys determine which requests reconcile,
 not whether they may merge. Credentials and host mounts have one owner
@@ -769,7 +772,7 @@ Members MUST NOT be applied before selection finishes. <!-- tck: SPEC-v3 §7.1.1
 The selection API MUST flatten accepted constructs at their declaration <!-- tck: SPEC-v3 §7.1.1/order -->
 positions, preserving member order and existing Kit dependency order.
 Only selected contributions merge; groups never merge by name. Lifecycle
-hooks concatenate without deduplicating repeated commands. Conflicting
+entries remain separate without deduplicating repeated commands. Conflicting
 file paths or multiple interactive declarations are composition errors.
 
 Selected composition conflicts MUST fail; optional <!-- tck: SPEC-v3 §7.1.1/conflicts -->
@@ -816,6 +819,200 @@ selected hook's execution failure as an optional-group rejection.
 Selection atomicity promises neither hook rollback nor cleanup of files
 already present on reused volumes.
 
+### 7.1.2 Execution order
+
+`order` schedules capability effects within fixed stages. It does not
+change dependency resolution, image-layer composition, selection,
+permission grants, or command order inside an entry. An omitted order
+uses the exact-version contract's default. Explicit zero is an order,
+not omission; numbers have no reserved ranges.
+
+An ordinary capability entry's `order` MUST be an integer from <!-- tck: SPEC-v3 §7.1.2/order-grammar -->
+-2147483648 through 2147483647. Strings, fractions, null, and order on a
+group wrapper are invalid. Group members can declare their own orders.
+
+Selection, reconciliation, effective validation, and plan validation MUST <!-- tck: SPEC-v3 §7.1.2/no-partial-application -->
+finish before capability effects begin. A failure returns no executable
+composition or partial plan. Available selection records accompany the
+error separately. A selected optional entry's planning or execution
+failure remains a failure; it cannot become another selection attempt.
+
+The reference API is `spec.ComposeRuntime(ctx, contributions, options)`.
+Inputs arrive fully expanded in dependency/composition order, with the
+final container environment already known. The caller supplies a pure
+selector and any trusted third-party execution contracts. Planning does
+no registry, filesystem, process, or sandbox operations. Image transfer
+need not finish before planning if the final configuration is known.
+`spec.Compose` remains a reconciliation API, not an executable schedule.
+
+The stage order is fixed:
+
+| Stage | Applicability and completion barrier |
+|---|---|
+| `configure` | Apply container settings before creating or restoring the execution environment. |
+| `setup` | Establish mounts, identity, guidance, endpoint access, and service prerequisites before hooks. |
+| `install` | At create only, establish install access and execute install hooks once. Close all install-only grants before proceeding. |
+| `start` | Every boot, establish runtime access, write lifecycle files, start automatic services, and run startup hooks in planned order. Finish before launching the workload. |
+
+Runtimes MUST observe these barriers and execute only actions applicable <!-- tck: SPEC-v3 §7.1.2/stage-lifetime -->
+to the current sandbox life event. Create executes every stage; stop/start,
+daemon restart, and host restart restore configure/setup and execute start
+without replaying completed install actions. Container replacement within
+the same sandbox retains completed install state and selects afresh. A
+new sandbox after delete/create has a new identity and runs install again.
+Restore work can
+reuse existing resources when their capability contract permits it; an
+already satisfied action still meets its readiness obligation. The plan
+is never replayed wholesale on every boot.
+
+Host trust, image identity, and workspace preparation required by the <!-- tck: SPEC-v3 §7.1.2/host-prerequisites -->
+platform contract MUST be ready before the actions that consume them.
+These are reserved runtime prerequisites, not capability entries that can
+be moved with a number. The runtime cannot prepend late setup that changes
+the plan's meaning. Workspace assignment and environment follow `sbx@1`;
+this section introduces no repository-cloning action or additional clone
+completion guarantee. Workspace clone policy remains a separate contract.
+
+Within a stage, lower effective orders MUST execute before higher orders. <!-- tck: SPEC-v3 §7.1.2/numeric-order -->
+The runtime dispatches the particular action in the plan and does not
+batch all work of one capability type together or rerun an entry's other
+actions. A step's identity is `(EntryID, stage, action)`.
+
+Equal orders MUST retain dependency/composition order and declaration <!-- tck: SPEC-v3 §7.1.2/stable-order -->
+order, then the contract's action order within one entry. Hook lists keep
+their command order, including repeated commands. Selection records and
+original targets stay in declaration order independently of the plan.
+
+Every independently declared lifecycle entry MUST retain its boundary <!-- tck: SPEC-v3 §7.1.2/lifecycle-boundaries -->
+through selection, reconciliation, planning, and publication, including
+entries from selected groups and other Kits. File destinations and
+interactive tails still have one author across all selected entries.
+
+A runtime MUST finish each step's promised readiness before advancing <!-- tck: SPEC-v3 §7.1.2/readiness -->
+to the next step. Invoking a handler or launching a process does not
+establish service readiness. A background lifecycle hook completes at
+launch as its contract specifies; it does not promise a ready service.
+
+Planning MUST reject orders that reverse mandatory prerequisites, <!-- tck: SPEC-v3 §7.1.2/prerequisites -->
+including phase access before hooks, skill discovery mounts before
+bundled skill exposure, mounts before hooks, automatic
+Docker readiness before startup hooks, and provider hooks before
+requirer hooks within the same stage. Transitive dependencies through
+Kits without hooks count. Equal orders retain the required input order;
+a contradictory number is an error rather than silently overridden.
+Stage barriers cannot be bypassed by a capability contract. Publishers
+validate dependency-hook orders before removing internally satisfied
+relations; potentially co-selected declarations are checked together.
+Published entry order retains those validated constraints. Diagnostic
+`source` metadata never supplies dependency edges. In an enclosing
+composition, a published set is one provider Kit: every hook it carries
+precedes a Kit requiring or integrating with its provides. Combining
+previously independent providers can therefore introduce stronger external
+prerequisites. Numeric orders are validated against the current dependency
+graph, not a promise that every enclosing composition accepts them.
+
+Requests reconciled into one singleton, keyed request, or shared context <!-- tck: SPEC-v3 §7.1.2/reconciled-order -->
+profile MUST have the same effective order. An explicit contract default
+and omission agree. Different effective orders fail with the contributing
+locations; the runtime cannot duplicate one service or choose one order.
+This does not merge independent lifecycle entries. Publication preserves
+third-party requests separately when comparing an omitted order with an
+explicit number requires runtime-owned contract metadata. Selection and
+runtime reconciliation settle that comparison.
+
+A selected exact capability version MUST have registered execution <!-- tck: SPEC-v3 §7.1.2/contracts -->
+semantics, even with an explicit order. Built-in metadata is authoritative;
+host registrations cannot replace it. A contract supplies its default,
+pure lowering to stage/action pairs, and an optional full-plan prerequisite
+check. Declarative contracts explicitly lower to zero actions and remain
+in the effective descriptor. Unknown stages, empty actions, or duplicate
+`(stage, action)` identities within one entry are planning errors. Metadata
+is not an executable handler or an additional grant.
+
+The library MUST assign entry identities before sorting and preserve <!-- tck: SPEC-v3 §7.1.2/identity -->
+them for the same pinned inputs and contribution occurrences. Each step
+carries every contributing original consumption target and its occurrence
+index; publisher source is optional diagnostic attribution. Repeated
+references and identical lifecycle entries remain distinct. Display names,
+publisher source, and sorted positions never define identity. No identity
+stability is promised across Kit updates or descriptor restructuring.
+
+Runtime once-only state MUST be scoped to sandbox identity plus entry <!-- tck: SPEC-v3 §7.1.2/durable-state -->
+and action identity and survive daemon and host restart. Completed install
+actions do not rerun; a failed action prevents later actions and workload
+launch. Retry and crash recovery obey each capability's semantics and do
+not imply exactly-once external side effects or rollback.
+
+#### Execution defaults
+
+Each exact-version capability contract owns the following default and
+actions. `stage:action` names one handler operation. A dash means an
+explicitly declarative contract with zero independently scheduled actions.
+Contract lowering omits actions whose configuration requests no work.
+These defaults preserve existing mount/access-before-hooks and
+Docker-before-startup guarantees. Lifecycle files now have a defined place
+relative to install hooks and service startup.
+
+| Capability | Default order | Actions |
+|---|---|---|
+| `com.docker.sandbox/network-policy@1` | 100 | install:policy, start:policy |
+| `com.docker.sandbox/network-policy@2` | 100 | install:policy, start:policy |
+| `com.docker.sandbox/docker-auth@1` | 200 | install:provide, start:provide |
+| `com.docker.sandbox/credential@1` | 200 | install:provide, start:provide |
+| `com.docker.sandbox/ssh-agent@1` | 200 | install:provide, start:provide |
+| `com.docker.sandbox/volume@1` | 100 | setup:mount |
+| `com.docker.sandbox/host-mount@1` | 100 | setup:mount |
+| `com.docker.sandbox/port@1` | 100 | configure:configure |
+| `com.docker.sandbox/host-port@1` | 100 | setup:bind |
+| `com.docker.sandbox/usb-device@1` | 100 | configure:configure |
+| `com.docker.sandbox/resources@1` | 100 | configure:configure |
+| `com.docker.sandbox/privileged@1` | 100 | configure:configure |
+| `com.docker.sandbox/dockerd@1` | 500 | configure:configure, setup:prepare, start:start |
+| `com.docker.sandbox/lifecycle@1` | 1000 | install:install, start:files, start:startup |
+| `com.docker.sandbox/agent-context@1` | 300 | setup:materialize |
+| `com.docker.sandbox/agent-context@2` | 300 | setup:materialize |
+| `com.docker.sandbox/agent-skill@1` | 300 | setup:materialize |
+| `com.docker.sandbox/agent-skills@1` | 100 | setup:mount |
+| `com.docker.sandbox/git-identity@1` | 200 | setup:provide |
+| `com.docker.sandbox/kit-registry@1` | 200 | setup:provide |
+| `com.docker.sandbox/acp@1` | 0 | - |
+| `com.docker.sandbox/agent-sessions@1` | 0 | - |
+| `com.docker.sandbox/agent-interactive-sessions@1` | 0 | - |
+| `com.docker.sandbox/sbx@1` | 0 | - |
+| `com.docker.sandbox/long-running@1` | 0 | - |
+
+Network policy and access actions apply only to their declared phases;
+Docker authentication applies to both phases. Install grants end at the
+install barrier even if no install hooks exist. An automatic Docker start
+waits for `GET /_ping` to return 200 and makes the socket usable by the
+image user. A manual Docker request emits preparation without automatic
+start. Launch interfaces, the sandbox platform, and sandbox lifetime
+remain obligations of their contracts even though they have no separate
+scheduled action.
+
+For service configuration, use separate lifecycle entries:
+
+```yaml
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    order: 400
+    config:
+      files:
+        - path: /etc/docker/daemon.json
+          content: '{"debug": true}'
+  - type: com.docker.sandbox/dockerd@1
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      startup:
+        - command: [docker, info]
+```
+
+The start stage writes configuration at 400, awaits Docker at 500, and
+runs `docker info` at 1000. The file destination must be writable by the
+agent under lifecycle's ownership rules. Putting startup hooks in the
+400 entry contradicts automatic Docker readiness and fails planning.
+No Docker Engine is promised to install hooks.
+
 ### 7.2 Well-known types
 
 Each page specifies the config schema and the **normative runtime
@@ -838,7 +1035,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
 | `com.docker.sandbox/open-url@1` | [open-url@1](capabilities/com.docker.sandbox/open-url@1.md) | singleton, config-less |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
-| `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
+| `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | independently repeated entries |
 | `com.docker.sandbox/agent-context@1` | [agent-context@1](capabilities/com.docker.sandbox/agent-context@1.md) | per explicit profile destination; one undirected entry and one body |
 | `com.docker.sandbox/agent-context@2` | [agent-context@2](capabilities/com.docker.sandbox/agent-context@2.md) | per explicit profile destination; one undirected entry; inline bodies |
 | `com.docker.sandbox/acp@1` | [acp@1](capabilities/com.docker.sandbox/acp@1.md) | per agent |
@@ -1090,7 +1287,7 @@ error. In that order they reconcile into one descriptor:
 | `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
-| `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
+| `lifecycle@1` | Entries remain separate in composition order, retaining each order, optionality, and hook list. Duplicate file paths and multiple `interactive` declarations are errors across every selected entry, regardless of order. |
 | `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
 | `agent-context@2` | The same destination precedence and per-profile optionality as @1. Every effective profile carries all selected bodies inline in dependency order, joined with two newlines. Publication preserves original declarations in groups so later selection excludes skipped bodies and does not duplicate shared guidance. Selected @1 and @2 requests cannot compose. |

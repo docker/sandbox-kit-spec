@@ -10,6 +10,13 @@ under that name, without this host or cross-sandbox sharing contract.
 - **Shape**: instance — one entry per path; duplicates rejected.
 - **Permission surface**: yes — the path, separately marked host-shared.
 
+## Execution plan
+
+The default `order` is 100. The scheduled actions are
+`setup:mount`.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml

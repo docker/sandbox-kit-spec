@@ -14,7 +14,9 @@ capabilities:
           config:
             path: /home/agent/.cache/pip
             size: 2g
+        # Separate entries keep file preparation ahead of its consumer.
         - type: com.docker.sandbox/lifecycle@1
+          order: 400
           config:
             files:
               - path: /home/agent/.config/pip/pip.conf
@@ -22,3 +24,9 @@ capabilities:
                 content: |
                   [global]
                   cache-dir = /home/agent/.cache/pip
+        - type: com.docker.sandbox/lifecycle@1
+          order: 1000
+          config:
+            startup:
+              - command: [test, -f, /home/agent/.config/pip/pip.conf]
+                description: Verify the selected cache configuration is present

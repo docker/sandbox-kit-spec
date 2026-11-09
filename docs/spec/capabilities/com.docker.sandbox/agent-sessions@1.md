@@ -13,6 +13,13 @@ interactive modes declares both capabilities. A headless-only agent
 declares `agent-sessions@1`. A `list` declared on both capabilities is
 the same command, and validation rejects a mismatch.
 
+## Execution plan
+
+The default `order` is 0. This contract has no independently scheduled
+action; its launch, platform, or lifetime behavior remains in force.
+See [execution order](../../SPEC-v3.md#712-execution-order) for stage
+barriers, prerequisite validation, and effective-order reconciliation.
+
 ## Config
 
 ```yaml
