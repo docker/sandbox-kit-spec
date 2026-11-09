@@ -740,6 +740,22 @@ filter_argv_for_rejects() {
 	argv=(${out[@]+"${out[@]}"})
 }
 
+refuse_exact_context_recreate_conflict() {
+	local kit version optional path low="" high="" detail=""
+	for kit in "$@"; do
+		while read -r version optional path; do
+			if exact_context_available "$version"; then
+				if [ "$version" = 1 ]; then low=1; else high=1; fi
+				detail="$detail $(basename "$kit") $path com.docker.sandbox/agent-context@$version"
+			fi
+		done < <(exact_context_requests "$kit")
+	done
+	if [ -n "$low" ] && [ -n "$high" ]; then
+		echo "refusing: incompatible agent-context versions:$detail" >&2
+		exit 2
+	fi
+}
+
 # Snapshot a usable identity binding into adapter-owned state so recreate
 # cannot pick up suite edits to the original --git-identity-config file.
 # Prints the path (or off) to pass to sbx create / retain_selection.
@@ -1221,6 +1237,7 @@ recreate)
 		done <"$state/$id.selection-policy"
 	fi
 	refuse_rejected_required "${kits[@]+"${kits[@]}"}"
+	refuse_exact_context_recreate_conflict "${kits[@]+"${kits[@]}"}"
 	remembered_argv=()
 	while IFS= read -r -d '' arg; do remembered_argv+=("$arg"); done <"$state/$id.create"
 	argv=()
