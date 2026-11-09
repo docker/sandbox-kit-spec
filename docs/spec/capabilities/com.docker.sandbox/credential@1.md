@@ -62,17 +62,21 @@ and `{{.RefreshToken}}` (strings), `{{.ExpiresAt}}` (a number),
 enclosing key is omitted when no key is captured). Unknown placeholders are
 errors. Each placeholder renders in the target encoding's own type.
 
-For `service: openai`, the runtime supplies `{{.IDToken}}` (the host's
-JWT with its signature replaced by base64url-encoded `proxy-managed`)
-and `{{.AccountID}}` (the host's ChatGPT account ID). Both fields are
-empty for other services. Referencing an empty or unparseable
-`{{.IDToken}}` fails at rendering time; an absent account ID renders as
-an empty string. `{{.LastRefresh}}` is the time the runtime renders the
-credential file, in RFC 3339 format.
+The additional credential-file placeholders have these runtime contracts:
 
-Identity claims remain readable inside the sandbox; reusable token
-signatures do not. These placeholders require a runtime implementing
-this extension; older runtimes reject them when rendering the file.
+- **MUST** render `{{.IDToken}}` for `service: openai` from the host's <!-- tck: credential@1/openai-identity-masked -->
+  JWT header and claims, replacing its signature with base64url-encoded
+  `proxy-managed`. The real signature never enters the sandbox.
+- **MUST** fail rendering when `{{.IDToken}}` is referenced but the host <!-- tck: credential@1/openai-identity-required -->
+  identity token is empty or unparseable, or the service is not `openai`.
+- **MUST** render `{{.AccountID}}` as the host's ChatGPT account ID for <!-- tck: credential@1/openai-account-id -->
+  `service: openai`, or an empty string when absent or for other services.
+- **MUST** render `{{.LastRefresh}}` as the time the runtime renders the <!-- tck: credential@1/credential-render-timestamp -->
+  credential file, in RFC 3339 format.
+
+Identity claims remain readable inside the sandbox. These placeholders
+require a runtime implementing this extension; older runtimes reject
+them when rendering the file.
 
 Scalar phase declarations remain valid. The list form requires a reader
 implementing this extension; older readers reject it.
