@@ -94,6 +94,11 @@ tasks:
       # Match the full test target rather than relying on Go's default.
       - GOWORK=off go test -timeout 15m ./tck/sandbox/...
 
+  verify:selection:
+    desc: Exhaustively check bounded capability selection and six real-code mutations
+    cmds:
+      - python3 skills/verify-capability-selection/scripts/run.py
+
   test:mem0:
     desc: Build the Mem0 example and start its database, API and dashboard
     vars:

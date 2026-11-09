@@ -9,6 +9,7 @@
 # repository's — see skills/README.md. Only the links that wiring recipe makes
 # are ignored, so a shared agent config added later is not silently skipped.
 .vscode/
+.agents/skills
 .cursor/skills
 .claude/skills
 .claude/settings.local.json

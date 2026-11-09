@@ -18,8 +18,8 @@ Three things that move together:
 
 Plus `examples/` (every descriptor must decode and validate against the
 current grammar; tests enforce it), `skills/` (tool-agnostic agent skills
-for authoring and migrating Kits and composing them into an
-`sbxenv.yaml`; nothing tests them), and
+for authoring and migrating Kits, composing them into an `sbxenv.yaml`,
+and bounded capability-selection verification), and
 `scripts/kit-version.sh` (the map of which example Kits track an upstream
 release).
 
@@ -64,6 +64,7 @@ different one.
 | `task validate` | `gofmt -l`, `go vet` in both modules, and the library module graph guard | Every Go change. Seconds |
 | `task lint` | `golangci-lint` and `markdownlint` with the repo configs (`lint:go`, `lint:md`) | Every change. `lint:md` needs Docker; it runs a digest-pinned image over every `**/*.md` |
 | `task test:unit` | Both modules' Go tests except the sandbox conformance suite. Includes decoding and validating every descriptor under `examples/` and the schema-to-spec pins | Every change. Under a minute |
+| `task verify:selection` | Bounded exhaustive capability selection against the real API, including six real-code negative controls | Changes to `SelectCapabilities`, selection records, optionality, order, identity, or cancellation. Read `skills/verify-capability-selection/SKILL.md` for scope |
 | `task test:consumer` | Builds the containerd 2.3 client with public assemble/fetch APIs and checks its selected versions | Every module dependency or layout change; CI runs it |
 | `task test:tck` | The sandbox conformance suite against the fake adapter, including every fake-adapter mutation | Any change under `tck/`, `docs/spec/`, or to a capability page. Minutes |
 | `task test` | `test:unit` and `test:tck` together, across both modules, plus the containerd consumer check. It does not run `validate` or `lint`; those are separate | Before opening a pull request, alongside `validate` and `lint` |
@@ -276,8 +277,8 @@ anchor, and the guard will tell you which.
   `.markdownlint.yml` each say why every disabled rule is disabled; a new
   exemption needs the same justification and belongs in its own commit.
 - Do not add tool-specific copies of the skills. `skills/` is the source
-  of truth; `.cursor/skills` and `.claude/skills` are git-ignored local
-  symlinks (see `skills/README.md`). `.cursor/`, `.claude/`, and
+  of truth; `.agents/skills`, `.cursor/skills`, and `.claude/skills` are
+  git-ignored local symlinks (see `skills/README.md`). `.cursor/`, `.claude/`, and
   `.vscode/` local settings stay uncommitted.
 - Do not commit build outputs (`/frontend`, `/kit-tck`, `/bin`, `/dist`)
   or anything under `/tmp` a task created. `.gitignore` already covers
