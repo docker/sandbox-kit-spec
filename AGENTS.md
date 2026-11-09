@@ -55,7 +55,7 @@ Toolchain the tasks assume: Go at the version in `go.mod`,
 ## Verifying a change
 
 Run what CI runs, from the fast signal outward. CI runs `validate`,
-`lint`, `test:unit`, `test:consumer`, and `test:tck` on every pull
+`lint`, `test:unit`, `test:consumer`, `test:tck`, and `verify:selection` on every pull
 request, so a clean local run is the same verdict rather than a
 different one.
 
