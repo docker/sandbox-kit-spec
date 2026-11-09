@@ -1,0 +1,165 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: GitHub CLI (federated)
+description: >-
+  gh and git over HTTPS to GitHub as this sandbox, through Octo STS. The
+  sandbox holds no GitHub credential of the developer: for each
+  repository it reads its short-lived workload token from the identity
+  service, exchanges it with Octo STS for a GitHub App installation
+  token the repository's Trust Policy permits, and caches that token until
+  it expires. gh picks the repository up from the working tree or --repo;
+  git from the remote it is pushing to.
+sourceUrl: https://github.com/cli/cli
+licenses: [MIT]
+
+kind: mixin
+
+# The nixpkgs commit in the companion Dockerfile is the version authority.
+provides: ["gh@2.103.2"]
+
+args:
+  # The Octo STS deployment: its exchange endpoint, and the audience its
+  # Trust Policies require of a token. An instance whose policies omit
+  # `audience` requires its own hostname, so the two usually agree.
+  sts:
+    required: true
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Octo STS host whose /sts/exchange trades the token
+  audience:
+    required: true
+    pattern: '^\S{1,256}$'
+    description: Audience the workload token is minted for
+  # The Trust Policy a repository publishes for sandboxes, at
+  # .github/docker/<identity>.sts.yaml in the target repository.
+  identity:
+    default: sbx
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'
+    description: Trust Policy name the exchange asks for
+  # The repository gh addresses when neither --repo nor the working tree
+  # names one. Empty leaves gh to its own resolution and fails with an
+  # explanation when there is none.
+  scope:
+    default: ""
+    pattern: '^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(/[A-Za-z0-9_.-]+)?)?$'
+    description: Default owner/repo scope for gh outside a repository
+  # The identity service that mints workload tokens and relays them at
+  # /workload/token. Requests to it carry the token; the helper reads it
+  # back.
+  ledger:
+    default: ledger.sbx.build
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Identity service host that relays the workload token
+
+capabilities:
+  # The token is this identity's credential toward Octo STS; without an
+  # identity there is nothing to exchange.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Act as this sandbox toward GitHub through Octo STS
+    config:
+      ledger: required
+
+  # The runtime presents the token to the identity service, whose
+  # /workload/token verifies and echoes it. That is the one place the
+  # sandbox can read its own token, and all it can read: a five-minute
+  # JWT whose only use is the exchange the Trust Policy already permits.
+  # Several federating mixins share the relay, so the helper names its
+  # token in the request.
+  - type: com.docker.sandbox/workload-token@1
+    description: Obtain this sandbox's token for Octo STS
+    config:
+      name: github
+      audience: ${{ kit.args.audience }}
+      inject:
+        - domain: ${{ kit.args.ledger }}
+
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      runtime:
+        allow:
+          # The token relay, listed exactly as the inject domain requires.
+          - ${{ kit.args.ledger }}:443
+          # The exchange.
+          - hosts: ["${{ kit.args.sts }}"]
+            methods: [GET]
+            paths: [/sts/exchange]
+          # Git over HTTPS and release downloads, as the plain gh kit
+          # allows: gh reaches release assets and arbitrary repository
+          # paths, and no path set narrows that usefully.
+          - github.com
+          - hosts: [api.github.com]
+            methods: [GET, HEAD, POST, PATCH, PUT, DELETE]
+          - hosts: [uploads.github.com]
+            methods: [POST, PUT]
+        deny:
+          # Deletes under the repository tree, the repository itself among
+          # them, are the one thing an installation token should not
+          # reach. The token's own revocation is DELETE /installation/token,
+          # outside this tree, and stays allowed.
+          - hosts: [api.github.com]
+            methods: [DELETE]
+            paths: [/repos/**]
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        # What the helper needs to exchange: where the token relay and
+        # the STS are, and which policy to ask for. It names no secret.
+        - path: /etc/sbx/github/sts.env
+          mode: "0644"
+          description: Octo STS exchange parameters for the gh and git helpers
+          content: |
+            SBX_GH_LEDGER=${{ kit.args.ledger }}
+            SBX_GH_STS=${{ kit.args.sts }}
+            SBX_GH_IDENTITY=${{ kit.args.identity }}
+            SBX_GH_SCOPE=${{ kit.args.scope }}
+      startup:
+        # Fill only missing XDG defaults; ~/.gitconfig still takes precedence.
+        # useHttpPath hands the helper the repository path, so each exchange
+        # is scoped to the remote git is talking to.
+        - command: |
+            set -eu
+            config="${XDG_CONFIG_HOME:-$HOME/.config}/git/config"
+            mkdir -p "$(dirname "$config")"
+            set_default() {
+              if git config --file "$config" --get "$1" >/dev/null; then
+                return
+              else
+                status=$?
+                [ "$status" -eq 1 ] || return "$status"
+              fi
+              git config --file "$config" "$1" "$2"
+            }
+            set_default credential.https://github.com.helper sbx-sts
+            set_default credential.https://github.com.useHttpPath true
+          env: [XDG_CONFIG_HOME]
+          description: Route git's github.com credentials through the Octo STS helper
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # GitHub CLI (federated)
+
+        `gh` is on PATH and authenticates as this sandbox: each call exchanges
+        the sandbox's workload identity with Octo STS for a GitHub App token
+        the target repository's Trust Policy (`${{ kit.args.identity }}`) permits.
+        `git` over HTTPS to github.com authenticates the same way through a
+        credential helper.
+
+        - Do not run `gh auth login` or set `GH_TOKEN`; there is no personal
+          credential here, and the exchange happens on each call.
+        - The token is scoped to one repository: the one `--repo` names, the
+          working tree's `origin`, or `${{ kit.args.scope }}` when neither
+          applies (exported as `GH_REPO`, so `gh repo view` still needs an
+          explicit `OWNER/REPO` outside a checkout). Cross-repository
+          commands need `--repo`.
+        - A `403` or "no trust policy" error means the repository has not
+          published a policy admitting this sandbox, or the policy excludes the
+          operation; report it rather than looking for another credential.
+        - `sbx-gh-revoke` revokes every cached token early; they expire on
+          their own within an hour.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

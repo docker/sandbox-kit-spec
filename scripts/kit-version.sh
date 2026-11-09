@@ -8,7 +8,7 @@
 # knows where upstream publishes it, so the check report and the build
 # cannot disagree about what "latest" means.
 #
-# gh, gh-comment, gcloud-mixin and aws-cli-mixin are deliberately absent:
+# gh, gh-comment, gh-federated, gcloud-mixin and aws-cli-mixin are deliberately absent:
 # their version authority is the nixpkgs pin in each kit's dockerfile, so
 # a bump is editing that pin (and the provides entry the pinned package
 # dictates).

@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// exampleRequiredArgs supplies the values a kit with no defaults needs
+// before its agent context can be expanded: deployment-specific inputs a
+// published descriptor must not carry.
+var exampleRequiredArgs = map[string]map[string]string{
+	"gh-federated.yaml": {
+		"sts":      "octo-sts.example.com",
+		"audience": "octo-sts.example.com",
+	},
+}
+
 // Every descriptor this repository ships must decode and validate against
 // the current grammar; one the spec has drifted away from is worse than
 // none.
@@ -53,7 +63,7 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 			if len(contexts) > 0 {
 				require.Len(t, contexts, 2, "offer legacy and modern context")
 				require.Equal(t, contexts[CapabilityAgentContext].Config, contexts[CapabilityAgentContextV2].Config)
-				values, err := ResolveArgs(d.Args, nil)
+				values, err := ResolveArgs(d.Args, exampleRequiredArgs[filepath.Base(path)])
 				require.NoError(t, err)
 				expanded, err := ExpandBuildArgs(raw, d.Args, values)
 				require.NoError(t, err)
