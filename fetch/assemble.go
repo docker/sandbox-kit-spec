@@ -27,6 +27,10 @@ type Options struct {
 	// Nil uses DefaultCapabilitySelector; a runtime with fewer implementations
 	// supplies spec.Supported with its actual claims. Groups remain atomic.
 	CapabilitySelector spec.SelectCapability
+	// ExecutionContracts supplies trusted third-party order defaults during
+	// reconciliation, as WithExecutionContracts does for Resolve. It does not
+	// validate execution constraints; use the same registry with ComposeRuntime.
+	ExecutionContracts map[string]spec.ExecutionContract
 	// RetainExpandedDescriptors opts into independent pre-selection snapshots in
 	// Resolved.Selections. They include skipped declarations and may contain
 	// secrets from the final environment. Default false; excluded from JSON even
@@ -161,6 +165,9 @@ func Assemble(ctx context.Context, requests []Request, options Options) (*Result
 		}
 		var err error
 		resolveOptions := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(environment, options.Overrides.Env)}
+		if options.ExecutionContracts != nil {
+			resolveOptions = append(resolveOptions, WithExecutionContracts(options.ExecutionContracts))
+		}
 		if options.RetainExpandedDescriptors {
 			resolveOptions = append(resolveOptions, WithExpandedDescriptors())
 		}

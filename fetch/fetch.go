@@ -237,6 +237,16 @@ type resolveOptions struct {
 	environment               map[string]string
 	envOverrides              map[string]string
 	retainExpandedDescriptors bool
+	executionContracts        map[string]spec.ExecutionContract
+}
+
+// WithExecutionContracts supplies trusted exact-version order defaults for
+// reconciliation. It does not grant support or validate an execution plan.
+// Use the same registrations with spec.ComposeRuntime before applying effects.
+// Built-in contracts cannot be replaced. The map is copied on construction.
+func WithExecutionContracts(contracts map[string]spec.ExecutionContract) ResolveOption {
+	contracts = maps.Clone(contracts)
+	return func(o *resolveOptions) { o.executionContracts = contracts }
 }
 
 // WithExpandedDescriptors opts into capturing an independent expanded descriptor
@@ -433,7 +443,12 @@ func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, parti
 		ordered[i] = &cp
 		contributions = append(contributions, spec.Contribution{Reference: u.Reference, Descriptor: &d})
 	}
-	merged, err := spec.Compose(contributions)
+	var merged *spec.Descriptor
+	if options.executionContracts == nil {
+		merged, err = spec.Compose(contributions)
+	} else {
+		merged, err = spec.ComposeWithContracts(contributions, options.executionContracts)
+	}
 	if err != nil {
 		if errors.Is(err, spec.ErrDescriptorTooLarge) {
 			return nil, fmt.Errorf("compose capabilities: %w", spec.ErrDescriptorTooLarge)

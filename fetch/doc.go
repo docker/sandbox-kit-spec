@@ -28,6 +28,10 @@
 // Resolve reconciles declarations; its returned descriptor is not an execution
 // schedule. Runtime execution planning belongs to spec.ComposeRuntime, which
 // takes expanded contributions before selection and retains their targets.
+// WithExecutionContracts, or Options.ExecutionContracts for Assemble, supplies
+// trusted third-party order defaults for reconciliation. Built-ins cannot be
+// replaced. Fetch does not invoke contract callbacks or validate a plan; supply
+// the same registry to ComposeRuntime before executing capability effects.
 //
 // WithCapabilitySelector supplies runtime decisions over expanded entries.
 // Callbacks receive the operation context, a SelectionTarget with the consumption

@@ -251,6 +251,16 @@ excludes the copies; callers control their storage and disclosure. Use them
 for validation and admission evidence; effective grants still come from
 `Resolved.Kits` or `Resolved.Descriptor`.
 
+For selected third-party types, supply trusted execution contracts through
+`Options.ExecutionContracts` for `Assemble`, or
+`fetch.WithExecutionContracts(contracts)` for `Resolve` and `ResolvePartial`.
+Reconciliation uses their defaults, so an omitted order and explicit `42`
+agree when the registered default is `42`. Registrations cannot replace
+built-in contracts and do not grant support. Fetch does not invoke contract
+callbacks or validate an execution plan. Pass the same registry and the
+retained expanded contributions to `spec.ComposeRuntime` before applying
+effects. Direct reconciliation callers use `spec.ComposeWithContracts`.
+
 `KitSelection.Original` is now `PublishedDescriptor` and retains the
 published argument declarations and unexpanded references.
 `KitSelection.Raw` is now `PublishedBytes`. Use `Resolved.Kits` for

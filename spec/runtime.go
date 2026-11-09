@@ -173,19 +173,13 @@ func ComposeRuntime(ctx context.Context, contributions []Contribution, opts Runt
 		return fail(err)
 	}
 	for _, contribution := range selected {
-		for i := range contribution.Descriptor.Capabilities {
-			c := &contribution.Descriptor.Capabilities[i]
-			contract, ok := contracts[c.Type]
-			if !ok {
+		for _, c := range contribution.Descriptor.Capabilities {
+			if _, ok := contracts[c.Type]; !ok {
 				return fail(fmt.Errorf("%s: selected %s has no execution contract", executionLocations(c.executionOrigins), c.Type))
 			}
-			order := contract.DefaultOrder
-			if c.Order != nil {
-				order = *c.Order
-			}
-			c.Order = &order
 		}
 	}
+	selected = withExecutionOrders(selected, contracts)
 	d, err := Compose(selected)
 	if err != nil {
 		return fail(err)
@@ -244,6 +238,39 @@ func runtimeContracts(additional map[string]ExecutionContract) (map[string]Execu
 		contracts[typ] = contract
 	}
 	return contracts, nil
+}
+
+// ComposeWithContracts reconciles selected, expanded contributions using trusted
+// third-party order defaults alongside the built-in contracts. Registrations
+// cannot replace built-ins. It does not invoke contract callbacks, require
+// contracts for unregistered types, or validate an execution plan. Runtimes use
+// ComposeRuntime before applying effects. Input declarations remain unchanged.
+func ComposeWithContracts(contributions []Contribution, additional map[string]ExecutionContract) (*Descriptor, error) {
+	contracts, err := runtimeContracts(additional)
+	if err != nil {
+		return nil, err
+	}
+	return Compose(withExecutionOrders(contributions, contracts))
+}
+
+func withExecutionOrders(contributions []Contribution, contracts map[string]ExecutionContract) []Contribution {
+	result := slices.Clone(contributions)
+	for i, contribution := range result {
+		if contribution.Descriptor == nil {
+			continue
+		}
+		d := *contribution.Descriptor
+		d.Capabilities = slices.Clone(d.Capabilities)
+		for j := range d.Capabilities {
+			c := &d.Capabilities[j]
+			if contract, ok := contracts[c.Type]; ok && c.Order == nil {
+				order := contract.DefaultOrder
+				c.Order = &order
+			}
+		}
+		result[i].Descriptor = &d
+	}
+	return result
 }
 
 func planRuntime(ctx context.Context, d *Descriptor, contracts map[string]ExecutionContract, contributions []Contribution) (ExecutionPlan, error) {
