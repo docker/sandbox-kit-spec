@@ -96,7 +96,7 @@ capabilities:
               "token_url": "https://sts.googleapis.com/v1/token",
               "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${{ kit.args.serviceAccount }}:generateAccessToken",
               "credential_source": {
-                "url": "https://${{ kit.args.ledger }}/workload/token",
+                "url": "https://${{ kit.args.ledger }}/workload/token?name=gcp",
                 "format": {
                   "type": "json",
                   "subject_token_field_name": "value"

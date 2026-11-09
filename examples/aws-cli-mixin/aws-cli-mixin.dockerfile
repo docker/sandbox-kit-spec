@@ -67,7 +67,7 @@ if [ -n "${SBX_AWS_CREDENTIALS_INFLIGHT:-}" ]; then
 fi
 export SBX_AWS_CREDENTIALS_INFLIGHT=1
 session="sbx-${SANDBOX_ID:-$(hostname)}"
-token="$(/usr/local/libexec/sbx-aws/curl -fsS --cacert /etc/ssl/certs/ca-certificates.crt "https://${ledger}/workload/token" \
+token="$(/usr/local/libexec/sbx-aws/curl -fsS --cacert /etc/ssl/certs/ca-certificates.crt "https://${ledger}/workload/token?name=aws" \
   | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')"
 if [ -z "$token" ]; then
   echo "sbx-aws-credentials: no workload token from ${ledger}; is the sandbox identity registered?" >&2

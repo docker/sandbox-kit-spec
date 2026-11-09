@@ -80,6 +80,15 @@ A conforming runtime:
   requests to its domains leave without a token.
 - **MUST NOT** present a token for a sandbox whose effective descriptor <!-- tck: workload-token@1/absent-without-grant -->
   does not carry this capability for that audience.
+- **MUST**, for a domain more than one token lists, present the token <!-- tck: workload-token@1/shared-domain-named -->
+  whose `name` the request carries in its `name` query parameter, and
+  none when the request names no token or one not listed for that
+  domain. A domain one token lists receives it whether or not the
+  request names it. The identity issuer's own token endpoint is the
+  common case: every Kit that reads its token back lists it.
+- **MUST** refuse a descriptor whose tokens list one domain with <!-- tck: workload-token@1/shared-domain-one-header -->
+  different `header` or `format` values: a shared domain presents every
+  token the same way.
 
 The token identifies the sandbox, not the person; a relying party that
 needs the person's authorization keeps asking for it separately. Its
@@ -92,7 +101,10 @@ A workload, mixin or enclosing set can request a token. Entries reconcile
 on `name`: identical restatements collapse and a required declaration
 wins over optional ones; two entries with one `name` but a different
 `audience` or `inject` list conflict. Different names coexist, so a
-workload can carry one token per relying party.
+workload can carry one token per relying party, and several tokens may
+list the same domain, as mixins reading their token back from one
+identity service do; each then requests
+`https://<issuer>/workload/token?name=<name>`.
 
 ## Gate
 
