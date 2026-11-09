@@ -142,6 +142,7 @@ def boot(data, root):
                     continue
                 source = (fixtures / 'ordering-workload/dockerd.py').read_text()
                 engine = subprocess.Popen([sys.executable, '-c', remap(source, root)],
+                                          env=os.environ | {'KIT_TCK_PROBE_UID': str(os.getuid())},
                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 deadline = time.monotonic() + 5
                 while True:

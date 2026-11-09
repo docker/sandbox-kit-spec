@@ -2,7 +2,6 @@
 """Record the configuration consumed at engine start, then answer pings."""
 import http.server
 import os
-import pwd
 import socketserver
 
 os.umask(0o022)
@@ -27,7 +26,6 @@ socket = '/var/run/docker.sock'
 if os.path.exists(socket):
     os.unlink(socket)
 with socketserver.UnixStreamServer(socket, Ping) as server:
-    agent = pwd.getpwnam('agent')
-    os.chown(socket, agent.pw_uid, agent.pw_gid)
+    os.chown(socket, int(os.environ.get('KIT_TCK_PROBE_UID', '1000')), -1)
     os.chmod(socket, 0o600)
     server.serve_forever()
