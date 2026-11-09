@@ -266,8 +266,8 @@ func ProvidesIndex(contributions []Contribution) map[string][]Provide {
 			if err != nil {
 				continue // the per-descriptor validator owns malformed entries
 			}
-			if p.Version == "" && c.Descriptor.Version != "" {
-				p.Version = c.Descriptor.Version
+			if fallback := EffectiveProvideVersion(c.Reference, c.Descriptor); p.Version == "" && fallback != "" {
+				p.Version = fallback
 			}
 			provided[p.Name] = append(provided[p.Name], p)
 		}
@@ -300,8 +300,8 @@ func OwnedProvides(contributions []Contribution) map[string][]OwnedProvide {
 			if err != nil {
 				continue
 			}
-			if p.Version == "" && c.Descriptor.Version != "" {
-				p.Version = c.Descriptor.Version
+			if fallback := EffectiveProvideVersion(c.Reference, c.Descriptor); p.Version == "" && fallback != "" {
+				p.Version = fallback
 			}
 			out[p.Name] = append(out[p.Name], OwnedProvide{Provide: p, Owner: c.Reference})
 		}
@@ -343,16 +343,8 @@ func mergeRelations(contributions []Contribution, out *Descriptor) {
 			if err != nil {
 				continue // the per-descriptor validator owns malformed entries
 			}
-			// A bare provide takes its version from the contribution's
-			// own version: field, which §9.2 guarantees a published kit
-			// has when any provide lacks one. Materializing it here is
-			// what lets an internal constrained require be recognized as
-			// satisfied — and what keeps the emitted entry carrying the
-			// version of the kit that offered it, rather than silently
-			// inheriting the set's own version once the merged
-			// descriptor is read with a different fallback.
-			if p.Version == "" && c.Descriptor.Version != "" {
-				p.Version = c.Descriptor.Version
+			if fallback := EffectiveProvideVersion(c.Reference, c.Descriptor); p.Version == "" && fallback != "" {
+				p.Version = fallback
 				// Trimmed first: ParseProvide accepts surrounding
 				// whitespace, and extending the original text would
 				// turn a legal "shell " into "shell @1.0.0" and fail

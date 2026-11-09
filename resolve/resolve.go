@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
@@ -270,16 +269,7 @@ type provider struct {
 func providesIndex(units []*Unit, addProblem func(string, ...any)) map[string][]provider {
 	index := map[string][]provider{}
 	for _, u := range units {
-		fallback := VersionFromReference(u.Reference)
-		if fallback == "" {
-			// The reference carries no version — a local directory, a
-			// git branch or commit, a non-version tag. The descriptor's
-			// own version is the only home left. It never overrides a
-			// reference-carried version: the reference is the kit's
-			// identity, so a stale descriptor version cannot lie about
-			// a tag.
-			fallback = u.Descriptor.Version
-		}
+		fallback := spec.EffectiveProvideVersion(u.Reference, u.Descriptor)
 		for _, s := range u.Descriptor.Provides {
 			p, err := spec.ParseProvide(s)
 			if err != nil {
@@ -296,57 +286,15 @@ func providesIndex(units []*Unit, addProblem func(string, ...any)) map[string][]
 	return index
 }
 
-// EffectiveProvideVersion is the version a kit's unversioned provides
-// take: the one its consumption reference carries, or the descriptor's
-// own version: when the reference carries none.
-//
-// Exported because the rule has a second caller. A published set
-// records what its kits offered, and it has to record the version this
-// resolver judged them by — a kit consumed as base:2.0.0 whose
-// descriptor still says 1.0.0 satisfies `base >= 2.0.0` here, and a
-// merge that read the descriptor alone would emit base@1.0.0 and
-// contradict the resolution it was handed.
+// EffectiveProvideVersion delegates to the shared spec rule for the version
+// inherited by unversioned provides from a consumed Kit.
 func EffectiveProvideVersion(reference string, d *spec.Descriptor) string {
-	if v := VersionFromReference(reference); v != "" {
-		return v
-	}
-	if d == nil {
-		return ""
-	}
-	return d.Version
+	return spec.EffectiveProvideVersion(reference, d)
 }
 
-// VersionFromReference extracts the version a consumption reference
-// carries: a version-shaped OCI tag ("reg.io/kits/hello:1.0.3"), or a
-// version-shaped git ref ("git+https://…#ref=v2.1.0"). The result is the
-// normalized version (TagVersion rules: a conventional "v" prefix counts
-// and is stripped). Digest-only refs, non-version tags, git
-// branches/commits, and local paths yield "".
-func VersionFromReference(ref string) string {
-	if strings.HasPrefix(ref, "git+") {
-		return versionFromGitReference(ref)
-	}
-	if i := strings.Index(ref, "@"); i >= 0 {
-		ref = ref[:i]
-	}
-	slash := strings.LastIndex(ref, "/")
-	colon := strings.LastIndex(ref, ":")
-	if colon <= slash {
-		return ""
-	}
-	return spec.TagVersion(ref[colon+1:])
-}
-
-func versionFromGitReference(ref string) string {
-	_, fragment, found := strings.Cut(ref, "#")
-	if !found {
-		return ""
-	}
-	values, err := url.ParseQuery(fragment)
-	if err != nil {
-		return ""
-	}
-	return spec.TagVersion(values.Get("ref"))
+// VersionFromReference delegates to spec's consumption-reference version rule.
+func VersionFromReference(reference string) string {
+	return spec.VersionFromReference(reference)
 }
 
 func checkRequires(units []*Unit, provides map[string][]provider, addProblem func(string, ...any)) {

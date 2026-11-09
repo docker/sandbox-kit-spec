@@ -1650,7 +1650,7 @@ capabilities:
 // ParseProvide accepts surrounding whitespace, so materializing the
 // fallback by extending the original text would publish "shell @1.0.0".
 func TestTheProvidesFallbackTrimsBeforeAppending(t *testing.T) {
-	out := mergeOK(t, contribute(t, "reg.io/shell:1", `schemaVersion: "3"
+	out := mergeOK(t, contribute(t, "reg.io/shell:dev", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
 provides: ["shell "]

@@ -348,7 +348,7 @@ func validateHookDependencies(plan ExecutionPlan, contributions []Contribution) 
 				return err
 			}
 			if p.Version == "" {
-				p.Version = contribution.Descriptor.Version
+				p.Version = EffectiveProvideVersion(contribution.Reference, contribution.Descriptor)
 			}
 			providers[p.Name] = append(providers[p.Name], struct {
 				index int
