@@ -201,6 +201,7 @@ prepare_state() {
 		die "$state belongs to another user; set SBX_TCK_STATE to a directory of this one's"
 	[ "$(stat_mode "$state")" = 700 ] ||
 		die "$state is writable beyond its owner; the adapter acts on what this directory says"
+	state="$(cd "$state" && pwd -P)" || die "cannot resolve state directory"
 }
 
 # Host state the adapter created, taken back once the last sandbox it

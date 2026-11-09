@@ -92,7 +92,8 @@ func exactContextSelection(ctx context.Context, e *Env, authored []exactContextR
 			return []report.Finding{report.Failf("%v rejected %v must refuse exact requests: %v", kits, rejected, err)}
 		}
 		identifies := func(request exactContextRequest) bool {
-			return (e.claims(request.capability()) || strings.Contains(refused.Detail, request.capability())) && strings.Contains(refused.Detail, fixtureFor(request)) && strings.Contains(refused.Detail, pathFor(request))
+			sourceNamed := strings.Contains(refused.Detail, fixtureFor(request)) || strings.Contains(refused.Detail, e.Fixtures(fixtureFor(request)))
+			return (e.claims(request.capability()) || strings.Contains(refused.Detail, request.capability())) && sourceNamed && strings.Contains(refused.Detail, pathFor(request))
 		}
 		if requiredRefusal {
 			if !slices.ContainsFunc(denied, func(request exactContextRequest) bool {
