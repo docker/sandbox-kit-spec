@@ -1285,7 +1285,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 	v2 := m.context[0].v2
 	for _, ask := range m.context {
 		if ask.v2 != v2 {
-			return nil, nil, mixedContextVersions()
+			return nil, nil, fmt.Errorf("merge: %s and %s: %w", m.context[0].reference, ask.reference, mixedContextVersions())
 		}
 	}
 	destination := func(a *AgentContext) string { return contextDestination(a.Directory, a.Filename) }

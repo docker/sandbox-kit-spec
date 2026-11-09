@@ -155,7 +155,8 @@ capabilities:
     config:
       path: /home/agent/.cursor/skills
 
-  # Offer both versions during the runtime rollout; select one.
+  # Accept one context version through runtime policy, or skip both.
+  # Accepting both conflicts; optionality does not express alternatives.
   - type: com.docker.sandbox/agent-context@1
     optional: true
     config: &agent-context

@@ -111,6 +111,14 @@ agent workloads from mixins.
 A composition has **exactly one workload** (the agent) and any number of
 mixins.
 
+Check capability versions separately from Kit release tags. A runtime
+accepts exact versioned types; support for `@2` does not satisfy a
+required `@1`. Optional requests and groups do not express alternatives.
+For Kits offering optional agent-context versions, confirm the runtime
+policy accepts one exact version across the composition or skips both.
+Selecting both versions fails composition. An sbxenv does not add a
+capability-version negotiation field.
+
 - Pick the agent workload (`kind: workload`, `agent: true`). Set
   `agent:` to its `handle` and list the kit under `kits:`.
 - Pick mixins for the signals you found. A tool the workload already

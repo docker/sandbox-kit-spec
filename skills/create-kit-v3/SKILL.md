@@ -482,6 +482,15 @@ varies, keep the rest exact and vary only that part:
 
 ## Coupled optional features
 
+Capability versions are exact requests. Schema 3 has no alternatives
+field or highest-version selection. Prefer one required version when the
+Kit needs that contract. Two optional versions or groups remain
+independent; runtime policy can accept one exact version across the
+composition, but accepting both still invokes their composition rules.
+For agent-context, selecting both versions fails. A required `@1` cannot
+be answered by supporting `@2`. Publish separate Kits or sets when users
+need mutually exclusive bundles, and choose one before composition.
+
 Use a `group` when skipping a capability also needs to skip its hooks,
 files, or guidance. Put `optional: true` on the group, never on its
 members (even `optional: false` is invalid). Groups are nonempty and

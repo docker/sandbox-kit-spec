@@ -62,6 +62,17 @@ elif [ -f "$state/host-port/${1:-}.json" ] || { [ "$verb" = exec ] && { { [ "${3
   exec python3 "$host_port_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 
+exact_helper="$(dirname "${BASH_SOURCE[0]}")/exact-versions-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    case "${arg##*/}" in
+    exact-context-*) exec python3 "$exact_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
+    esac
+  done
+elif [ -f "$state/exact-versions/${1:-}.json" ]; then
+  exec python3 "$exact_helper" "$state" "$claims" "$broken" "$verb" "$@"
+fi
+
 # Inline context has its own fixture model and no image content reader.
 context_helper="$(dirname "${BASH_SOURCE[0]}")/agent-context-fake.py"
 if [ "$verb" = create ]; then

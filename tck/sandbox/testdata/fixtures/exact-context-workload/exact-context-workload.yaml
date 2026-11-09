@@ -1,0 +1,7 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+build: |
+  FROM docker/sandbox-templates:claude-code-docker
+  WORKDIR /home/agent/workspace
+  ENTRYPOINT ["sleep", "infinity"]

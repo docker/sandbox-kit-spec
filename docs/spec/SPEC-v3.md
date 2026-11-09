@@ -816,6 +816,85 @@ selected hook's execution failure as an optional-group rejection.
 Selection atomicity promises neither hook rollback nor cleanup of files
 already present on reused volumes.
 
+### 7.1.2 Capability versions and selection
+
+Schema 3 has no version-alternatives construct. Each ordinary declaration
+is an independent request for its exact versioned type. `optional: true`
+permits omission of that request; it does not identify another request
+as its replacement. Groups couple requests atomically, without making
+separate groups mutually exclusive or assigning them a preference.
+
+A runtime **MUST** select requests by their exact declared type, without <!-- tck: SPEC-v3 §7.1.2/exact-version -->
+rewriting a request or interpreting its configuration under another
+version. Accepting one version does not discharge a required request for
+another. Independent eligible requests remain selected, including those
+in independently eligible groups; the contract number alone does not
+supersede any declaration.
+
+Support is an exact-type claim. Selection additionally considers policy,
+resource and credential availability, approval, and every enclosing-group
+member. For two independent declarations of one capability family, the
+result is:
+
+| Eligible declared versions | Both declarations optional | Both declarations required |
+|---|---|---|
+| Only `@1` | Select `@1`; skip and record `@2`. | Refuse the required `@2` request. |
+| Only `@2` | Select `@2`; skip and record `@1`. | Refuse the required `@1` request. |
+| Both | Select both; reconcile under their capability contracts. | Select both; reconcile under their capability contracts. |
+| Neither | Skip and record both requests. | Refuse both required requests. |
+
+Mixed optionality follows the same rule per request. A lone authored
+`@1` on a runtime supporting only `@2` is unsupported: refuse it when
+required, or skip and record it when optional. No request for `@2` is
+invented. Versions such as `@2` and `@10` are also independent; selection
+does not rank version strings numerically or lexically.
+
+An unsupported, unavailable, or policy-rejected higher version has no
+effect on an independent lower request's eligibility. A required request
+still refuses the composition when rejected. There is no automatic
+downgrade after refusal or execution failure. Selected and skipped
+requests retain their exact types, member decisions, messages, and source
+locations under §7.1.1. Selectors explain unsupported types, unavailable
+resources, and policy or approval refusals in their decision messages.
+There is no superseded outcome because no declaration supersedes another.
+
+For example, optional Feature X containing `a@2` and `b@1`, and optional
+Feature Y containing `a@1` and `b@2`, remain independent groups. A runtime
+accepting every member selects both complete groups. Their contracts
+then determine whether the composition is valid. Support for only X's
+members selects X and skips Y. Selecting `a@2` from X and `b@2` from Y
+would violate group atomicity. There is no group-wide "highest version."
+Different instances and contributions from different Kits follow these
+same rules; a common family name does not make them replacements.
+
+Selection is separate from cross-version reconciliation. The
+`network-policy` union in §9.5 retains every selected grant and emits
+`@2` when any selected contribution uses it. That operation is not a
+choice between declarations. Selected `agent-context@1` and `@2`
+requests still refuse composition, even with inline `@1` content.
+Existing declaration-block validation applies before selection.
+
+For a portable Kit, publish the contract version the Kit requires and
+make the request optional only when its absence is tolerable. A rollout
+may publish optional requests for both versions when the target runtime
+has an explicit policy accepting just one exact version across the
+composition. This is a runtime policy, not an author-expressed fallback
+guarantee. A runtime implementing both can decline an optional request
+under that policy, but cannot decline a required request without refusing
+the composition. Authors needing mutually exclusive whole-group
+alternatives publish separate Kits or sets and let the consumer choose
+one before composition.
+
+The reference `spec.Supported` selector accepts exactly its supplied type
+list. `fetch.DefaultCapabilitySelector` accepts all library-known exact
+types, without a version preference. Consumers supply their actual
+claims and policy through `WithCapabilitySelector` or
+`Options.CapabilitySelector`. Publication preserves conditional
+declarations instead of selecting against build-host support. Selection
+persists across restart and is evaluated afresh on recreation under
+§7.1.1. Skipped requests contribute no runtime files, hooks, guidance, or
+grants; image layers remain independent of selection.
+
 ### 7.2 Well-known types
 
 Each page specifies the config schema and the **normative runtime
@@ -1124,8 +1203,8 @@ already concrete, whether ungrouped or in a required group. It also
 refuses a second owner of a credential phase or a host-mount path that
 is already literal, a volume at that path included, whatever the rest of
 either request still holds. So an unrelated deferred request cannot
-carry such a conflict to create. An optional group waits for selection,
-which may decline it in favor of an alternative its Kit offers.
+carry such a conflict to create. An optional group waits for independent,
+atomic selection under §7.1.1 and §7.1.2.
 
 A merged descriptor **MUST** be identical across every platform a <!-- tck: SPEC-v3 §9.5/declarations-platform-independent -->
 multi-platform set builds for: the annotation is written once per

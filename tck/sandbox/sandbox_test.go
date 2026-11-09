@@ -235,6 +235,15 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"exact-downgrades-single":                                  {exactVersionRequirement},
+	"exact-prefers-per-kit":                                    {exactVersionRequirement},
+	"exact-prefers-highest":                                    {exactVersionRequirement},
+	"exact-prefers-required":                                   {exactVersionRequirement},
+	"exact-upgrades-single":                                    {exactVersionRequirement},
+	"exact-ignores-policy":                                     {exactVersionRequirement},
+	"exact-skips-required":                                     {exactVersionRequirement},
+	"exact-conflict-no-locations":                              {exactVersionRequirement},
+	"exact-drops-lower-with-higher":                            {exactVersionRequirement},
 	"docker-auth-header-leak":                                  {"docker-auth@1/token-mediation"},
 	"docker-auth-content-location":                             {"docker-auth@1/redirect-confinement"},
 	"docker-auth-all-bindings":                                 {"docker-auth@1/host-resolution", "docker-auth@1/host-only"},
