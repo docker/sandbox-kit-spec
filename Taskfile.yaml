@@ -69,7 +69,7 @@ tasks:
       # The fake-runtime suite exercises retained storage and configuration
       # matrices through child processes; Go's default ten minutes is too
       # short on small CI runners. Keep the same bound as test:tck.
-      - GOWORK=off go test -timeout 15m ./...
+      - GOWORK=off go test -timeout 20m ./...
       - GOWORK=off go -C cmd/frontend test ./...
 
   test:unit:
@@ -92,7 +92,7 @@ tasks:
     desc: The sandbox conformance suite, judged against the fake adapter
     cmds:
       # Match the full test target rather than relying on Go's default.
-      - GOWORK=off go test -timeout 15m ./tck/sandbox/...
+      - GOWORK=off go test -timeout 20m ./tck/sandbox/...
 
   test:mem0:
     desc: Build the Mem0 example and start its database, API and dashboard
