@@ -622,6 +622,13 @@ var mutations = map[string][]string{
 	"group-stale-recreate-hooks":         {"SPEC-v3 §7.1.1/lifetime"},
 	"group-skip-failure":                 {"SPEC-v3 §7.1.1/execution"},
 
+	"open-url-missing-helper":             {"open-url@1/guest-helper", "open-url@1/invalid-requests-rejected"},
+	"open-url-accepts-invalid":            {"open-url@1/invalid-requests-rejected"},
+	"open-url-always-rejects":             {"open-url@1/invalid-requests-rejected"},
+	"open-url-accepts-controls":           {"open-url@1/invalid-requests-rejected"},
+	"open-url-accepts-multiple-urls":      {"open-url@1/invalid-requests-rejected"},
+	"open-url-missing-workload-interface": {"open-url@1/guest-helper"},
+
 	"ignores-long-running-mixin":        {"long-running@1/survives-session-disconnect"},
 	"stops-on-disconnect":               {"long-running@1/survives-session-disconnect"},
 	"loses-background-on-disconnect":    {"long-running@1/survives-session-disconnect"},

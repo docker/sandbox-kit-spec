@@ -64,7 +64,7 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, and `--docker-auth-config <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, `--docker-auth-config <absolute-path>`, `--open-url-isolated`, and `--open-url-budget <attempts>` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id>`, optional `--cwd <absolute-path>` and zero or more `--env name=value`, then `-- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
@@ -337,6 +337,47 @@ not by scanning output. The separate `docker-auth@1/source-private` duty
 is waived: those observations cannot establish the absence of credential
 sources, helper installations or private keys at arbitrary guest paths,
 and passing the suite does not certify that unobservable property.
+
+### Host browser opener isolation
+
+An adapter claiming `com.docker.sandbox/open-url@1` **MUST** accept
+`create --open-url-isolated`. Before starting that sandbox it **MUST**
+replace its host opener with an inert test opener that accepts requests
+without launching a browser or any other host application. This binding
+is confined to that sandbox and removed with it; it does not alter the
+user's default browser or opener settings.
+
+Isolation **MUST** preserve the runtime's real guest helpers, transport,
+host validation, and dispatch path. The adapter **MUST NOT** substitute a
+guest helper, implement validation itself, or manufacture probe results.
+If the runtime cannot isolate its host opener, the adapter **MUST** fail
+the create before starting a sandbox, never fall back to the real opener.
+The rejection check treats that failure as a finding, not a passing test.
+
+With isolation, the adapter **MUST** also accept
+`--open-url-budget <attempts>`, a positive integer reserving that many
+immediate sequential helper attempts, including invalid requests. Before
+create returns, it **MUST** configure fresh sandbox-local runtime limiter
+state with enough admission and launch budget for those attempts, without
+waiting for the runtime's ordinary rate window. This test policy uses the
+real limiter; it **MUST NOT** disable validation, bypass dispatch, alter
+limits for other sandboxes, or change the user's normal policy. State is
+removed with the sandbox. Without isolation this option **MUST** fail
+before creating resources. An adapter unable to arrange the budget
+**MUST** fail create rather than run the probes under unknown limits.
+
+The rejection probe reserves 28 attempts: for each of two helpers, two
+successful navigations, zero and multiple arguments, and ten invalid
+URLs. This budget is not a rate-limit conformance test; enforcement of
+runtime-selected limits remains waived in the coverage accounting.
+
+The suite checks interface discovery without invoking the opener, both
+in a workload entrypoint capture and in an exec session. Rejection probes
+run only with isolation: a broken runtime may dispatch even forbidden
+schemes, malformed URLs, or multiple individually valid HTTP/HTTPS URLs.
+Invalid inputs alone cannot prevent host application launches. Each
+helper first receives valid single HTTP and HTTPS URLs and must succeed,
+so an always-rejecting helper cannot pass the rejection probe.
 
 ### Git identity binding
 
