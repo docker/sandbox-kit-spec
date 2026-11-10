@@ -208,14 +208,20 @@ func TestHookEventIdentityTracksContinuationAndDeduplicatesRetries(t *testing.T)
 
 func TestHooksReportFailuresWithoutBlockingTheAgent(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		status int
-		body   string
+		name    string
+		status  int
+		body    string
+		message string
 	}{
-		{"denied", http.StatusForbidden, `{"message":"private server detail"}`},
-		{"failed", http.StatusInternalServerError, "private server detail"},
-		{"missing id", http.StatusCreated, `{}`},
-		{"invalid response", http.StatusOK, "not JSON"},
+		{"denied", http.StatusForbidden, `{"message":"sandbox API capability not granted"}`, "HTTP 403: sandbox API capability not granted"},
+		{"unsupported", http.StatusNotImplemented, `{"message":"checkpoint cannot capture writable external mount at \"/workspace\"; recreate with --clone"}`, `HTTP 501: checkpoint cannot capture writable external mount at "/workspace"; recreate with --clone`},
+		{"failed", http.StatusInternalServerError, "private server detail", "HTTP 500"},
+		{"invalid error", http.StatusNotImplemented, `{"message":`, "HTTP 501"},
+		{"oversized error", http.StatusNotImplemented, `{"message":"private server detail"}` + strings.Repeat(" ", 64<<10), "HTTP 501"},
+		{"oversized message", http.StatusNotImplemented, `{"message":"private server detail` + strings.Repeat("x", 1024) + `"}`, "HTTP 501"},
+		{"empty error", http.StatusNotImplemented, `{"message":" "}`, "HTTP 501"},
+		{"missing id", http.StatusCreated, `{}`, "checkpoint response has no checkpoint id"},
+		{"invalid response", http.StatusOK, "not JSON", "checkpoint response has no checkpoint id"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -228,7 +234,11 @@ func TestHooksReportFailuresWithoutBlockingTheAgent(t *testing.T) {
 			require.NoError(t, run([]string{"hook", "claude"}, strings.NewReader(input), &output, server.URL))
 			var response map[string]any
 			require.NoError(t, json.Unmarshal(output.Bytes(), &response))
-			require.Contains(t, response["systemMessage"], "checkpoint was not saved")
+			prefix := "Filesystem checkpoint was not saved: "
+			if tc.status >= 300 {
+				prefix += "checkpoint request returned "
+			}
+			require.Equal(t, prefix+tc.message, response["systemMessage"])
 			require.NotContains(t, response, "decision")
 			require.NotContains(t, response, "continue")
 			require.NotContains(t, output.String(), "private server detail")

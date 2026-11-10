@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -86,7 +87,17 @@ func captureHook(agent string, input io.Reader, endpoint string) error {
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("checkpoint request returned HTTP %d", response.StatusCode)
+		message := fmt.Sprintf("checkpoint request returned HTTP %d", response.StatusCode)
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, (64<<10)+1))
+		var detail struct {
+			Message string `json:"message"`
+		}
+		if readErr == nil && len(body) <= 64<<10 && json.Unmarshal(body, &detail) == nil {
+			if reason := strings.TrimSpace(detail.Message); reason != "" && len(reason) <= 1024 {
+				message += ": " + reason
+			}
+		}
+		return errors.New(message)
 	}
 	var checkpoint struct {
 		ID string `json:"id"`
