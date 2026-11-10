@@ -17,18 +17,21 @@ import (
 const maxHookInput = 1 << 20
 
 type hookEvent struct {
-	Event          string `json:"hook_event_name"`
-	SessionID      string `json:"session_id"`
-	TurnID         string `json:"turn_id"`
-	TranscriptPath string `json:"transcript_path"`
+	Event                string  `json:"hook_event_name"`
+	SessionID            string  `json:"session_id"`
+	TurnID               string  `json:"turn_id"`
+	PromptID             string  `json:"prompt_id"`
+	TranscriptPath       string  `json:"transcript_path"`
+	LastAssistantMessage *string `json:"last_assistant_message"`
 }
 
 type checkpointRequest struct {
-	Agent     string `json:"agent"`
-	SessionID string `json:"session_id"`
-	TurnID    string `json:"turn_id,omitempty"`
-	EventID   string `json:"event_id"`
-	Kind      string `json:"kind"`
+	Agent     string              `json:"agent"`
+	SessionID string              `json:"session_id"`
+	TurnID    string              `json:"turn_id,omitempty"`
+	EventID   string              `json:"event_id"`
+	Kind      string              `json:"kind"`
+	Turn      *checkpointTurnInfo `json:"turn,omitempty"`
 }
 
 func captureHook(agent string, input io.Reader, endpoint string) error {
@@ -58,14 +61,14 @@ func captureHook(agent string, input io.Reader, endpoint string) error {
 	if event.SessionID == "" {
 		return errors.New("hook event has no session_id")
 	}
-	eventID, err := checkpointEventID(agent, data, event)
+	eventID, turn, err := checkpointEvent(agent, data, event)
 	if err != nil {
 		return err
 	}
 	if kind == "turn" && event.TurnID == "" {
 		event.TurnID = "event:" + eventID
 	}
-	request := checkpointRequest{Agent: agent, SessionID: event.SessionID, TurnID: event.TurnID, EventID: eventID, Kind: kind}
+	request := checkpointRequest{Agent: agent, SessionID: event.SessionID, TurnID: event.TurnID, EventID: eventID, Kind: kind, Turn: turn}
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -111,44 +114,51 @@ func captureHook(agent string, input io.Reader, endpoint string) error {
 	return nil
 }
 
-func checkpointEventID(agent string, data []byte, event hookEvent) (string, error) {
+func checkpointEvent(agent string, data []byte, event hookEvent) (string, *checkpointTurnInfo, error) {
 	var fields map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&fields); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	canonical, err := json.Marshal(fields)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	hash := sha256.New()
 	_, _ = io.WriteString(hash, agent+"\x00")
 	_, _ = hash.Write(canonical)
+	var transcript turnTranscript
 	if event.Event == "Stop" && event.TranscriptPath != "" {
 		info, err := os.Stat(event.TranscriptPath)
-		if err != nil {
-			return "", fmt.Errorf("stat turn transcript: %w", err)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", nil, fmt.Errorf("stat turn transcript: %w", err)
 		}
-		if !info.Mode().IsRegular() {
-			return "", errors.New("turn transcript is not a regular file")
+		if err == nil && !info.Mode().IsRegular() {
+			return "", nil, errors.New("turn transcript is not a regular file")
 		}
-		file, err := os.Open(event.TranscriptPath)
-		if err != nil {
-			return "", fmt.Errorf("open turn transcript: %w", err)
-		}
-		defer func() { _ = file.Close() }()
-		info, err = file.Stat()
-		if err != nil {
-			return "", err
-		}
-		if !info.Mode().IsRegular() {
-			return "", errors.New("turn transcript is not a regular file")
-		}
-		_, _ = hash.Write([]byte{0})
-		if _, err := io.Copy(hash, file); err != nil {
-			return "", fmt.Errorf("read turn transcript: %w", err)
+		if err == nil {
+			file, err := os.Open(event.TranscriptPath)
+			if err != nil {
+				return "", nil, fmt.Errorf("open turn transcript: %w", err)
+			}
+			defer func() { _ = file.Close() }()
+			info, err = file.Stat()
+			if err != nil {
+				return "", nil, err
+			}
+			if !info.Mode().IsRegular() {
+				return "", nil, errors.New("turn transcript is not a regular file")
+			}
+			_, _ = hash.Write([]byte{0})
+			if err := transcript.read(io.TeeReader(file, hash), agent); err != nil {
+				return "", nil, fmt.Errorf("read turn transcript: %w", err)
+			}
 		}
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	var turn *checkpointTurnInfo
+	if event.Event == "Stop" {
+		turn = transcript.info(event)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), turn, nil
 }

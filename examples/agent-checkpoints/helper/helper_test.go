@@ -159,7 +159,7 @@ func TestHooksCaptureBaselineAndTurnsForBothAgents(t *testing.T) {
 			defer server.Close()
 			for event, kind := range map[string]string{"SessionStart": "baseline", "Stop": "turn"} {
 				var output bytes.Buffer
-				input := fmt.Sprintf(`{"hook_event_name":%q,"session_id":"session-1","turn_id":"turn-2","last_assistant_message":"private response","prompt":"private prompt"}`, event)
+				input := fmt.Sprintf(`{"hook_event_name":%q,"session_id":"session-1","turn_id":"turn-2","last_assistant_message":"saved response","prompt":"private prompt","reasoning":"private reasoning"}`, event)
 				require.NoError(t, run([]string{"hook", agent}, strings.NewReader(input), &output, server.URL+"/_sbx/api/checkpoints"))
 				require.JSONEq(t, `{}`, output.String())
 				got := <-calls
@@ -171,6 +171,11 @@ func TestHooksCaptureBaselineAndTurnsForBothAgents(t *testing.T) {
 				payload, err := json.Marshal(got)
 				require.NoError(t, err)
 				require.NotContains(t, string(payload), "private")
+				if event == "Stop" {
+					require.Equal(t, &checkpointTurnInfo{Response: new("saved response")}, got.Turn)
+				} else {
+					require.Nil(t, got.Turn)
+				}
 			}
 		})
 	}
@@ -210,7 +215,11 @@ func TestHooksIdentifyTurnsWithoutNativeIDs(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {
 			transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
-			require.NoError(t, os.WriteFile(transcript, []byte("first turn\n"), 0o600))
+			firstTurn := `{"type":"user","message":{"content":"first prompt"}}` + "\n"
+			if agent == "codex" {
+				firstTurn = `{"type":"event_msg","payload":{"type":"user_message","message":"first prompt"}}` + "\n"
+			}
+			require.NoError(t, os.WriteFile(transcript, []byte(firstTurn), 0o600))
 			requests := make(chan checkpointRequest, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var req checkpointRequest
@@ -233,6 +242,7 @@ func TestHooksIdentifyTurnsWithoutNativeIDs(t *testing.T) {
 			require.Empty(t, send("SessionStart", "session").TurnID)
 			first := send("Stop", "session")
 			require.Equal(t, "event:"+first.EventID, first.TurnID)
+			require.Equal(t, &checkpointTurnInfo{Prompt: new("first prompt")}, first.Turn)
 			require.Equal(t, first, send("Stop", "session"))
 			require.NotEqual(t, first.TurnID, send("Stop", "other-session").TurnID)
 			require.NoError(t, os.WriteFile(transcript, []byte("second turn\n"), 0o600))
@@ -315,7 +325,6 @@ func TestHookInputFailuresRemainNonblocking(t *testing.T) {
 	for _, input := range []string{
 		`{`, `{"hook_event_name":"Stop"}`, `{"hook_event_name":"Stop","session_id":"s"} {}`,
 		strings.Repeat("x", maxHookInput+1),
-		`{"hook_event_name":"Stop","session_id":"s","transcript_path":"/missing/transcript"}`,
 	} {
 		var output bytes.Buffer
 		require.NoError(t, run([]string{"hook", "claude"}, strings.NewReader(input), &output, "http://unreachable.invalid"))
