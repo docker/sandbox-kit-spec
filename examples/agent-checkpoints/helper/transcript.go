@@ -75,7 +75,7 @@ func (t *turnTranscript) read(input io.Reader, agent string) error {
 func (t *turnTranscript) claude(line []byte) {
 	var entry struct {
 		Type             string            `json:"type"`
-		UUID             string            `json:"uuid"`
+		PromptID         string            `json:"promptId"`
 		IsMeta           bool              `json:"isMeta"`
 		IsSidechain      bool              `json:"isSidechain"`
 		IsCompactSummary bool              `json:"isCompactSummary"`
@@ -93,7 +93,7 @@ func (t *turnTranscript) claude(line []byte) {
 		text, toolResult := messageText(entry.Message.Content)
 		if !toolResult {
 			t.setPrompt(text)
-			t.promptID = entry.UUID
+			t.promptID = entry.PromptID
 		}
 	case "assistant":
 		if t.prompt != nil {
