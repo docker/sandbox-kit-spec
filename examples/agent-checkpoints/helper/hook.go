@@ -62,6 +62,9 @@ func captureHook(agent string, input io.Reader, endpoint string) error {
 	if err != nil {
 		return err
 	}
+	if kind == "turn" && event.TurnID == "" {
+		event.TurnID = "event:" + eventID
+	}
 	request := checkpointRequest{Agent: agent, SessionID: event.SessionID, TurnID: event.TurnID, EventID: eventID, Kind: kind}
 	payload, err := json.Marshal(request)
 	if err != nil {

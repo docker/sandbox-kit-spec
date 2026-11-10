@@ -206,6 +206,41 @@ func TestHookEventIdentityTracksContinuationAndDeduplicatesRetries(t *testing.T)
 	require.NotEqual(t, first, send(input), "a continued turn must capture its changed state even with the same native turn id")
 }
 
+func TestHooksIdentifyTurnsWithoutNativeIDs(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+			require.NoError(t, os.WriteFile(transcript, []byte("first turn\n"), 0o600))
+			requests := make(chan checkpointRequest, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req checkpointRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					http.Error(w, "invalid JSON", http.StatusBadRequest)
+					return
+				}
+				requests <- req
+				_, _ = io.WriteString(w, `{"id":"saved"}`)
+			}))
+			defer server.Close()
+			send := func(event, session string) checkpointRequest {
+				t.Helper()
+				input := fmt.Sprintf(`{"hook_event_name":%q,"session_id":%q,"transcript_path":%q}`, event, session, transcript)
+				var output bytes.Buffer
+				require.NoError(t, run([]string{"hook", agent}, strings.NewReader(input), &output, server.URL))
+				require.JSONEq(t, `{}`, output.String())
+				return <-requests
+			}
+			require.Empty(t, send("SessionStart", "session").TurnID)
+			first := send("Stop", "session")
+			require.Equal(t, "event:"+first.EventID, first.TurnID)
+			require.Equal(t, first, send("Stop", "session"))
+			require.NotEqual(t, first.TurnID, send("Stop", "other-session").TurnID)
+			require.NoError(t, os.WriteFile(transcript, []byte("second turn\n"), 0o600))
+			require.NotEqual(t, first.TurnID, send("Stop", "session").TurnID)
+		})
+	}
+}
+
 func TestHooksReportFailuresWithoutBlockingTheAgent(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
