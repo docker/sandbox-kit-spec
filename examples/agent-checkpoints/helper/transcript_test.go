@@ -160,8 +160,8 @@ func TestTurnCheckpointBoundsTextAtUTF8Boundary(t *testing.T) {
 }
 
 func TestTurnCheckpointCorrelatesClaudePromptID(t *testing.T) {
-	transcript := `{"type":"user","uuid":"prompt-1","message":{"content":"recorded prompt"}}` + "\n" + `{"type":"assistant","message":{"content":"stale transcript response"}}`
-	for _, promptID := range []string{"prompt-1", "missing-prompt"} {
+	transcript := `{"type":"user","uuid":"message-1","promptId":"prompt-1","message":{"content":"recorded prompt"}}` + "\n" + `{"type":"assistant","message":{"content":"stale transcript response"}}`
+	for _, promptID := range []string{"prompt-1", "message-1", "missing-prompt"} {
 		t.Run(promptID, func(t *testing.T) {
 			request := captureTurnRequest(t, "claude", transcript, map[string]any{"prompt_id": promptID, "last_assistant_message": "current response"})
 			want := &checkpointTurnInfo{Response: new("current response")}
