@@ -1,0 +1,38 @@
+# syntax=docker/sandbox-kit:3
+# yaml-language-server: $schema=../../schema/kit.schema.json
+schemaVersion: "3"
+kind: mixin
+displayName: Agent turn checkpoints
+description: Save filesystem checkpoints at session start and after Claude or Codex turns
+version: "0.1.0"
+provides: ["agent-checkpoints@0.1.0"]
+
+args:
+  agent:
+    default: both
+    enum: [claude, codex, both]
+    description: Agent hook configurations to install
+
+capabilities:
+  - type: com.docker.sandbox/api@1
+    description: Create a filesystem checkpoint of this sandbox
+    config:
+      operation: checkpoints.create
+      approval: none
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: [sbx-agent-checkpoint, install-user, "${{ kit.args.agent }}"]
+          user: agent
+          description: Add Claude checkpoint hooks without replacing existing hooks
+        - command: [sbx-agent-checkpoint, install-system, "${{ kit.args.agent }}"]
+          user: "0"
+          description: Add managed Codex checkpoint hooks without changing user policy
+      startup:
+        - command: [sbx-agent-checkpoint, install-user, "${{ kit.args.agent }}"]
+          user: agent
+          description: Restore Claude checkpoint hooks after agent configuration changes
+        - command: [sbx-agent-checkpoint, install-system, "${{ kit.args.agent }}"]
+          user: "0"
+          description: Restore managed Codex checkpoint hooks
