@@ -552,8 +552,21 @@ case "$payload" in
         exit 0
         ;;
     esac
-    printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
-      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}'
+    listing=$(printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
+      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}')
+    # One JSON-RPC reply however the transport lays it out: pretty-printed
+    # JSON, or SSE with CRLF, an interleaved notification and the JSON
+    # split over two data lines, as Streamable HTTP permits.
+    case "$MOCK_LIST_FORMAT" in
+      pretty) printf '%s' "$listing" | jq . ;;
+      sse-split)
+        id=$(printf '%s' "$payload" | jq .id)
+        tools=$(printf '%s' "$listing" | jq -c .result.tools)
+        printf ': keepalive\r\n\r\nevent: message\r\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\r\n\r\n'
+        printf 'event: message\r\ndata: {"jsonrpc":"2.0","id":%s,\r\ndata: "result":{"tools":%s}}\r\n\r\n' "$id" "$tools"
+        ;;
+      *) printf '%s' "$listing" ;;
+    esac
     ;;
   *'"method":"tools/call"'*)
     printf '%s\n' "$payload" >> "$MOCK_CALLS"
@@ -620,6 +633,14 @@ esac
 				require.Len(t, lists, 1)
 				require.Nil(t, calls, "a session whose listing failed has nothing to call")
 			})
+			for _, format := range []string{"pretty", "sse-split"} {
+				t.Run(format+" listing", func(t *testing.T) {
+					calls, lists := run(t, "MOCK_LIST_FORMAT="+format)
+					require.Len(t, lists, 1)
+					require.Len(t, calls, 1, "a listing is parsed as a whole, however the transport lays it out")
+					require.Contains(t, calls[0], `"name":"agent_notify"`)
+				})
+			}
 			t.Run("paged listing", func(t *testing.T) {
 				calls, lists := run(t, "MOCK_PAGED=1")
 				require.Len(t, lists, 2, "the hook follows nextCursor")

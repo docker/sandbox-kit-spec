@@ -97,7 +97,7 @@ mcp_tools() {
     response=$(curl -s --fail -m 5 -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
       --data "{\"jsonrpc\":\"2.0\",\"id\":$list_id,\"method\":\"tools/list\",\"params\":$params}" "$url") || return 1
     # First line: the next cursor (empty on the last page); then the names.
-    page=$(printf '%s' "$response" | jq -Rr --argjson id "$list_id" "$jq_messages"'
+    page=$(printf '%s' "$response" | jq -Rsr --argjson id "$list_id" "$jq_messages"'
       reply | select(length == 1) | .[0] | select(has("error") | not) | .result
       | select(type == "object") | select((.tools | type) == "array")
       | (.nextCursor // "" | tostring), (.tools[] | .name | select(type == "string"))') || return 1
