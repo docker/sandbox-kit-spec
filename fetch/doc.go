@@ -33,12 +33,12 @@
 // by value; publisher-provided source attribution does not change the target.
 // They return a spec.CapabilityDecision; messages survive in selection records
 // and required-rejection diagnostics.
-// DefaultCapabilitySelector accepts this library's known types and prefers
-// agent-context@2 when a Kit offers both optional versions. Legacy-only Kits
-// and required @1 requests retain @1. Incompatible context versions from
-// different Kits still fail composition. Runtimes should supply their actual
-// claims with spec.Supported or a stricter callback, selecting one context
-// version across the set. Custom selectors are not overridden by the default.
+// DefaultCapabilitySelector accepts every library-known exact type. It does not
+// infer alternatives or prefer a capability version. Selected agent-context@1
+// and @2 requests fail composition, including within one Kit. Runtimes supply
+// their actual claims with spec.Supported or a stricter callback. A policy may
+// decline optional requests to select one context version across the set;
+// declining a required request still fails. Custom selectors replace the default.
 // Resolved.Selections retains published descriptors, their original bytes, and
 // create-time decisions. WithExpandedDescriptors (or Options.RetainExpandedDescriptors
 // for Assemble) opts into independent expanded copies before selection and

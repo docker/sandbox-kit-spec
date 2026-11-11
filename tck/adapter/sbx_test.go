@@ -2,13 +2,17 @@ package adapter
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/sandbox-kit-spec/v3/spec"
 )
 
 // Observe the real shell adapter at its CLI boundary without creating sandboxes.
@@ -505,5 +509,390 @@ func TestSbxAdapterReportsUnavailableWorkspaceScenarios(t *testing.T) {
 		var refused *RefusedError
 		require.ErrorAs(t, err, &refused)
 		require.Equal(t, "unsupported workspace mode: "+mode, refused.Detail)
+	}
+}
+
+func TestSbxExactContextSelectionMatrix(t *testing.T) {
+	const low = "com.docker.sandbox/agent-context@1"
+	const high = "com.docker.sandbox/agent-context@2"
+	for supported := 0; supported < 4; supported++ {
+		for rejected := 0; rejected < 4; rejected++ {
+			for _, fixture := range []string{
+				"exact-context-v1-optional", "exact-context-v1-required",
+				"exact-context-v2-optional", "exact-context-v2-required",
+				"exact-context-pair-optional", "exact-context-pair-required-low",
+			} {
+				t.Run(fmt.Sprintf("supported-%d/rejected-%d/%s", supported, rejected, fixture), func(t *testing.T) {
+					var claims, rejects []string
+					for i, typ := range []string{low, high} {
+						if supported&(1<<i) != 0 {
+							claims = append(claims, typ)
+						}
+						if rejected&(1<<i) != 0 {
+							rejects = append(rejects, typ)
+						}
+					}
+					a, observed := selectionAdapter(t, strings.Join(claims, ","))
+					root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+					require.NoError(t, err)
+					kit := filepath.Join(root, fixture)
+					original, err := spec.Decode(mustRead(t, filepath.Join(kit, fixture+".yaml")))
+					require.NoError(t, err)
+					var accepted []spec.Capability
+					var selected, skipped []string
+					var required []string
+					for i, entry := range original.Capabilities {
+						path := fmt.Sprintf("capabilities[%d]", i)
+						if slices.Contains(claims, entry.Type) && !slices.Contains(rejects, entry.Type) {
+							accepted = append(accepted, entry)
+							selected = append(selected, path)
+						} else {
+							skipped = append(skipped, path)
+							if !entry.Optional {
+								required = append(required, path)
+							}
+						}
+					}
+					id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), kit}, CreateOptions{RejectCapabilities: rejects})
+					if len(required) > 0 {
+						var refused *RefusedError
+						require.ErrorAs(t, err, &refused)
+						require.Contains(t, refused.Detail, fixture)
+						for _, path := range required {
+							require.Contains(t, refused.Detail, path)
+						}
+						require.NoFileExists(t, observed, "required refusal must precede the sbx call")
+						return
+					}
+					require.NoError(t, err)
+					state, err := a.Selection(t.Context(), id)
+					require.NoError(t, err)
+					for _, records := range []struct {
+						got     []spec.SelectionRecord
+						paths   []string
+						skipped bool
+					}{{state.Selection.Selected, selected, false}, {state.Selection.Skipped, skipped, true}} {
+						require.Len(t, records.got, len(records.paths))
+						for i, rec := range records.got {
+							path := records.paths[i]
+							require.Equal(t, path, rec.Path)
+							require.NotNil(t, rec.Source)
+							require.Equal(t, fixture, rec.Source.Kit)
+							require.Equal(t, path, rec.Source.Path)
+							require.Equal(t, []string{path}, rec.Members)
+							require.Len(t, rec.MemberSources, 1)
+							require.Equal(t, *rec.Source, rec.MemberSources[0])
+							if records.skipped {
+								require.Equal(t, []string{path}, rec.Rejected)
+							} else {
+								require.Empty(t, rec.Rejected)
+							}
+						}
+					}
+					var consumed string
+					argv := strings.Fields(string(mustRead(t, observed)))
+					for i, arg := range argv {
+						if arg == "--kit" {
+							consumed = argv[i+1]
+						}
+					}
+					if len(accepted) == 0 {
+						require.Empty(t, consumed, "skipped exact requests must not reach sbx")
+					} else {
+						require.NotEmpty(t, consumed)
+						require.Equal(t, fixture, filepath.Base(consumed), "@1 staging retains the authored kit name")
+						effective, err := spec.Decode(mustRead(t, filepath.Join(consumed, fixture+".yaml")))
+						require.NoError(t, err)
+						require.Equal(t, accepted, effective.Capabilities, "sbx must receive each selected request with its authored config")
+						if len(accepted) < len(original.Capabilities) {
+							require.Equal(t, mustRead(t, filepath.Join(kit, "context.txt")), mustRead(t, filepath.Join(consumed, "context.txt")))
+						}
+					}
+					require.NoError(t, a.Remove(t.Context(), id))
+					if consumed != "" && consumed != kit {
+						require.NoDirExists(t, filepath.Dir(consumed), "adapter-owned filtered fixtures must be removed")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSbxExactContextRequiredRefusalNamesEveryUnavailableRequest(t *testing.T) {
+	a, observed := selectionAdapter(t, "")
+	_, err := a.Create(t.Context(), []string{"exact-context-workload", "exact-context-v1-required", "exact-context-v2-required"}, CreateOptions{})
+	var refused *RefusedError
+	require.ErrorAs(t, err, &refused)
+	for _, version := range []string{"1", "2"} {
+		require.Contains(t, refused.Detail, "exact-context-v"+version+"-required capabilities[0]")
+		require.Contains(t, refused.Detail, "com.docker.sandbox/agent-context@"+version)
+	}
+	require.NoFileExists(t, observed)
+}
+
+func TestSbxExactContextPairRestoresRequestsOnRecreate(t *testing.T) {
+	const low = "com.docker.sandbox/agent-context@1"
+	const high = "com.docker.sandbox/agent-context@2"
+	a, _ := selectionAdapter(t, low+","+high)
+	stateDir := filepath.Join(t.TempDir(), "state with spaces")
+	stub := filepath.Join(t.TempDir(), "sbx")
+	script := strings.Replace(selectionStub, "  shift\n  printf", "  shift\n  previous=\n  for arg do\n    if [ \"$previous\" = --kit ]; then [ -d \"$arg\" ]; fi\n    previous=\"$arg\"\n  done\n  printf", 1)
+	require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+	a.Env = append(a.Env, "SBX="+stub, "SBX_TCK_STATE="+stateDir)
+	root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+	require.NoError(t, err)
+	fixture := "exact-context-pair-optional"
+	kit := filepath.Join(root, fixture)
+	id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), kit}, CreateOptions{RejectCapabilities: []string{high}})
+	require.NoError(t, err)
+	filtered := filepath.Join(stateDir, id+".exact-context", fixture, fixture+".yaml")
+	for _, rejected := range []string{high, low} {
+		require.NoError(t, a.RejectCapabilities(t.Context(), id, rejected))
+		require.NoError(t, a.Recreate(t.Context(), id))
+		state, err := a.Selection(t.Context(), id)
+		require.NoError(t, err)
+		require.Len(t, state.Selection.Selected, 1)
+		require.Len(t, state.Selection.Skipped, 1)
+		desc, err := spec.Decode(mustRead(t, filtered))
+		require.NoError(t, err)
+		require.Len(t, desc.Capabilities, 1)
+		want := low
+		if rejected == low {
+			want = high
+		}
+		require.Equal(t, want, desc.Capabilities[0].Type)
+	}
+	require.NoError(t, a.Remove(t.Context(), id))
+	require.NoDirExists(t, filepath.Dir(filepath.Dir(filtered)))
+}
+
+func TestSbxExactContextFilteringFailureDoesNotReachRuntime(t *testing.T) {
+	for _, recreate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recreate-%t", recreate), func(t *testing.T) {
+			a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1")
+			stateDir := filepath.Join(t.TempDir(), "state")
+			removed := filepath.Join(t.TempDir(), "removed")
+			stub := filepath.Join(t.TempDir(), "sbx")
+			script := strings.Replace(selectionStub, "rm | stop) ;;", "rm) touch \"$STUB_REMOVED\" ;;\nstop) ;;", 1)
+			require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+			a.Env = append(a.Env, "SBX="+stub, "STUB_REMOVED="+removed, "SBX_TCK_STATE="+stateDir)
+			fixture := "exact-context-pair-optional"
+			kit := filepath.Join(t.TempDir(), "fixtures with spaces", fixture)
+			require.NoError(t, os.CopyFS(kit, os.DirFS(filepath.Join("..", "sandbox", "testdata", "fixtures", fixture))))
+			var id string
+			if recreate {
+				var err error
+				id, err = a.Create(t.Context(), []string{"exact-context-workload", kit}, CreateOptions{})
+				require.NoError(t, err)
+			}
+			require.NoError(t, os.Remove(filepath.Join(kit, "context.txt")))
+			if recreate {
+				before, err := a.Selection(t.Context(), id)
+				require.NoError(t, err)
+				err = a.Recreate(t.Context(), id)
+				require.ErrorContains(t, err, "could not filter exact-context fixtures")
+				require.NoFileExists(t, removed, "failed preparation must not remove the existing instance")
+				after, err := a.Selection(t.Context(), id)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				lines := strings.Split(strings.TrimSpace(string(mustRead(t, observed))), "\n")
+				require.Len(t, lines, 1, "failed preparation must not attempt a replacement create")
+				require.NoError(t, a.Remove(t.Context(), id))
+			} else {
+				_, err := a.Create(t.Context(), []string{"exact-context-workload", kit}, CreateOptions{})
+				require.ErrorContains(t, err, "could not filter exact-context fixtures")
+				require.NoFileExists(t, observed)
+				entries, err := os.ReadDir(stateDir)
+				require.NoError(t, err)
+				require.Empty(t, entries, "failed preparation must release adapter state")
+			}
+		})
+	}
+}
+
+func TestSbxExactContextMixedVersionConflictComesFromRuntime(t *testing.T) {
+	for _, fixtures := range [][]string{
+		{"exact-context-v1-optional", "exact-context-v2-optional"},
+		{"exact-context-pair-optional"},
+	} {
+		t.Run(strings.Join(fixtures, "+"), func(t *testing.T) {
+			a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2")
+			stub := filepath.Join(t.TempDir(), "sbx")
+			detail := "request failed: 400: mixed agent-context contracts"
+			script := strings.Replace(selectionStub, "  printf '%s\\n' \"$*\" >>\"$STUB_OBSERVED\"", "  printf '%s\\n' \"$*\" >>\"$STUB_OBSERVED\"\n  echo '"+detail+"' >&2\n  exit 3", 1)
+			require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+			a.Env = append(a.Env, "SBX="+stub)
+			root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+			require.NoError(t, err)
+			kits := []string{filepath.Join(root, "exact-context-workload")}
+			for _, fixture := range fixtures {
+				kits = append(kits, filepath.Join(root, fixture))
+			}
+			_, err = a.Create(t.Context(), kits, CreateOptions{})
+			var refused *RefusedError
+			require.ErrorAs(t, err, &refused)
+			require.Equal(t, detail, refused.Detail)
+			argv := string(mustRead(t, observed))
+			for _, kit := range kits[1:] {
+				require.Contains(t, argv, "--kit "+kit, "the runtime receives every eligible exact request")
+			}
+		})
+	}
+}
+
+func TestSbxExactVersionConflictRecreationKeepsPriorSandbox(t *testing.T) {
+	for _, fixtures := range [][]string{{"exact-context-pair-optional"}, {"exact-context-v1-optional", "exact-context-v2-optional"}} {
+		t.Run(strings.Join(fixtures, "+"), func(t *testing.T) {
+			const low = "com.docker.sandbox/agent-context@1"
+			const high = "com.docker.sandbox/agent-context@2"
+			a, _ := selectionAdapter(t, low+","+high)
+			dir := t.TempDir()
+			removed := filepath.Join(dir, "removed")
+			calls := filepath.Join(dir, "calls")
+			live := filepath.Join(dir, "live")
+			stub := filepath.Join(dir, "sbx")
+			script := `#!/bin/sh
+set -eu
+if [ "${1:-}" = --app-name ]; then shift 2; fi
+printf '%s\n' "$1" >> "$PROBE_CALLS"
+case "$1" in
+create)
+  low=
+  high=
+  previous=
+  for arg do
+    if [ "$previous" = --kit ]; then
+      descriptor="$arg/$(basename "$arg").yaml"
+      if grep -q 'agent-context@1' "$descriptor"; then low=1; fi
+      if grep -q 'agent-context@2' "$descriptor"; then high=1; fi
+    fi
+    previous="$arg"
+  done
+  if [ -n "$low" ] && [ -n "$high" ]; then
+    echo 'request failed: 400: mixed agent-context contracts' >&2
+    exit 3
+  fi
+  touch "$PROBE_LIVE"
+  ;;
+rm) rm -f "$PROBE_LIVE"; touch "$PROBE_REMOVED" ;;
+ls) echo '[]' ;;
+*) exit 1 ;;
+esac
+`
+			require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+			a.Env = append(a.Env, "SBX="+stub, "PROBE_LIVE="+live, "PROBE_REMOVED="+removed, "PROBE_CALLS="+calls)
+			root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+			require.NoError(t, err)
+			kits := []string{filepath.Join(root, "exact-context-workload")}
+			for _, fixture := range fixtures {
+				kits = append(kits, filepath.Join(root, fixture))
+			}
+			id, err := a.Create(t.Context(), kits, CreateOptions{RejectCapabilities: []string{high}})
+			require.NoError(t, err)
+			require.FileExists(t, live)
+			before, err := a.Selection(t.Context(), id)
+			require.NoError(t, err)
+			require.Len(t, before.Selection.Selected, 1)
+			beforeCalls := mustRead(t, calls)
+			require.NoError(t, a.RejectCapabilities(t.Context(), id))
+			err = a.Recreate(t.Context(), id)
+			var refused *RefusedError
+			require.ErrorAs(t, err, &refused)
+			require.FileExists(t, live, "a deliberately refused recreation must preserve the existing sandbox")
+			require.NoFileExists(t, removed)
+			require.Equal(t, beforeCalls, mustRead(t, calls), "preflight refusal must precede every runtime call")
+			after, err := a.Selection(t.Context(), id)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			for _, fixture := range fixtures {
+				require.Contains(t, refused.Detail, fixture)
+			}
+			require.Contains(t, refused.Detail, low)
+			require.Contains(t, refused.Detail, high)
+			require.NoError(t, a.Remove(t.Context(), id))
+		})
+	}
+}
+
+func TestSbxExactContextRelativeStateUsesLocalReference(t *testing.T) {
+	for _, mode := range []string{"unset", "current", "search"} {
+		t.Run(mode, func(t *testing.T) {
+			a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1")
+			adapterPath, err := filepath.Abs(a.Path)
+			require.NoError(t, err)
+			a.Path = adapterPath
+			root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+			require.NoError(t, err)
+			var cdpath string
+			if mode == "current" {
+				cdpath = "."
+			}
+			if mode == "search" {
+				cdpath = t.TempDir()
+				require.NoError(t, os.Mkdir(filepath.Join(cdpath, "relative-state"), 0700))
+			}
+			workdir := t.TempDir()
+			t.Chdir(workdir)
+			a.Env = append(a.Env, "SBX_TCK_STATE=relative-state", "CDPATH="+cdpath)
+			id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), filepath.Join(root, "exact-context-pair-optional")}, CreateOptions{})
+			require.NoError(t, err)
+			argv := strings.Fields(string(mustRead(t, observed)))
+			var consumed string
+			for i, arg := range argv {
+				if arg == "--kit" {
+					consumed = argv[i+1]
+				}
+			}
+			require.NotEmpty(t, consumed)
+			physical, err := filepath.EvalSymlinks(workdir)
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(physical, "relative-state", id+".exact-context", "exact-context-pair-optional"), consumed)
+			require.DirExists(t, consumed)
+			require.NoError(t, a.Remove(t.Context(), id))
+		})
+	}
+}
+
+func TestSbxExactContextStatePreservesTrailingNewlines(t *testing.T) {
+	for _, existing := range []bool{true, false} {
+		t.Run(fmt.Sprintf("existing-%t", existing), func(t *testing.T) {
+			a, observed := selectionAdapter(t, "com.docker.sandbox/agent-context@1")
+			root, err := filepath.Abs(filepath.Join("..", "sandbox", "testdata", "fixtures"))
+			require.NoError(t, err)
+			dir := t.TempDir()
+			state := filepath.Join(dir, "private\n\n")
+			sibling := filepath.Join(dir, "private")
+			if existing {
+				require.NoError(t, os.Mkdir(state, 0700))
+			} else {
+				state = filepath.Join(dir, "parent\n\n", "private\n\n")
+			}
+			require.NoError(t, os.Mkdir(sibling, 0700))
+			require.NoError(t, os.Chmod(sibling, 0777))
+			stub := filepath.Join(dir, "sbx")
+			script := strings.Replace(selectionStub, `printf '%s\n' "$*" >>"$STUB_OBSERVED"`, `printf '%s\0' "$@" >"$STUB_OBSERVED"`, 1)
+			require.NoError(t, os.WriteFile(stub, []byte(script), 0700))
+			a.Env = append(a.Env, "SBX="+stub, "SBX_TCK_STATE="+state)
+			id, err := a.Create(t.Context(), []string{filepath.Join(root, "exact-context-workload"), filepath.Join(root, "exact-context-pair-optional")}, CreateOptions{})
+			require.NoError(t, err)
+			for _, suffix := range []string{".create", ".kits", ".selection-policy", ".selection.json", ".skills-mode", ".skills-store"} {
+				require.FileExists(t, filepath.Join(state, id+suffix))
+			}
+			entries, err := os.ReadDir(sibling)
+			require.NoError(t, err)
+			require.Empty(t, entries, "the unchecked writable sibling must receive no adapter state")
+			argv := strings.Split(string(mustRead(t, observed)), "\x00")
+			var consumed string
+			for i, arg := range argv {
+				if arg == "--kit" {
+					consumed = argv[i+1]
+				}
+			}
+			physical, err := filepath.EvalSymlinks(state)
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(physical, id+".exact-context", "exact-context-pair-optional"), consumed)
+			require.DirExists(t, consumed)
+			require.NoError(t, a.Remove(t.Context(), id))
+		})
 	}
 }

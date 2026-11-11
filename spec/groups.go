@@ -138,7 +138,10 @@ type CapabilityDecision struct {
 	Message  string `json:"message,omitempty"`
 }
 
-// Supported constructs a selector from a runtime's claimed type list.
+// Supported constructs a selector from a runtime's claimed exact type list.
+// A version suffix is part of the type; claiming one version grants no other.
+// Every declaration is answered independently, without ranking versions or
+// treating separate groups as alternatives.
 func Supported(types ...string) SelectCapability {
 	claimed := make(map[string]bool, len(types))
 	for _, typ := range types {
@@ -570,9 +573,9 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 // concrete: an unrelated deferred request cannot hide a conflict between
 // them. A required group's member, as a nested set's required requests
 // arrive, is asked for as surely as an ungrouped entry. An optional group
-// may be declined in favor of another the same kit offers for the same
-// key, so its members wait for selection, as agent-context bodies wait
-// for staging. A request holding a reference waits for create, except
+// may be declined independently, so its members wait for selection,
+// as agent-context bodies wait for staging. A request holding a reference
+// waits for create, except
 // what its literal keys already settle: a credential or host mount has one
 // owner whatever its config, so each literal key, a credential's per
 // phase, refuses a second asker, and a volume's literal path is a

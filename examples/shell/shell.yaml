@@ -37,9 +37,10 @@ capabilities:
           - deb.debian.org
           - dhi.io
 
-  # This legacy profile is the fallback. An agent mixin can select its
-  # discovery destination; every composed Kit contributes guidance there.
-  # Offer both versions during the runtime rollout; select one.
+  # An agent mixin can select its discovery destination; every composed
+  # Kit contributes guidance there.
+  # Accept one context version through runtime policy, or skip both.
+  # Accepting both conflicts; optionality does not express alternatives.
   - type: com.docker.sandbox/agent-context@1
     optional: true
     config: &agent-context

@@ -73,6 +73,13 @@ The runtime refuses that composition explicitly, even when an `@1` body
 is inline. Conditional published sets may carry both versions, provided
 selection leaves only one. No file-backed `@1` request is upgraded.
 
+Schema 3 does not express version alternatives. Two optional context
+requests remain independent, including when both have the same content
+or profile destination. A runtime accepting both exact types selects
+both and refuses the composition above. A rollout using both optional
+versions needs an explicit runtime policy accepting just one across the
+composition; see [SPEC-v3 §7.1.2](../../SPEC-v3.md#712-capability-versions-and-selection).
+
 The existing serialized descriptor budgets **MUST** apply after <!-- tck: agent-context@2/size-budget -->
 expansion and composition: warn above 64 KiB and refuse above 512 KiB.
 Guidance is never truncated or silently moved into layers. Keep large

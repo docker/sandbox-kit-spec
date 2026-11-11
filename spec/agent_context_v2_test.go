@@ -201,12 +201,16 @@ func TestAgentContextV2MixedVersions(t *testing.T) {
 	for _, body := range []map[string]any{{"content": "legacy"}, {"contentFile": "/kit/legacy.md"}, {"filename": "AGENTS.md"}} {
 		legacy := &Descriptor{Kind: KindWorkload, Capabilities: []Capability{{Type: CapabilityAgentContext, Config: body}}}
 		modern := &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": "modern"})}}
+		legacy.Capabilities[0].Source = &CapabilitySource{Kit: "original-legacy", Path: "capabilities[5].group.capabilities[1]"}
+		modern.Capabilities[0].Source = &CapabilitySource{Kit: "original-modern", Path: "capabilities[3]"}
 		_, err := Compose([]Contribution{{Reference: "legacy", Descriptor: legacy}, {Reference: "modern", Descriptor: modern}})
 		require.ErrorContains(t, err, "@1 and @2")
+		require.ErrorContains(t, err, "legacy (original-legacy capabilities[5].group.capabilities[1])")
+		require.ErrorContains(t, err, "modern (original-modern capabilities[3])")
 	}
 }
 
-func TestAgentContextPublishedVersionAlternatives(t *testing.T) {
+func TestAgentContextPublishedIndependentVersions(t *testing.T) {
 	for _, explicit := range []bool{false, true} {
 		t.Run(fmt.Sprintf("explicit=%t", explicit), func(t *testing.T) {
 			capabilities := []Capability{
@@ -223,7 +227,7 @@ func TestAgentContextPublishedVersionAlternatives(t *testing.T) {
 			raw, err := json.Marshal(d)
 			require.NoError(t, err)
 			_, err = ValidatePublished(raw, d)
-			require.NoError(t, err, "published alternatives are judged after selection")
+			require.NoError(t, err, "published versions are judged after selection")
 			for _, version := range []string{CapabilityAgentContext, CapabilityAgentContextV2} {
 				selection, err := SelectCapabilities(t.Context(), "alternatives", d, Supported(version))
 				require.NoError(t, err)

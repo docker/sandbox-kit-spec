@@ -419,6 +419,14 @@ them unless the task says otherwise:
 
 ## Coupled optional features
 
+Keep capability versions exact during migration. Schema 3 has no
+alternatives field or automatic upgrade. Two optional versions or groups
+remain independent. A dual-version rollout needs runtime policy accepting
+one exact version across the composition; selecting both agent-context
+versions fails. Supporting `@2` does not satisfy a required `@1`, and
+execution failure does not activate a different declaration. Publish
+separate Kits or sets for mutually exclusive bundles.
+
 Use a `group` when skipping a capability also needs to skip its hooks,
 files, or guidance. Put `optional: true` on the group, never on its
 members (even `optional: false` is invalid). Groups are nonempty and

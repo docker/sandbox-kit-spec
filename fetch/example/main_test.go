@@ -19,22 +19,23 @@ func TestPreviewContextSelection(t *testing.T) {
 			require.NoError(t, err)
 			d.Capabilities = selection.Capabilities
 			_, err = spec.Validate(d)
+			if supported == "" {
+				require.ErrorContains(t, err, "cannot compose")
+				if allowVolumes {
+					require.Len(t, selection.Selected, 3)
+				} else {
+					require.Len(t, selection.Selected, 2)
+				}
+				continue
+			}
 			require.NoError(t, err)
-			want := spec.CapabilityAgentContextV2
-			if supported != "" {
-				want = supported
-			}
-			require.Equal(t, want, d.Capabilities[0].Type)
-			if supported == "" && allowVolumes {
-				require.Len(t, d.Capabilities, 2)
-			} else {
-				require.Len(t, d.Capabilities, 1)
-			}
+			require.Equal(t, supported, d.Capabilities[0].Type)
+			require.Len(t, d.Capabilities, 1)
 		}
 	}
 }
 
-func TestPreviewContextFallbackForVolumeGroup(t *testing.T) {
+func TestPreviewContextVersionsRemainIndependentOfVolumeGroup(t *testing.T) {
 	for _, allowVolumes := range []bool{false, true} {
 		for _, optional := range []bool{false, true} {
 			d := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload, Capabilities: []spec.Capability{
@@ -53,12 +54,14 @@ func TestPreviewContextFallbackForVolumeGroup(t *testing.T) {
 			selected := *d
 			selected.Capabilities = selection.Capabilities
 			_, err = spec.Validate(&selected)
-			require.NoError(t, err)
 			if allowVolumes {
-				require.Len(t, selected.Capabilities, 2)
-				require.Equal(t, spec.CapabilityAgentContextV2, selected.Capabilities[0].Type)
-				require.Equal(t, spec.CapabilityVolume, selected.Capabilities[1].Type)
+				require.ErrorContains(t, err, "cannot compose")
+				require.Len(t, selected.Capabilities, 3)
+				require.Equal(t, spec.CapabilityAgentContext, selected.Capabilities[0].Type)
+				require.Equal(t, spec.CapabilityAgentContextV2, selected.Capabilities[1].Type)
+				require.Equal(t, spec.CapabilityVolume, selected.Capabilities[2].Type)
 			} else {
+				require.NoError(t, err)
 				require.Len(t, selected.Capabilities, 1)
 				require.Equal(t, spec.CapabilityAgentContext, selected.Capabilities[0].Type)
 				require.Equal(t, "Legacy guidance.", selected.Capabilities[0].Config["content"])

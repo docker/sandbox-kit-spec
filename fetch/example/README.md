@@ -21,17 +21,19 @@ go run ./fetch/example <<'JSON'
 JSON
 ```
 
-The preview uses `fetch.DefaultCapabilitySelector`: it accepts library-known
-types and prefers `agent-context@2` when a Kit offers both optional
-versions. Legacy-only Kits and required `@1` requests retain `@1`. Use
-`-supported-types=type1,type2` to supply a runtime's actual supported
-types. Add `-allow-volumes=false` to simulate a host rejecting persistent
-storage: an optional cache group then contributes neither its volume nor
-its lifecycle configuration file. If a modern context belongs to such a
-group, the preview retains an independent optional legacy fallback.
-A required rejected entry or group fails resolution.
-An explicit type list replaces the default policy;
-claim one context version to avoid selecting incompatible versions.
+The preview uses `fetch.DefaultCapabilitySelector`, which accepts every
+library-known exact type. It does not choose a preferred version.
+Selecting both `agent-context@1` and `@2` fails composition, even when
+both are optional. For the dual-version examples, use
+`-supported-types=type1,type2` with the complete type list your runtime
+accepts, including just one context version. A required rejected entry
+or group fails resolution.
+
+Add `-allow-volumes=false` to simulate a host rejecting persistent
+storage. An optional cache group then contributes neither its volume nor
+its lifecycle configuration file. Independent eligible context requests
+remain selected. Two optional requests do not express alternatives, and
+rejecting one does not activate another.
 These flags control the preview; it does not inspect the host or apply
 capabilities.
 
@@ -60,11 +62,12 @@ if err != nil {
 `fetch.Options{}` loads registry metadata and uses
 `fetch.DefaultCapabilitySelector`, without reading or validating layers.
 The same selector is the default for `Client.Resolve` and
-`Client.ResolvePartial`. It chooses one context version within each Kit;
-incompatible context versions from different Kits still fail composition.
-This default is not a claim that a runtime implements every type: supply
-its actual supported types or a policy callback that selects one context
-version across the set. Custom callbacks replace the default. A callback
+`Client.ResolvePartial`. Earlier defaults preferred `agent-context@2`
+within a Kit carrying both optional versions. Consumers relying on that
+behavior now supply an explicit exact-type policy across the composition.
+The default does not claim that a runtime implements every type. Supply
+its actual supported types or a policy callback. Custom callbacks replace
+the default. A callback
 has signature
 `func(context.Context, spec.SelectionTarget, spec.Descriptor, spec.Capability) spec.CapabilityDecision`.
 It receives the operation context, a target, and the owning Kit's expanded

@@ -193,7 +193,10 @@ stat_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 # Checked rather than assumed, because the default path is predictable.
 prepare_state() {
 	if [ ! -d "$state" ]; then
-		mkdir -p "$(dirname "$state")"
+		local parent
+		# The sentinel preserves pathname newlines through command substitution.
+		parent="$(dirname -- "$state" && printf .)" || die "cannot resolve state parent"
+		mkdir -p "${parent%$'\n.'}"
 		mkdir -m 700 "$state"
 	fi
 	[ ! -L "$state" ] || die "$state is a symlink; the adapter's state has to be a directory it owns"
@@ -201,6 +204,8 @@ prepare_state() {
 		die "$state belongs to another user; set SBX_TCK_STATE to a directory of this one's"
 	[ "$(stat_mode "$state")" = 700 ] ||
 		die "$state is writable beyond its owner; the adapter acts on what this directory says"
+	state="$(CDPATH= cd -- "$state" && pwd -P && printf .)" || die "cannot resolve state directory"
+	state="${state%$'\n.'}"
 }
 
 # Host state the adapter created, taken back once the last sandbox it
@@ -494,16 +499,67 @@ new_id() {
 	printf 'kit-tck-%s\n' "$(od -An -tx1 -N5 /dev/urandom | tr -d ' \n')"
 }
 
-# One selection record for an ordinary (non-group) capability entry at
-# capabilities[0], optionally with a rejected member path when skipped.
 selection_record() {
-	local kit="$1" rejected="${2:-}"
+	local kit="$1" rejected="${2:-}" path="${3:-capabilities[0]}"
 	if [ -n "$rejected" ]; then
-		printf '{"path":"capabilities[0]","source":{"kit":"%s","path":"capabilities[0]"},"members":["capabilities[0]"],"memberSources":[{"kit":"%s","path":"capabilities[0]"}],"rejected":["%s"]}' \
-			"$kit" "$kit" "$rejected"
+		printf '{"path":"%s","source":{"kit":"%s","path":"%s"},"members":["%s"],"memberSources":[{"kit":"%s","path":"%s"}],"rejected":["%s"]}' \
+			"$path" "$kit" "$path" "$path" "$kit" "$path" "$rejected"
 	else
-		printf '{"path":"capabilities[0]","source":{"kit":"%s","path":"capabilities[0]"},"members":["capabilities[0]"],"memberSources":[{"kit":"%s","path":"capabilities[0]"}]}' \
-			"$kit" "$kit"
+		printf '{"path":"%s","source":{"kit":"%s","path":"%s"},"members":["%s"],"memberSources":[{"kit":"%s","path":"%s"}]}' \
+			"$path" "$kit" "$path" "$path" "$kit" "$path"
+	fi
+}
+
+exact_context_requests() {
+	case "$(basename "$1")" in
+	exact-context-v1-optional) echo '1 true capabilities[0]' ;;
+	exact-context-v1-required) echo '1 false capabilities[0]' ;;
+	exact-context-v2-optional) echo '2 true capabilities[0]' ;;
+	exact-context-v2-required) echo '2 false capabilities[0]' ;;
+	exact-context-pair-optional) printf '%s\n' '1 true capabilities[0]' '2 true capabilities[1]' ;;
+	exact-context-pair-required-low) printf '%s\n' '1 false capabilities[0]' '2 true capabilities[1]' ;;
+	esac
+}
+
+exact_context_available() {
+	claims "com.docker.sandbox/agent-context@$1" &&
+		! rejected_capability "com.docker.sandbox/agent-context@$1"
+}
+
+filter_exact_context_kit() {
+	local id="$1" kit="$2" base version optional path kept=0 denied=0 keep1=0 keep2=0 dest
+	base="$(basename "$kit")"
+	while read -r version optional path; do
+		if exact_context_available "$version"; then
+			kept=$((kept + 1))
+			if [ "$version" = 1 ]; then keep1=1; else keep2=1; fi
+		else
+			denied=$((denied + 1))
+		fi
+	done < <(exact_context_requests "$kit")
+	if [ "$denied" -eq 0 ]; then
+		printf '%s\n' "$kit"
+	elif [ "$kept" -gt 0 ]; then
+		dest="$state/$id.exact-context/$base"
+		mkdir -p "$dest" || return
+		cp "$kit/context.txt" "$dest/context.txt" || return
+		awk -v keep1="$keep1" -v keep2="$keep2" '
+			/^    \{/ { entry++; body = $0; inside = 1; next }
+			inside {
+				if ($0 ~ /^    \},?$/) sub(/,$/, "")
+				body = body "\n" $0
+				if ($0 ~ /^    \}$/) {
+					if ((entry == 1 && keep1) || (entry == 2 && keep2)) {
+						if (written++) print "    ,"
+						print body
+					}
+					inside = 0
+				}
+				next
+			}
+			{ print }
+		' "$kit/$base.yaml" >"$dest/$base.yaml" || return
+		printf '%s\n' "$dest"
 	fi
 }
 
@@ -585,7 +641,16 @@ omit_rejected_optional_kit() {
 # Fixture basenames match the suite's kit directories; the messages name
 # the capability so refusal classification can spot them.
 refuse_rejected_required() {
-	local kit base
+	local kit base version optional path exact_refused=""
+	for kit in "$@"; do
+		while read -r version optional path; do
+			if [ "$optional" = false ] && ! exact_context_available "$version"; then
+				echo "refusing: $(basename "$kit") $path: unavailable com.docker.sandbox/agent-context@$version" >&2
+				exact_refused=1
+			fi
+		done < <(exact_context_requests "$kit")
+	done
+	[ -z "$exact_refused" ] || exit 2
 	for kit in "$@"; do
 		base="$(basename "$kit")"
 		case "$base" in
@@ -634,8 +699,10 @@ refuse_rejected_required() {
 # when those types are rejected, and --kit mixins for optional fixtures.
 # Remembered argv always places mixins under --kit; the sandbox kit stays.
 filter_argv_for_rejects() {
+	local id="$1"
+	shift
 	local -a out=()
-	local arg next
+	local arg next filtered
 	while [ $# -gt 0 ]; do
 		arg="$1"
 		next="${2:-}"
@@ -661,7 +728,8 @@ filter_argv_for_rejects() {
 				shift 2
 				continue
 			fi
-			out+=("$arg" "$next")
+			filtered="$(filter_exact_context_kit "$id" "$next")" || return
+			if [ -n "$filtered" ]; then out+=("$arg" "$filtered"); fi
 			shift 2
 			;;
 		--name | --skills | --pull | --kit-arg | --env)
@@ -674,7 +742,23 @@ filter_argv_for_rejects() {
 			;;
 		esac
 	done
-	printf '%s\0' ${out[@]+"${out[@]}"}
+	argv=(${out[@]+"${out[@]}"})
+}
+
+refuse_exact_context_recreate_conflict() {
+	local kit version optional path low="" high="" detail=""
+	for kit in "$@"; do
+		while read -r version optional path; do
+			if exact_context_available "$version"; then
+				if [ "$version" = 1 ]; then low=1; else high=1; fi
+				detail="$detail $(basename "$kit") $path com.docker.sandbox/agent-context@$version"
+			fi
+		done < <(exact_context_requests "$kit")
+	done
+	if [ -n "$low" ] && [ -n "$high" ]; then
+		echo "refusing: incompatible agent-context versions:$detail" >&2
+		exit 2
+	fi
 }
 
 # Snapshot a usable identity binding into adapter-owned state so recreate
@@ -727,6 +811,7 @@ retain_selection() {
 	local bundle_optional="" bundle_reader=""
 	local ordinary_optional="" groups_partial=""
 	local ssh_optional="" ssh_required_kit=""
+	local version optional path
 	local surface='{}'
 	# Host skills mode/store narrow access; they do not skip the destination
 	# record. Accepted so recreate can pass the same create-time inputs.
@@ -734,6 +819,13 @@ retain_selection() {
 
 	for kit in "${kits[@]}"; do
 		base="$(basename "$kit")"
+		while read -r version optional path; do
+			if exact_context_available "$version"; then
+				selected+=("$(selection_record "$base" "" "$path")")
+			else
+				skipped+=("$(selection_record "$base" "$path" "$path")")
+			fi
+		done < <(exact_context_requests "$kit")
 		case "$base" in
 		git-identity) identity_required=1; identity_requested=1 ;;
 		git-identity-optional) identity_optional=1; identity_requested=1 ;;
@@ -846,6 +938,16 @@ retain_selection() {
 		"$selected_json" "$skipped_json" "$surface" >"$state/$id.selection.json"
 }
 
+forget_sandbox_state() {
+	local id="$1"
+	rm -f "$state/$id.create" "$state/$id.ssh-agent" \
+		"$state/$id.kits" "$state/$id.git-identity-config" \
+		"$state/$id.git-identity-snapshot" \
+		"$state/$id.skills-mode" "$state/$id.skills-store" \
+		"$state/$id.selection.json" "$state/$id.selection-policy"
+	rm -rf "$state/$id.exact-context"
+}
+
 # One create, from the argument list a later recreate can replay. The
 # refusal classification lives here because create is where policy
 # decisions happen: an unsatisfiable requirement, a capability the
@@ -870,11 +972,7 @@ create_sandbox() {
 			# §2.4 has the suite address only the ids create returned, so
 			# a create that returned none leaves nothing to recreate or
 			# remove and its bookkeeping goes with it.
-			rm -f "$state/$id.create" "$state/$id.ssh-agent" \
-				"$state/$id.kits" "$state/$id.git-identity-config" \
-				"$state/$id.git-identity-snapshot" \
-				"$state/$id.skills-mode" "$state/$id.skills-store" \
-				"$state/$id.selection.json" "$state/$id.selection-policy"
+			forget_sandbox_state "$id"
 			# No id means no cleanup callback, so what this create
 			# arranged on the host has to be taken back here or not at
 			# all.
@@ -1041,7 +1139,11 @@ create)
 	# for the next recreate (empty clears).
 	: >"$state/$id.selection-policy"
 	argv=()
-	while IFS= read -r -d '' arg; do argv+=("$arg"); done < <(filter_argv_for_rejects "${remembered_argv[@]}")
+	if ! filter_argv_for_rejects "$id" "${remembered_argv[@]}"; then
+		forget_sandbox_state "$id"
+		release_host_state
+		die "could not filter exact-context fixtures"
+	fi
 	# The suite's agent is the only backing agent this create may use.
 	# Without --ssh-agent, clear SSH_AUTH_SOCK so a host agent of the
 	# operator's is not silently substituted (§2.3). A rejected grant
@@ -1140,11 +1242,13 @@ recreate)
 		done <"$state/$id.selection-policy"
 	fi
 	refuse_rejected_required "${kits[@]+"${kits[@]}"}"
-	run_sbx rm --force "$id" >&2
+	refuse_exact_context_recreate_conflict "${kits[@]+"${kits[@]}"}"
 	remembered_argv=()
 	while IFS= read -r -d '' arg; do remembered_argv+=("$arg"); done <"$state/$id.create"
 	argv=()
-	while IFS= read -r -d '' arg; do argv+=("$arg"); done < <(filter_argv_for_rejects "${remembered_argv[@]+"${remembered_argv[@]}"}")
+	filter_argv_for_rejects "$id" "${remembered_argv[@]+"${remembered_argv[@]}"}" ||
+		die "could not filter exact-context fixtures"
+	run_sbx rm --force "$id" >&2
 	# Replay the original create's agent binding: the suite may have
 	# changed the host's SSH_AUTH_SOCK since, and recreate must still
 	# point at the agent the first create was judged against — unless the
@@ -1217,11 +1321,7 @@ rm)
 	if [ "$status" -ne 0 ] && ! absent "$id"; then
 		exit "$status"
 	fi
-	rm -f "$state/$id.create" "$state/$id.ssh-agent" \
-		"$state/$id.kits" "$state/$id.git-identity-config" \
-		"$state/$id.git-identity-snapshot" \
-		"$state/$id.skills-mode" "$state/$id.skills-store" \
-		"$state/$id.selection.json" "$state/$id.selection-policy"
+	forget_sandbox_state "$id"
 	# What the adapter arranged on the host goes with the last sandbox it
 	# holds: nothing is left to read the store, and leaving it would grow
 	# a user's store by an entry per run.

@@ -1,0 +1,15 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+capabilities:
+  [
+    {
+      "type": "com.docker.sandbox/agent-context@2",
+      "optional": true,
+      "config": {
+        "filename": "AGENTS.md",
+        "directory": "/home/agent/.kit-tck/exact",
+        "content": "inline-guidance-version-two"
+      }
+    }
+  ]

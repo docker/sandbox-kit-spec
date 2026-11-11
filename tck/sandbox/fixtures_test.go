@@ -18,7 +18,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 120, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 127, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -26,7 +26,7 @@ func TestFixturesAreValidKits(t *testing.T) {
 			require.NoError(t, err)
 			d, err := spec.Decode(raw)
 			require.NoError(t, err)
-			_, err = spec.ValidateRaw(raw, d)
+			_, err = spec.ValidateDeclarations(raw, d)
 			require.NoError(t, err)
 		})
 	}
