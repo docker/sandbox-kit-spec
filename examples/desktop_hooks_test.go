@@ -29,6 +29,10 @@ if [ -n "$headers" ]; then
   printf 'Mcp-Session-Id: test\r\n' > "$headers"
 fi
 case "$payload" in
+  *'"method":"tools/list"'*)
+    printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
+      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}'
+    ;;
   *'"method":"tools/call"'*)
     printf '%s\n' "$payload" >> "$MOCK_CALLS"
     printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
@@ -87,11 +91,11 @@ esac
 				calls, err := os.ReadFile(callsPath)
 				require.NoError(t, err)
 				lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
-				want := []string{`{"name":"narwhal_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
+				want := []string{`{"name":"agent_notify","arguments":{"agent":"codex","event":"agent-turn-complete","session_id":"thread-test","cwd":"/event/workspace","message":"Finished the task","title":null,"notification_type":null,"stop_hook_active":false}}`}
 				if tc.withRollout {
 					title, err := json.Marshal(tc.title)
 					require.NoError(t, err)
-					want = append(want, `{"name":"narwhal_session","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":`+string(title)+`,"model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
+					want = append(want, `{"name":"agent_statusline","arguments":{"agent":"codex","session_id":"thread-test","cwd":"/not-a-real-hook-test-workspace","title":`+string(title)+`,"model_id":"current-model","model_name":"current-model","effort":"high","version":"0.160.0","context_used_tokens":120,"context_window":1000,"context_percent":12,"input_tokens":333,"output_tokens":44,"cost_usd":null,"duration_ms":null,"lines_added":null,"lines_removed":null,"git_branch":"rollout-branch","git_commit":"1234567","git_dirty":null}}`)
 				}
 				require.Len(t, lines, len(want))
 				for i, expected := range want {
@@ -127,6 +131,10 @@ if [ -n "$headers" ]; then
   printf 'Mcp-Session-Id: test\r\n' > "$headers"
 fi
 case "$payload" in
+  *'"method":"tools/list"'*)
+    printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
+      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}'
+    ;;
   *'"method":"tools/call"'*)
     printf '%s\n' "$payload" >> "$MOCK_CALLS"
     printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
@@ -184,7 +192,7 @@ esac
 					require.NoError(t, json.Unmarshal([]byte(lines[0]), &call))
 					title, err := json.Marshal(tc.title)
 					require.NoError(t, err)
-					require.JSONEq(t, `{"name":"narwhal_session","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":`+string(title)+`}}`, string(call.Params))
+					require.JSONEq(t, `{"name":"agent_statusline","arguments":{"agent":"claude","session_id":"s-1","cwd":"/work/repo","title":`+string(title)+`}}`, string(call.Params))
 				})
 			}
 		})
@@ -239,7 +247,11 @@ if [ -n "$headers" ]; then
   printf 'Mcp-Session-Id: test\r\n' > "$headers"
 fi
 case "$payload" in
-  *'"name":"narwhal_session"'*)
+  *'"method":"tools/list"'*)
+    printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
+      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}'
+    ;;
+  *'"name":"agent_statusline"'*)
     printf '%s\n' "$payload" >> "$MOCK_DELIVERIES"
     if [ "$MOCK_DELIVERY_RESULT" = http ]; then
       "$fail_http" && exit 22
@@ -415,7 +427,11 @@ if [ -n "$headers" ]; then
   printf 'Mcp-Session-Id: test\r\n' > "$headers"
 fi
 case "$payload" in
-  *'"name":"narwhal_session"'*)
+  *'"method":"tools/list"'*)
+    printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
+      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}'
+    ;;
+  *'"name":"agent_statusline"'*)
     if [ ! -f "$MOCK_HELD" ]; then
       touch "$MOCK_HELD"
       echo entered >&3
@@ -496,5 +512,121 @@ esac
 				require.Equal(t, "test_.session", entries[0].Name())
 			})
 		}
+	}
+}
+
+// The hook calls only what the gateway lists. A desktop app's server is loaded
+// into the gateway only while the app runs, and a governed gateway records
+// every tools/call its policy does not permit, so an absent tool must mean
+// no call at all, not a refused one.
+func TestDesktopHookCallsOnlyListedTools(t *testing.T) {
+	requireExampleTool(t, "jq")
+	bin := t.TempDir()
+	writeExampleFixture(t, filepath.Join(bin, "curl"), `#!/bin/sh
+payload=""; headers=""; method=""; fail_http=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data) shift; payload="$1" ;;
+    -D) shift; headers="$1" ;;
+    -X) shift; method="$1" ;;
+    --fail) fail_http=true ;;
+  esac
+  shift
+done
+if [ -n "$headers" ]; then
+  printf 'Mcp-Session-Id: test\r\n' > "$headers"
+fi
+case "$payload" in
+  *'"method":"tools/list"'*)
+    printf '%s\n' "$payload" >> "$MOCK_LISTS"
+    if [ "$MOCK_LIST_FAIL" = 1 ]; then
+      "$fail_http" && exit 22
+      exit 0
+    fi
+    # Paged: the first page lists an unrelated tool and points at a second,
+    # which carries the configured names.
+    case "$MOCK_PAGED/$payload" in
+      1/*'"cursor":"p2"'*) ;;
+      1/*)
+        printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{tools:[{name:"other_tool"}],nextCursor:"p2"}}'
+        exit 0
+        ;;
+    esac
+    printf '%s' "$payload" | jq -c --arg tools "${MOCK_TOOLS-agent_notify agent_statusline}" \
+      '{jsonrpc:"2.0",id:.id,result:{tools:[$tools | split(" ")[] | select(length > 0) | {name:.}]}}'
+    ;;
+  *'"method":"tools/call"'*)
+    printf '%s\n' "$payload" >> "$MOCK_CALLS"
+    printf '%s' "$payload" | jq -c '{jsonrpc:"2.0",id:.id,result:{content:[]}}'
+    ;;
+esac
+[ "$method" != DELETE ] || touch "$MOCK_CLOSED"
+`, 0o755)
+	for _, kit := range []string{"claude", "claude-mixin", "codex", "codex-mixin"} {
+		run := func(t *testing.T, env ...string) (calls, lists []string) {
+			t.Helper()
+			tmp := t.TempDir()
+			callsPath := filepath.Join(tmp, "calls")
+			listsPath := filepath.Join(tmp, "lists")
+			closed := filepath.Join(tmp, "closed")
+			argv := []string{"sh", filepath.Join(kit, "scripts", "sbx-agent-hook.sh")}
+			input := `{"hook_event_name":"Stop","session_id":"test","cwd":"/work/repo","last_assistant_message":"Done"}`
+			if strings.HasPrefix(kit, "codex") {
+				argv = append(argv, "codex", `{"type":"agent-turn-complete","thread-id":"no-rollout","last-assistant-message":"Done"}`)
+			} else {
+				argv = append(argv, "claude")
+			}
+			stdout, stderr, err := runExampleCommand(t, append([]string{
+				"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+				"HOME=" + tmp,
+				"TMPDIR=" + tmp,
+				"MCP_GATEWAY_URL=http://test.invalid/mcp",
+				"MOCK_CALLS=" + callsPath,
+				"MOCK_LISTS=" + listsPath,
+				"MOCK_CLOSED=" + closed,
+			}, env...), input, argv...)
+			require.NoError(t, err, stderr)
+			require.Empty(t, stdout)
+			require.Empty(t, stderr)
+			require.FileExists(t, closed, "every opened session must be closed, called or not")
+			read := func(path string) []string {
+				data, err := os.ReadFile(path)
+				if os.IsNotExist(err) {
+					return nil
+				}
+				require.NoError(t, err)
+				return strings.Split(strings.TrimSpace(string(data)), "\n")
+			}
+			return read(callsPath), read(listsPath)
+		}
+		t.Run(kit, func(t *testing.T) {
+			t.Run("listed", func(t *testing.T) {
+				calls, lists := run(t)
+				require.Len(t, lists, 1)
+				require.Len(t, calls, 1)
+				require.Contains(t, calls[0], `"name":"agent_notify"`)
+			})
+			t.Run("nothing listed", func(t *testing.T) {
+				calls, lists := run(t, "MOCK_TOOLS=")
+				require.Len(t, lists, 1, "the listing is consulted once per session")
+				require.Nil(t, calls, "an unlisted tool is never called")
+			})
+			t.Run("only the status tool listed", func(t *testing.T) {
+				calls, _ := run(t, "MOCK_TOOLS=agent_statusline")
+				require.Nil(t, calls, "each tool is gated by its own name")
+			})
+			t.Run("listing fails", func(t *testing.T) {
+				calls, lists := run(t, "MOCK_LIST_FAIL=1")
+				require.Len(t, lists, 1)
+				require.Nil(t, calls, "a session whose listing failed has nothing to call")
+			})
+			t.Run("paged listing", func(t *testing.T) {
+				calls, lists := run(t, "MOCK_PAGED=1")
+				require.Len(t, lists, 2, "the hook follows nextCursor")
+				require.Contains(t, lists[1], `"cursor":"p2"`)
+				require.Len(t, calls, 1)
+				require.Contains(t, calls[0], `"name":"agent_notify"`)
+			})
+		})
 	}
 }
