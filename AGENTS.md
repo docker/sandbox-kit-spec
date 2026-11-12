@@ -69,7 +69,7 @@ different one.
 | `task test` | `test:unit` and `test:tck` together, across both modules, plus the containerd consumer check. It does not run `validate` or `lint`; those are separate | Before opening a pull request, alongside `validate` and `lint` |
 | `task kit:dev KIT=hello` | Builds the frontend from the current source under a unique tag and builds one example Kit against it | Any change under `cmd/frontend/`. Needs Docker with buildx |
 | `task kits:dev` | The same for every Kit in `KITS` | A frontend change that touches what every descriptor goes through (decoding, staging, export) |
-| `task test:e2e` | Publishes two Kits to a throwaway registry and builds a set over them | A change to set building, `fetch/`, or `assemble/`. Needs Docker; CI does not run it |
+| `task test:e2e` | Publishes two Kits to a throwaway registry and builds a set over them, and builds a companion recipe whose base comes from a named context | A change to set building, `fetch/`, `assemble/`, or the frontend image's capability labels. Needs Docker; CI does not run it |
 | `task tck:kit REF=<ref>` | `kit-tck validate` against a published Kit | When you changed what the artifact rules check and have a real Kit to judge |
 | `task tck:runtime:sbx` | The full runtime suite against Docker Sandboxes | Do not run unprompted: it needs a signed-in `sbx`, drives hundreds of sandbox lifecycles, and takes up to two hours |
 

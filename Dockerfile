@@ -20,4 +20,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM scratch
 COPY --from=build /frontend /bin/frontend
+# The frontend forwards frontend inputs and named contexts to the content
+# recipe's dockerfile.v0 solve. BuildKit refuses a build that uses either,
+# such as `docker buildx build --build-context`, unless the image declares it.
+LABEL moby.buildkit.frontend.caps="moby.buildkit.frontend.inputs,moby.buildkit.frontend.contexts"
 ENTRYPOINT ["/bin/frontend"]
