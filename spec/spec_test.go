@@ -1247,6 +1247,68 @@ func TestResolveArgs(t *testing.T) {
 	require.ErrorContains(t, err, "not declared")
 }
 
+// A value a declaration rejects is an ArgValueError that says whether the
+// caller supplied it. A default rejection is the author's bug and must not
+// read as caller input. Every other ResolveArgs failure keeps its plain
+// error, so it is not classified as a value rejection.
+func TestResolveArgsTypesValueRejections(t *testing.T) {
+	decls := map[string]Arg{
+		"team":    {Required: true, Enum: []string{"alpha", "beta"}},
+		"version": {Required: true, Pattern: "[0-9]+"},
+	}
+
+	_, err := ResolveArgs(decls, map[string]string{"team": "gamma", "version": "1"})
+	var valueErr *ArgValueError
+	require.ErrorAs(t, err, &valueErr)
+	require.Equal(t, "team", valueErr.Name)
+	require.True(t, valueErr.Supplied)
+	require.EqualError(t, err, `kit arg "team": value "gamma" is not one of [alpha beta]`)
+
+	_, err = ResolveArgs(decls, map[string]string{"team": "alpha", "version": "1x"})
+	require.ErrorAs(t, err, &valueErr)
+	require.Equal(t, "version", valueErr.Name)
+	require.True(t, valueErr.Supplied)
+	require.EqualError(t, err, `kit arg "version": value "1x" does not match pattern "[0-9]+"`)
+
+	_, err = ResolveArgs(decls, map[string]string{"team": "alpha", "version": "a\x00"})
+	require.ErrorAs(t, err, &valueErr)
+	require.True(t, valueErr.Supplied)
+	require.EqualError(t, err, `kit arg "version": value contains NUL (U+0000), which no descriptor string may hold`)
+
+	dflt := "gamma"
+	defaults := map[string]Arg{"fallback": {Default: &dflt, Enum: []string{"alpha", "beta"}}}
+	_, err = ResolveArgs(defaults, nil)
+	require.ErrorAs(t, err, &valueErr)
+	require.Equal(t, "fallback", valueErr.Name)
+	require.False(t, valueErr.Supplied)
+	require.EqualError(t, err, `kit arg "fallback": value "gamma" is not one of [alpha beta]`)
+
+	_, err = ResolveArgs(defaults, map[string]string{"fallback": "beta"})
+	require.NoError(t, err)
+
+	plain := map[string]Arg{
+		"version": {Required: true, Pattern: "[0-9]+"},
+		"bad":     {Pattern: "("},
+		"token":   {BuildSecret: "GITLAB_TOKEN"},
+	}
+	for _, tc := range []struct {
+		name     string
+		decls    map[string]Arg
+		supplied map[string]string
+	}{
+		{"required missing", plain, nil},
+		{"undeclared", plain, map[string]string{"version": "1", "undeclared": "x"}},
+		{"invalid pattern", plain, map[string]string{"version": "1", "bad": "x"}},
+		{"build secret", plain, map[string]string{"version": "1", "token": "x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveArgs(tc.decls, tc.supplied)
+			require.Error(t, err)
+			require.NotErrorAs(t, err, &valueErr)
+		})
+	}
+}
+
 func TestExpandLifecycleLeavesShellVarsAlone(t *testing.T) {
 	d, err := Decode([]byte(`schemaVersion: "3"
 kind: mixin

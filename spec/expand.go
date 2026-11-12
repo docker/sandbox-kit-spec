@@ -36,6 +36,7 @@ func IsWholeArgRef(s string) bool { return wholeArgRef.MatchString(s) }
 // never declared is an error, because a silently ignored input is a
 // misspelling in disguise. Build-secret declarations are skipped; supplying
 // one here is an error, since its bytes belong only in the BuildKit session.
+// A rejected value, supplied or default, is returned as an ArgValueError.
 func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]string, error) {
 	for name := range supplied {
 		if _, ok := decls[name]; !ok {
@@ -61,7 +62,7 @@ func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]s
 			}
 			v = *decl.Default
 		}
-		if err := checkArgValue(name, decl, v); err != nil {
+		if err := checkArgValue(name, decl, v, ok); err != nil {
 			return nil, err
 		}
 		values[name] = v
@@ -69,13 +70,33 @@ func ResolveArgs(decls map[string]Arg, supplied map[string]string) (map[string]s
 	return values, nil
 }
 
-func checkArgValue(name string, decl Arg, v string) error {
+// ArgValueError reports a value that a declaration rejects: NUL, a value
+// outside its enum, or a value failing its pattern. Name is the declared
+// arg. Supplied is true when the caller chose the value and false when it
+// is the declared default. Validation never checks a default against its
+// own enum or pattern, so a default rejection is the kit author's bug, not
+// caller input.
+type ArgValueError struct {
+	Name     string
+	Supplied bool
+	err      error
+}
+
+func (e *ArgValueError) Error() string { return e.err.Error() }
+
+func (e *ArgValueError) Unwrap() error { return e.err }
+
+func argValueErrorf(name string, supplied bool, format string, args ...any) error {
+	return &ArgValueError{Name: name, Supplied: supplied, err: fmt.Errorf(format, args...)}
+}
+
+func checkArgValue(name string, decl Arg, v string, supplied bool) error {
 	// A value supplied at create lands in descriptor strings, or, exported
 	// through env with no reference, in the container environment as it
 	// is, so it is held to the rule every descriptor string is. Checked
 	// first, since the refusals below print the value.
 	if strings.ContainsRune(v, 0) {
-		return fmt.Errorf("kit arg %q: value contains NUL (U+0000), which no descriptor string may hold", name)
+		return argValueErrorf(name, supplied, "kit arg %q: value contains NUL (U+0000), which no descriptor string may hold", name)
 	}
 	if len(decl.Enum) > 0 {
 		for _, e := range decl.Enum {
@@ -83,7 +104,7 @@ func checkArgValue(name string, decl Arg, v string) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("kit arg %q: value %q is not one of %v", name, v, decl.Enum)
+		return argValueErrorf(name, supplied, "kit arg %q: value %q is not one of %v", name, v, decl.Enum)
 	}
 	if decl.Pattern != "" {
 		re, err := regexp.Compile("^(?:" + decl.Pattern + ")$")
@@ -91,7 +112,7 @@ func checkArgValue(name string, decl Arg, v string) error {
 			return fmt.Errorf("kit arg %q: invalid pattern: %w", name, err)
 		}
 		if !re.MatchString(v) {
-			return fmt.Errorf("kit arg %q: value %q does not match pattern %q", name, v, decl.Pattern)
+			return argValueErrorf(name, supplied, "kit arg %q: value %q does not match pattern %q", name, v, decl.Pattern)
 		}
 	}
 	return nil

@@ -792,6 +792,9 @@ func TestKitArgValues(t *testing.T) {
 
 	_, err = KitArgValues(decls, map[string]string{"team": "gamma"})
 	require.ErrorContains(t, err, "gamma")
+	var valueErr *ArgValueError
+	require.ErrorAs(t, err, &valueErr)
+	require.True(t, valueErr.Supplied)
 
 	_, err = KitArgValues(decls, map[string]string{"team": "alpha", "nope": "x"})
 	require.ErrorContains(t, err, `no arg "nope"`)
