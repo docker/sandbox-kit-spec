@@ -19,14 +19,32 @@ type runtimeNode struct {
 }
 
 // runtimeGraph separates declaration identity from effective requests. scopes
-// holds original node indexes; providers maps a name to its original Kit scopes.
-// Neither map is rebuilt from merged payloads or publisher-supplied attribution.
+// holds original node indexes; providers binds a name to original Kit scope
+// ranges. Neither map is rebuilt from merged payloads or publisher attribution.
+// Shared ranges and dependency groups keep empty publication scopes linear in
+// the input size, even when many aggregate aliases name the whole artifact.
 type runtimeGraph struct {
 	nodes        []runtimeNode
 	scopes       [][]int
-	providers    map[string][]int
-	dependencies [][]bool
+	providers    map[string][]runtimeProviderBinding
+	dependencies []runtimeScopeDependencies
 }
+
+// A whole-artifact alias shares one range instead of copying every scope index
+// for every provided name. Explicit original bindings use singleton ranges.
+// Range identity also prevents repeated expansion through different aliases.
+type runtimeScopeRange struct{ first, end int }
+
+type runtimeProviderBinding struct {
+	scopes *runtimeScopeRange
+	offer  Provide
+}
+
+// Aggregate requirements apply to every scope, but their parsed expressions
+// and traversal are shared. Local requirements retain empty intermediate Kits'
+// dependencies without constructing a square scope-reachability matrix.
+type runtimeDependencyGroup struct{ requirements []Require }
+type runtimeScopeDependencies struct{ local, aggregate *runtimeDependencyGroup }
 
 // runtimeEdge retains the normal or written constraint responsible for an edge.
 // Writer and before preserve which endpoint authored a relationship, because
@@ -54,31 +72,58 @@ type runtimeFragment struct {
 // Empty scopes remain addressable: an absent provider is a warning, while a
 // present provider missing a requested ID is an error.
 func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
-	graph := &runtimeGraph{providers: map[string][]int{}}
+	graph := &runtimeGraph{providers: map[string][]runtimeProviderBinding{}}
 	for ci, contribution := range contributions {
 		d := contribution.Descriptor
 		baseScope := len(graph.scopes)
 		scopeCount := max(1, len(d.CapabilityScopes))
 		graph.scopes = append(graph.scopes, make([][]int, scopeCount)...)
+		aggregate, err := runtimeDependencies(d.Requires, d.Integrates)
+		if err != nil {
+			return nil, err
+		}
+		aggregateRange := &runtimeScopeRange{first: baseScope, end: baseScope + scopeCount}
+		graph.dependencies = append(graph.dependencies, make([]runtimeScopeDependencies, scopeCount)...)
+		for local := range scopeCount {
+			graph.dependencies[baseScope+local].aggregate = aggregate
+		}
+		// Published scopes bind names while the enclosing descriptor retains
+		// their versions. Dependencies match the offered version, never merely
+		// a present name, including the descriptor's version fallback.
+		offers := map[string]Provide{}
+		for _, raw := range d.Provides {
+			offer, err := ParseProvide(raw)
+			if err != nil {
+				return nil, err
+			}
+			if offer.Version == "" {
+				offer.Version = d.Version
+			}
+			offers[offer.Name] = offer
+		}
 		bound := map[string]bool{}
 		for i, scope := range d.CapabilityScopes {
+			local, err := runtimeDependencies(scope.Requires, scope.Integrates)
+			if err != nil {
+				return nil, err
+			}
+			graph.dependencies[baseScope+i].local = local
+			scopeRange := &runtimeScopeRange{first: baseScope + i, end: baseScope + i + 1}
 			for _, name := range scope.Provides {
-				graph.providers[name] = append(graph.providers[name], baseScope+i)
+				graph.providers[name] = append(graph.providers[name], runtimeProviderBinding{scopes: scopeRange, offer: offers[name]})
 				bound[name] = true
 			}
 		}
 		// An aggregate provide without an original scope binding belongs to
 		// this whole contribution, never to unrelated contributions beside it.
 		for _, raw := range d.Provides {
-			provided, err := ParseProvide(raw)
+			offer, err := ParseProvide(raw)
 			if err != nil {
 				return nil, err
 			}
-			if !bound[provided.Name] {
-				for i := range scopeCount {
-					graph.providers[provided.Name] = append(graph.providers[provided.Name], baseScope+i)
-				}
-				bound[provided.Name] = true
+			if !bound[offer.Name] {
+				graph.providers[offer.Name] = append(graph.providers[offer.Name], runtimeProviderBinding{scopes: aggregateRange, offer: offers[offer.Name]})
+				bound[offer.Name] = true
 			}
 		}
 		add := func(c *Capability, path string) {
@@ -110,9 +155,6 @@ func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
 				add(&item.Group.Capabilities[j], fmt.Sprintf("%s.group.capabilities[%d]", path, j))
 			}
 		}
-	}
-	if err := graph.buildDependencies(contributions); err != nil {
-		return nil, err
 	}
 	return graph, nil
 }
@@ -149,20 +191,23 @@ func (g *runtimeGraph) resolve(writer int, target orderingTarget) ([]int, bool, 
 		}
 		return targets, len(targets) > 0, nil
 	}
-	var scopes []int
+	var bindings []runtimeProviderBinding
 	if target.local {
-		scopes = []int{g.nodes[writer].scope}
+		scope := g.nodes[writer].scope
+		bindings = []runtimeProviderBinding{{scopes: &runtimeScopeRange{first: scope, end: scope + 1}}}
 	} else {
 		var present bool
-		scopes, present = g.providers[target.provider]
+		bindings, present = g.providers[target.provider]
 		if !present {
 			return nil, false, nil
 		}
 	}
-	for _, scope := range scopes {
-		for _, i := range g.scopes[scope] {
-			if target.id == "" || g.nodes[i].capability.ID == target.id {
-				targets = append(targets, i)
+	for _, binding := range bindings {
+		for scope := binding.scopes.first; scope < binding.scopes.end; scope++ {
+			for _, i := range g.scopes[scope] {
+				if target.id == "" || g.nodes[i].capability.ID == target.id {
+					targets = append(targets, i)
+				}
 			}
 		}
 	}
@@ -178,73 +223,74 @@ func (g *runtimeGraph) resolve(writer int, target orderingTarget) ([]int, bool, 
 	return targets, true, nil
 }
 
-// buildDependencies retains Kit dependency constraints independently of the
+// runtimeDependencies retains Kit dependency constraints independently of the
 // caller's chosen order among unrelated Kits. Scope metadata carries internal
 // dependencies through publication, where satisfied requirements disappear.
-func (g *runtimeGraph) buildDependencies(contributions []Contribution) error {
-	n := len(g.scopes)
-	g.dependencies = make([][]bool, n)
-	for i := range n {
-		g.dependencies[i] = make([]bool, n)
-	}
-	// Published scopes bind names while the enclosing descriptor retains the
-	// versions of every offer. Resolve constraints against those versions; a
-	// merely present but incompatible integrates provider contributes no edge.
-	provided := make([][]Provide, n)
-	base := 0
-	for _, contribution := range contributions {
-		d := contribution.Descriptor
-		count := max(1, len(d.CapabilityScopes))
-		for _, raw := range d.Provides {
-			p, err := ParseProvide(raw)
+func runtimeDependencies(groups ...[]string) (*runtimeDependencyGroup, error) {
+	var parsed []Require
+	for _, group := range groups {
+		for _, raw := range group {
+			required, err := ParseRequire(raw)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			if p.Version == "" {
-				p.Version = d.Version
-			}
-			for _, scope := range g.providers[p.Name] {
-				if scope >= base && scope < base+count {
-					provided[scope] = append(provided[scope], p)
-				}
-			}
+			parsed = append(parsed, required)
 		}
-		base += count
 	}
-	base = 0
-	for _, contribution := range contributions {
-		d := contribution.Descriptor
-		count := max(1, len(d.CapabilityScopes))
-		for local := range count {
-			relations := append(slices.Clone(d.Requires), d.Integrates...)
-			if len(d.CapabilityScopes) > 0 {
-				relations = append(relations, d.CapabilityScopes[local].Requires...)
-				relations = append(relations, d.CapabilityScopes[local].Integrates...)
+	if len(parsed) == 0 {
+		return nil, nil
+	}
+	return &runtimeDependencyGroup{requirements: parsed}, nil
+}
+
+// scopePredecessors traverses only when a participating entry needs its normal
+// order. Empty intermediate Kits still connect providers to requirers, while
+// an artifact containing only empty scopes never computes any reachability.
+// Groups and ranges are expanded once per query, so shared aggregate metadata
+// cannot multiply work by the number of scopes. Nothing is cached quadratically.
+func (g *runtimeGraph) scopePredecessors(ctx context.Context, scope int) (map[int]bool, error) {
+	visited := map[int]bool{scope: true}
+	groups := map[*runtimeDependencyGroup]bool{}
+	ranges := map[*runtimeScopeRange]bool{}
+	pending := []int{scope}
+	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		dependencies := g.dependencies[current]
+		for _, group := range []*runtimeDependencyGroup{dependencies.local, dependencies.aggregate} {
+			if group == nil || groups[group] {
+				continue
 			}
-			for _, raw := range relations {
-				required, err := ParseRequire(raw)
-				if err != nil {
-					return err
+			groups[group] = true
+			for _, required := range group.requirements {
+				if err := ctx.Err(); err != nil {
+					return nil, err
 				}
-				for _, provider := range g.providers[required.Name] {
-					if provider != base+local && slices.ContainsFunc(provided[provider], func(p Provide) bool { return Satisfies(p, required) }) {
-						g.dependencies[provider][base+local] = true
+				for _, binding := range g.providers[required.Name] {
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+					if ranges[binding.scopes] || !Satisfies(binding.offer, required) {
+						continue
+					}
+					ranges[binding.scopes] = true
+					for provider := binding.scopes.first; provider < binding.scopes.end; provider++ {
+						if err := ctx.Err(); err != nil {
+							return nil, err
+						}
+						if !visited[provider] {
+							visited[provider] = true
+							pending = append(pending, provider)
+						}
 					}
 				}
 			}
 		}
-		base += count
 	}
-	// Reachability includes empty intermediate Kits, so their lack of entries does
-	// not erase provider-before-requirer constraints on the Kits around them.
-	for k := range n {
-		for i := range n {
-			for j := range n {
-				g.dependencies[i][j] = g.dependencies[i][j] || g.dependencies[i][k] && g.dependencies[k][j]
-			}
-		}
-	}
-	return nil
+	return visited, nil
 }
 
 // writtenEdges validates every declaration target before selection. Later the
@@ -364,7 +410,7 @@ func (g *runtimeGraph) plan(ctx context.Context, capabilities []Capability, cont
 				continue
 			}
 			boundary := ExecutionBoundary{phase, step}
-			order, err := g.boundaryOrder(boundary, fragments, written)
+			order, err := g.boundaryOrder(ctx, boundary, fragments, written)
 			if err != nil {
 				return ExecutionPlan{}, nil, fmt.Errorf("%s/%s: %w", phase, step, err)
 			}
@@ -377,7 +423,7 @@ func (g *runtimeGraph) plan(ctx context.Context, capabilities []Capability, cont
 // boundaryOrder implements the normative computation. Normal constraints are
 // complete pairwise Kit declaration/dependency constraints, not just adjacent
 // edges: moving one entry must not release the order of untouched neighbors.
-func (g *runtimeGraph) boundaryOrder(boundary ExecutionBoundary, fragments []runtimeFragment, written []runtimeEdge) ([]int, error) {
+func (g *runtimeGraph) boundaryOrder(ctx context.Context, boundary ExecutionBoundary, fragments []runtimeFragment, written []runtimeEdge) ([]int, error) {
 	var nodes []int
 	origins := make([][]int, len(g.nodes))
 	for i, fragment := range fragments {
@@ -390,14 +436,29 @@ func (g *runtimeGraph) boundaryOrder(boundary ExecutionBoundary, fragments []run
 		}
 	}
 	normal := map[[2]int]runtimeEdge{}
-	for _, i := range nodes {
-		for _, j := range nodes {
+	precedingScope := -1
+	var predecessors map[int]bool
+	for _, j := range nodes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		right := fragments[j].entry
+		rs := g.nodes[right].scope
+		if rs != precedingScope {
+			var err error
+			predecessors, err = g.scopePredecessors(ctx, rs)
+			if err != nil {
+				return nil, err
+			}
+			precedingScope = rs
+		}
+		for _, i := range nodes {
 			if i == j {
 				continue
 			}
-			left, right := fragments[i].entry, fragments[j].entry
-			ls, rs := g.nodes[left].scope, g.nodes[right].scope
-			if ls == rs && left < right || ls != rs && g.dependencies[ls][rs] {
+			left := fragments[i].entry
+			ls := g.nodes[left].scope
+			if ls == rs && left < right || ls != rs && predecessors[ls] {
 				normal[[2]int{i, j}] = runtimeEdge{from: i, to: j, reason: "normal Kit declaration/dependency order"}
 			}
 		}
