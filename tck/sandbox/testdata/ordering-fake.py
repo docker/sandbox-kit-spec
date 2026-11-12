@@ -72,10 +72,18 @@ def wait_for(predicate, message):
 
 
 def running(pid):
-    try:
-        return pathlib.Path('/proc', str(pid), 'stat').read_text().split()[2] != 'Z'
-    except FileNotFoundError:
+    # ps exposes process state on both Linux and macOS, where procfs is
+    # absent. kill(pid, 0) also finds zombies, which have already stopped;
+    # waitpid cannot reap children of an earlier adapter invocation.
+    result = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='],
+                            capture_output=True, text=True, check=False)
+    status = result.stdout.strip()
+    # An absent PID is ps's normal empty selection. Other failures must
+    # propagate so Stop cannot forget processes it failed to inspect.
+    if result.returncode == 1 and not status and not result.stderr.strip():
         return False
+    result.check_returncode()
+    return bool(status) and not status.startswith('Z')
 
 
 def stop(data):

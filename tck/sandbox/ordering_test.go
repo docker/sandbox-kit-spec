@@ -1,11 +1,26 @@
 package sandbox
 
 import (
+	"context"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// These regressions drive real processes from Python so that signals and
+// unreaped children behave as they do across fake-adapter invocations.
+// Keep them in the Go suite: testdata is otherwise outside test discovery.
+func TestOrderingFakeProcesses(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "python3", filepath.Join("testdata", "ordering-fake_test.py"))
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", out)
+}
 
 func TestOrderingConformingRuntime(t *testing.T) {
 	for _, c := range checks {

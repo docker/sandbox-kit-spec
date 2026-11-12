@@ -31,14 +31,15 @@ def snapshot(name):
 
 mode = sys.argv[1]
 if mode == 'workload':
-    append('ordering-entrypoint', '|'.join(snapshot(name) for name in (
-        'ordering-install', 'ordering-startup', 'ordering-file')) + '\n')
-
     def stop_workload(_sig, _frame):
         append('ordering-stop', 'workload,')
         sys.exit(0)
 
+    # Publishing the entrypoint record permits an immediate Stop, so the
+    # shutdown observer must be installed before readiness is visible.
     signal.signal(signal.SIGTERM, stop_workload)
+    append('ordering-entrypoint', '|'.join(snapshot(name) for name in (
+        'ordering-install', 'ordering-startup', 'ordering-file')) + '\n')
 elif mode == 'background':
     name = sys.argv[2]
 
