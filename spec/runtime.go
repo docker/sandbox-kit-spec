@@ -102,6 +102,10 @@ type ExecutionEntry struct {
 
 // ExecutionAction applies or ends one effect of one effective request.
 // FragmentID distinguishes effective requests shared by the same logical entry.
+// Within a sandbox, (EntryID, FragmentID, Phase, Step, Action) identifies the
+// effect. End distinguishes its application from its cleanup. Completion state
+// must record those separately: applying an install grant does not complete the
+// later action that withdraws it.
 // Capability is nil only for runtime-owned workspace readiness and workload
 // actions. Their IDs cannot be targeted by descriptor relationships.
 type ExecutionAction struct {

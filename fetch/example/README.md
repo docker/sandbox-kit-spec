@@ -328,11 +328,13 @@ Run Prepare, Install, Start, and Running in their fixed order, completing
 Attach before Place before Execute in each phase. After Install, run
 `Plan.InstallEnd` before Start so install grants and temporary material
 are withdrawn. Record completed once-only actions against the sandbox
-and action identity; later boots repeat Prepare and Start without
-replaying installation. On ordinary shutdown after a successful start,
-consume `Plan.Stop` in its emitted order. The runtime owns persistence,
-process operations, grants, and readiness checks; assembly performs none
-of those effects.
+and the effect key `(EntryID, FragmentID, Phase, Step, Action)`.
+Track application and cleanup (`End`) separately: completing a grant's
+application must not skip its later withdrawal. Later boots repeat
+Prepare and Start without replaying installation. On ordinary shutdown
+after a successful start, consume `Plan.Stop` in its emitted order. The
+runtime owns persistence, process operations, grants, and readiness checks.
+Assembly performs none of those effects.
 
 Set `Options.WorkspaceAssigned` when the sandbox has a workspace. The
 runtime-owned `workspace-ready` action completes initial cloning or
