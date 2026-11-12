@@ -1,14 +1,17 @@
 #!/bin/sh
-# sbx-agent-hook — forwards agent lifecycle and session information to Narwhal.
+# sbx-agent-hook — forwards agent lifecycle and session information to a desktop app.
 #
-# The desktop app registers an MCP server per sandbox on the sandbox's MCP
-# gateway (the same gateway the agent already talks to). This script turns
-# harness payloads into `tools/call`s on that server so the app can raise a
-# macOS notification (`narwhal_notify`) and render a status line for the
-# session (`narwhal_session`: model, effort, context window, tokens,
-# cost, lines changed, git branch). When the app is not installed, not
-# running, or has not loaded its server into this sandbox, the gateway
-# answers with an error and nothing else happens.
+# A desktop app for sandboxes registers an MCP server per sandbox on the
+# sandbox's MCP gateway (the same gateway the agent already talks to). This
+# script turns harness payloads into `tools/call`s on that server so the app
+# can raise a notification (`agent_notify`) and render a status line for the
+# session (`agent_statusline`: model, effort, context window, tokens, cost,
+# lines changed, git branch). Both tools are looked up in the gateway's
+# `tools/list` first and called only when listed: the app's server is loaded
+# only while the app runs, and a governed gateway records every `tools/call`
+# its MCP policy does not permit as a denied audit entry, so a call the
+# gateway never sees is the only one that leaves no trace. Without the app
+# nothing is called and nothing else happens.
 #
 #   sbx-agent-hook claude          Claude Code Stop / StopFailure / Notification
 #                                  hook: event JSON on stdin -> notify;
@@ -51,7 +54,7 @@ sid=""
 hdr=""
 mcp_open() {
   hdr=$(mktemp 2>/dev/null) || return 1
-  init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"sbx-agent-hook","version":"1.2"}}}'
+  init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"sbx-agent-hook","version":"1.3"}}}'
   if ! curl -s -m 3 -o /dev/null -D "$hdr" -H "$auth" -H "$ctype" -H "$accept" --data "$init" "$url"; then
     rm -f "$hdr"
     return 1
@@ -61,25 +64,68 @@ mcp_open() {
   [ -n "$sid" ] || return 1
   curl -s -m 3 -o /dev/null -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
     --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$url"
+  # A session with no listing is one nothing may be called on.
+  if ! tools=$(mcp_tools); then
+    mcp_close
+    return 1
+  fi
   return 0
 }
+# Streamable HTTP permits JSON or SSE; this jq prelude yields the body's
+# JSON-RPC messages either way.
+jq_messages='
+  def messages:
+    . as $body | try [fromjson] catch
+      [$body | gsub("\r\n|\r"; "\n") | split("\n\n")[]
+       | split("\n") | map(select(startswith("data:"))
+                            | .[5:] | ltrimstr(" ")) | join("\n")
+       | select(length > 0) | fromjson?];
+  def reply: messages | map(select(type == "object" and .jsonrpc == "2.0" and .id == $id));'
 rpc_id=1
+# The names the gateway lists, one per line, across every tools/list page.
+# A page that fails or does not parse fails the listing. Runs in a command
+# substitution, so it takes request ids from 1000 up: a session must never
+# see an id twice, and increments made here would be lost to the caller.
+tools=""
+mcp_tools() {
+  cursor=""
+  pages=0
+  while [ "$pages" -lt 16 ]; do
+    pages=$((pages + 1))
+    list_id=$((1000 + pages))
+    params=$(jq -cn --arg c "$cursor" 'if $c == "" then {} else {cursor: $c} end')
+    response=$(curl -s --fail -m 5 -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
+      --data "{\"jsonrpc\":\"2.0\",\"id\":$list_id,\"method\":\"tools/list\",\"params\":$params}" "$url") || return 1
+    # First line: the next cursor (empty on the last page); then the names.
+    page=$(printf '%s' "$response" | jq -Rsr --argjson id "$list_id" "$jq_messages"'
+      reply | select(length == 1) | .[0] | select(has("error") | not) | .result
+      | select(type == "object") | select((.tools | type) == "array")
+      | (.nextCursor // "" | tostring), (.tools[] | .name | select(type == "string"))') || return 1
+    [ -n "$page" ] || return 1
+    cursor=$(printf '%s\n' "$page" | sed 1q)
+    printf '%s\n' "$page" | sed 1d
+    [ -n "$cursor" ] || return 0
+  done
+  return 1
+}
+# Whether the gateway listed a tool in this session.
+has_tool() { # tool-name
+  case "
+$tools
+" in *"
+$1
+"*) return 0 ;; esac
+  return 1
+}
 mcp_call() { # tool-name arguments-json
+  has_tool "$1" || return 1
   rpc_id=$((rpc_id + 1))
   response=$(curl -s --fail -m 5 -H "$auth" -H "$ctype" -H "$accept" -H "Mcp-Session-Id: $sid" \
     --data "{\"jsonrpc\":\"2.0\",\"id\":$rpc_id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" "$url") || return 1
-  # Streamable HTTP permits JSON or SSE. Only a matching, successful
-  # tools/call result acknowledges delivery; HTTP 200 alone does not.
-  printf '%s' "$response" | jq -Rse --argjson id "$rpc_id" '
-    def messages:
-      . as $body | try [fromjson] catch
-        [$body | gsub("\r\n|\r"; "\n") | split("\n\n")[]
-         | split("\n") | map(select(startswith("data:"))
-                              | .[5:] | ltrimstr(" ")) | join("\n")
-         | select(length > 0) | fromjson?];
-    messages
-    | map(select(type == "object" and .jsonrpc == "2.0" and .id == $id))
-    | length == 1 and (.[0]
+  # Only a matching, successful tools/call result acknowledges delivery;
+  # HTTP 200 alone does not.
+  printf '%s' "$response" | jq -Rse --argjson id "$rpc_id" "$jq_messages"'
+    reply | length == 1 and (.[0]
       | (has("error") | not)
         and (.result | type == "object" and (.content | type == "array")
              and ((has("isError") | not) or .isError == false)))
@@ -228,7 +274,7 @@ send_session() { # args-json
   [ -r "$stamp" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$sum" ] && return 0
   mcp_open || return 0
   # Keep failed deliveries eligible for retry on the next identical update.
-  if mcp_call narwhal_session "$1"; then
+  if mcp_call agent_statusline "$1"; then
     printf '%s' "$sum" > "$stamp" 2>/dev/null
   fi
   mcp_close
@@ -271,7 +317,7 @@ send_pending() { # session-key
           args=$(claude_prompt_args) || exit 0
           [ -n "$args" ] || exit 0
           mcp_open || exit 0
-          mcp_call narwhal_session "$args"
+          mcp_call agent_statusline "$args"
           mcp_close
           exit 0
           ;;
@@ -281,7 +327,7 @@ send_pending() { # session-key
       # A Stop that a previous Stop hook already continued is the same turn.
       case "$args" in *'"stop_hook_active":true'*) exit 0 ;; esac
       mcp_open || exit 0
-      mcp_call narwhal_notify "$args"
+      mcp_call agent_notify "$args"
       mcp_close
       ;;
     claude-status)
@@ -314,8 +360,8 @@ send_pending() { # session-key
         fi
       fi
       mcp_open || exit 0
-      mcp_call narwhal_notify "$args"
-      [ -n "$session" ] && mcp_call narwhal_session "$session"
+      mcp_call agent_notify "$args"
+      [ -n "$session" ] && mcp_call agent_statusline "$session"
       mcp_close
       ;;
   esac
