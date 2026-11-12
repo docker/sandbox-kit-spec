@@ -6,7 +6,7 @@ require (
 	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/distribution/reference v0.6.0
 	github.com/docker/sandbox-kit-spec/v3 v3.0.0-m.10
-	github.com/moby/buildkit v0.34.2
+	github.com/moby/buildkit v0.35.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/stretchr/testify v1.12.1
@@ -53,7 +53,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
-	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
@@ -81,9 +81,6 @@ replace github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.1.9
 // require overrides. Remove each replacement once upstream requires at least
 // the fixed version named below.
 replace (
-	// v0.19.0 fixes CVE-2026-77395 and CVE-2026-71482, respectively.
-	github.com/containerd/stargz-snapshotter => github.com/containerd/stargz-snapshotter v0.19.1
-	github.com/containerd/stargz-snapshotter/estargz => github.com/containerd/stargz-snapshotter/estargz v0.19.1
 	// Revision bd33e0b11a3d fixes GHSA-cj86-7jch-72f4 and includes the
 	// earlier BER parsing fix for GHSA-3xqc-rpq8-wgp9.
 	github.com/digitorus/pkcs7 => github.com/digitorus/pkcs7 v0.0.0-20261104125046-a476de3098e4
