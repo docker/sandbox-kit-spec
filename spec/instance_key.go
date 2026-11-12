@@ -20,6 +20,8 @@ const (
 	// AritySingleton types appear at most once, so the type alone
 	// identifies the entry.
 	AritySingleton Arity = "singleton"
+	// AritySequence entries remain independent, including identical requests.
+	AritySequence Arity = "sequence"
 	// ArityWholeEntry types are instance-shaped with no key beyond the
 	// exact entry: two entries are one request only when they are
 	// identical. usb-device@1 is one.
@@ -36,6 +38,8 @@ func ArityOf(typ string) Arity {
 		return ArityInstance
 	}
 	switch {
+	case typ == CapabilityLifecycle:
+		return AritySequence
 	case singletonCapabilities[typ]:
 		return AritySingleton
 	case typ == CapabilityUSBDevice || typ == CapabilityDockerAuth:

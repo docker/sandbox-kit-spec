@@ -105,6 +105,9 @@ func inspectDescriptor(a Artifact) (*Inspection, any, error) {
 // staged root whose kit.yaml is the same document as the annotation,
 // compared as parsed YAML since neither decodes into a Descriptor.
 func ownStemAsDocument(ctx context.Context, a Artifact, doc any, stems []string) string {
+	if stem, present, err := sourceStemLabel(ctx, a); err != nil || present {
+		return stem
+	}
 	if len(stems) == 1 {
 		return stems[0]
 	}

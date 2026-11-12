@@ -1,0 +1,14 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+provides:
+- kit-tck-order-provider@1.0.0
+capabilities:
+- type: com.docker.sandbox/lifecycle@1
+  id: setup
+  config:
+    install:
+    - command: printf 'provider,' >> /var/tmp/ordering-dependencies-install
+      user: '1000'
+    startup:
+    - command: printf 'provider,' >> /var/tmp/ordering-dependencies-startup

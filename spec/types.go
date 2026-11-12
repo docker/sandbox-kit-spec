@@ -19,6 +19,10 @@ const SchemaVersion = "3"
 // older kits whose annotations carry YAML keep decoding.
 const AnnotationDescriptor = "vnd.docker.sandbox.kit.descriptor"
 
+// LabelSourceStem identifies the artifact's own staged descriptor in image config.
+// A set also carries its imported Kits' sources, which cannot identify the root.
+const LabelSourceStem = "vnd.docker.sandbox.kit.source-stem"
+
 // AnnotationSchemaVersion carries the descriptor's schemaVersion beside it,
 // so tooling can dispatch on the grammar version from the manifest alone —
 // no YAML parse — and a future schema bump is visible in a registry listing.
@@ -194,6 +198,10 @@ type Descriptor struct {
 	// through one mechanism, or refuses the parts it does not know.
 	Capabilities []CapabilityItem `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 
+	// CapabilityScopes retains original Kit ID namespaces when publishing sets.
+	// Indexes identify declaration occurrences, never a source or trust boundary.
+	CapabilityScopes []CapabilityScope `json:"capabilityScopes,omitempty" yaml:"capabilityScopes,omitempty"`
+
 	// Args declares installer-supplied values, keyed by arg name. Private
 	// by default: an arg reaches the container only via env:, and the
 	// build only via buildArg: or buildSecret:.
@@ -268,6 +276,12 @@ type Kit struct {
 	Args map[string]string `json:"args,omitempty" yaml:"args,omitempty"`
 }
 
+// CapabilityScope binds provided names to one original Kit's declarations.
+// Empty scopes remain present so a provider with no ID is not an absent provider.
+type CapabilityScope struct {
+	Provides []string `json:"provides,omitempty" yaml:"provides,omitempty"`
+}
+
 // Capability is one typed, versioned capability request. The type string is
 // <namespace>/<name>@<version>: the namespace admits host-specific
 // capability types without touching this grammar. The version covers the
@@ -276,6 +290,16 @@ type Kit struct {
 // a descriptor schema-major bump; RELEASES.md defines when versions move
 // and the maintainer-approved draft-stage exception.
 type Capability struct {
+	// ID is an optional literal name, unique within its originating Kit.
+	ID string `json:"id,omitempty" yaml:"id,omitempty"`
+	// Before and After order declarations within fixed execution boundaries.
+	Before []string `json:"before,omitempty" yaml:"before,omitempty"`
+	After  []string `json:"after,omitempty" yaml:"after,omitempty"`
+	// Scope indexes Descriptor.CapabilityScopes in a published set.
+	Scope *uint32 `json:"scope,omitempty" yaml:"scope,omitempty"`
+
+	executionOrigins []int
+
 	// Group is the alternative to an ordinary entry. It is not a capability
 	// type and must be selected before typed accessors are used.
 	Group *CapabilityGroup `json:"group,omitempty" yaml:"group,omitempty"`
@@ -338,8 +362,23 @@ func (c *Capability) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 	// YAML coerces numbers and booleans into Go strings and accepts null.
 	// Match the schema's string-only label instead of silently renaming it.
-	if name, ok := keys["name"]; ok && name.ShortTag() != "!!str" {
-		return fmt.Errorf("capability name must be a string")
+	for _, field := range []string{"name", "id"} {
+		if value, ok := keys[field]; ok && value.ShortTag() != "!!str" {
+			return fmt.Errorf("capability %s must be a string", field)
+		}
+	}
+	if value, ok := keys["id"]; ok && value.Value == "" {
+		return fmt.Errorf("capability id must not be empty")
+	}
+	for _, field := range []string{"before", "after"} {
+		if value, ok := keys[field]; ok {
+			if err := stringSequenceYAML(value, field); err != nil {
+				return err
+			}
+		}
+	}
+	if value, ok := keys["scope"]; ok && value.ShortTag() != "!!int" {
+		return fmt.Errorf("capability scope must be an unsigned integer")
 	}
 	if blocks, ok := keys["declarationBlocks"]; ok {
 		if blocks.ShortTag() != "!!seq" {
@@ -359,7 +398,7 @@ func (c *Capability) UnmarshalYAML(unmarshal func(any) error) error {
 		return fmt.Errorf("capability source must be an object")
 	}
 	if c.groupSet {
-		for _, key := range []string{"type", "name", "description", "optional", "config"} {
+		for _, key := range []string{"type", "name", "description", "optional", "config", "id", "before", "after", "scope"} {
 			if _, ok := keys[key]; ok {
 				return fmt.Errorf("group item must not state %s", key)
 			}
@@ -382,8 +421,20 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return err
 	}
-	if name, ok := keys["name"]; ok && bytes.Equal(bytes.TrimSpace(name), []byte("null")) {
-		return fmt.Errorf("capability name must be a string")
+	for _, field := range []string{"name", "id", "scope"} {
+		if value, ok := keys[field]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return fmt.Errorf("capability %s must not be null", field)
+		}
+	}
+	if _, ok := keys["id"]; ok && c.ID == "" {
+		return fmt.Errorf("capability id must not be empty")
+	}
+	for _, field := range []string{"before", "after"} {
+		if value, ok := keys[field]; ok {
+			if err := stringSequenceJSON(value, field); err != nil {
+				return err
+			}
+		}
 	}
 	if blocks, ok := keys["declarationBlocks"]; ok {
 		if bytes.Equal(bytes.TrimSpace(blocks), []byte("null")) {
@@ -407,7 +458,7 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("capability source must be an object")
 	}
 	if c.groupSet {
-		for _, key := range []string{"type", "name", "description", "optional", "config"} {
+		for _, key := range []string{"type", "name", "description", "optional", "config", "id", "before", "after", "scope"} {
 			if _, ok := keys[key]; ok {
 				return fmt.Errorf("group item must not state %s", key)
 			}
@@ -1166,8 +1217,9 @@ type File struct {
 
 // Lifecycle is CapabilityLifecycle's config: everything the engine
 // executes on the kit's behalf across the sandbox's life. Install runs
-// once per sandbox at create, in dependency order, with the network
-// policy's install phase open; a hook sees only the env it declares.
+// once per sandbox in Install after workspace readiness. Startup runs in
+// Start. Each entry follows the common execution order; a hook sees only
+// the environment it declares.
 // Startup runs every boot and must tolerate being re-run. Files are
 // written at start rather than baked because their content depends on
 // runtime state; ${{ kit.args.* }} expands at create, $VAR is left for

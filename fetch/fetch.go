@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -183,6 +184,10 @@ type Resolved struct {
 	// AgentContextsV2Of reads the complete inline guidance from this field.
 	Descriptor *spec.Descriptor
 
+	// Plan is the validated execution sequence. Runtime handlers consume its
+	// actions instead of treating Descriptor or Kits as an execution schedule.
+	Plan spec.ExecutionPlan
+
 	// Kits are selected, unmerged contributions in dependency order, providers before
 	// requirers (including the workload wherever its dependencies put it).
 	// Each retains its consumption reference, pinned image identity, and
@@ -190,7 +195,7 @@ type Resolved struct {
 	// Descriptor.Args is cleared because the values have already been applied.
 	// This is declaration order; image layers start with the workload.
 	// A Kit can contribute several selected lifecycle/context entries. Apply
-	// lifecycle from Descriptor. For @1 context use spec.AgentContextsOf on
+	// lifecycle through Plan. For @1 context use spec.AgentContextsOf on
 	// each Kit; @2 profiles and bodies are complete in the merged Descriptor.
 	Kits []*resolve.Unit
 
@@ -237,6 +242,8 @@ type resolveOptions struct {
 	environment               map[string]string
 	envOverrides              map[string]string
 	retainExpandedDescriptors bool
+	executionContracts        map[string]spec.ExecutionContract
+	workspaceAssigned         bool
 }
 
 // WithExpandedDescriptors opts into capturing an independent expanded descriptor
@@ -257,6 +264,23 @@ func WithExpandedDescriptors() ResolveOption {
 // rejection errors.
 func WithCapabilitySelector(selector spec.SelectCapability) ResolveOption {
 	return func(o *resolveOptions) { o.selector = selector }
+}
+
+// WithExecutionContracts registers trusted exact-version semantics for types
+// selected by a runtime. Built-in contracts cannot be replaced.
+func WithExecutionContracts(contracts map[string]spec.ExecutionContract) ResolveOption {
+	contracts = maps.Clone(contracts)
+	for name, contract := range contracts {
+		contract.Defaults = slices.Clone(contract.Defaults)
+		contracts[name] = contract
+	}
+	return func(o *resolveOptions) { o.executionContracts = contracts }
+}
+
+// WithWorkspaceAssigned includes the mandatory initial workspace-readiness
+// action after install access is established and before install commands.
+func WithWorkspaceAssigned(assigned bool) ResolveOption {
+	return func(o *resolveOptions) { o.workspaceAssigned = assigned }
 }
 
 // WithEnvironment supplies composed image defaults and runtime overrides for
@@ -406,57 +430,56 @@ func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, parti
 		publishedByReference[k.Reference] = k
 	}
 	ordered := resolution.Topological()
-	var selections []KitSelection
-	contributions := make([]spec.Contribution, 0, len(ordered))
+	selections := make([]KitSelection, len(ordered))
+	contributions := make([]spec.Contribution, len(ordered))
 	for i, u := range ordered {
 		published := publishedByReference[u.Reference]
 		var snapshot *spec.Descriptor
 		if options.retainExpandedDescriptors {
-			// Copy before callbacks can mutate data shared with effective grants.
 			snapshot = cloneExpandedDescriptor(u.Descriptor)
 		}
-		selected, err := spec.SelectCapabilities(ctx, u.Reference, withSelectionSources(u.Descriptor, u.Reference), options.selector)
-		if err != nil {
-			return nil, spec.WithSource(err, u.Reference, published.Raw)
+		selections[i] = KitSelection{
+			Reference: u.Reference, PublishedDescriptor: published.Descriptor,
+			ExpandedDescriptor: snapshot, PublishedBytes: published.Raw,
 		}
-		selections = append(selections, KitSelection{
-			Reference:           u.Reference,
-			PublishedDescriptor: published.Descriptor,
-			ExpandedDescriptor:  snapshot,
-			PublishedBytes:      published.Raw,
-			Selection:           selected,
-		})
-		cp := *u
-		d := *u.Descriptor
-		d.Capabilities = selected.Capabilities
-		cp.Descriptor = &d
-		ordered[i] = &cp
-		contributions = append(contributions, spec.Contribution{Reference: u.Reference, Descriptor: &d})
+		contributions[i] = spec.Contribution{
+			Reference: u.Reference, Descriptor: withSelectionSources(u.Descriptor, u.Reference),
+		}
 	}
-	merged, err := spec.Compose(contributions)
+	composed, err := spec.ComposeRuntime(ctx, contributions, spec.RuntimeOptions{
+		Select: options.selector, Contracts: options.executionContracts,
+		WorkspaceAssigned: options.workspaceAssigned,
+	})
 	if err != nil {
 		if errors.Is(err, spec.ErrDescriptorTooLarge) {
-			return nil, fmt.Errorf("compose capabilities: %w", spec.ErrDescriptorTooLarge)
+			if hadEnvironment {
+				return nil, fmt.Errorf("compose capabilities after environment expansion: %w", spec.ErrDescriptorTooLarge)
+			}
+			return nil, fmt.Errorf("compose capabilities: %w", err)
 		}
 		if hadEnvironment {
 			return nil, fmt.Errorf("compose capabilities after environment expansion: incompatible declarations")
 		}
+		var compositionErr *spec.RuntimeCompositionError
+		if errors.As(err, &compositionErr) && compositionErr.Contribution != nil {
+			reference := contributions[*compositionErr.Contribution].Reference
+			if published := publishedByReference[reference]; published != nil {
+				return nil, spec.WithSource(err, reference, published.Raw)
+			}
+		}
 		return nil, err
 	}
-	result := &Resolved{Descriptor: merged, Kits: ordered, ContainerEnv: env, Selections: selections}
-	// Validate the bytes the descriptor serializes to: independently valid
-	// inputs can exceed the document budget once combined.
-	raw, err := json.Marshal(merged)
-	if err != nil {
-		return nil, fmt.Errorf("encode merged descriptor: %w", err)
+	for i, selected := range composed.Selections {
+		selections[i].Selection = selected.Selection
+		cp := *ordered[i]
+		d := *ordered[i].Descriptor
+		d.Capabilities = selected.Selection.Capabilities
+		cp.Descriptor = &d
+		ordered[i] = &cp
 	}
-	result.Warnings, err = spec.ValidateEffective(raw, merged)
-	if err != nil {
-		if hadEnvironment {
-			return nil, fmt.Errorf("merged descriptor is invalid after environment expansion")
-		}
-		return nil, spec.WithSource(err, "merged descriptor", raw)
-	}
+	result := &Resolved{Descriptor: composed.Descriptor, Plan: composed.Plan,
+		Kits: ordered, ContainerEnv: env, Selections: selections, Warnings: composed.Warnings}
+
 	return result, nil
 }
 

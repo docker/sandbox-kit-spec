@@ -503,16 +503,20 @@ A runtime supplies decisions on expanded entries; the API owns atomic
 selection and ordering. Validate all member configs even in skipped
 groups. Selected entries must still satisfy cross-entry rules, and a
 composition conflict is an error rather than a reason to skip another
-group. Singleton arity is per declaration block; lifecycle lists from
-selected blocks concatenate, and duplicate file paths are errors.
+group. Singleton arity is per declaration block for policy types.
+Lifecycle entries remain independent, including identical commands.
+Duplicate lifecycle file destinations and multiple interactive tails
+still fail across selected entries.
 
 Published sets may carry `declarationBlocks` on ordinary items or
 one-member group wrappers. Preserve these descriptor-local IDs when
 reading a published descriptor: they keep duplicate checks within an
 original block after expansion, without coupling optional selection.
-A publisher remaps them per contribution occurrence, retains all IDs on
-reconciled concrete requests, and never derives them from diagnostic
-`source` metadata. Hand-authored Kits normally omit this field.
+A publisher remaps them per contribution occurrence and never derives
+them from diagnostic `source` metadata. Published declarations also carry
+`scope` indexes into `capabilityScopes` to preserve local IDs and original
+provided-name bindings. Preserve these fields when consuming a published
+set. Hand-authored Kits normally omit structural publication fields.
 
 Selection lasts for one sandbox installation, including restarts.
 Recreation selects afresh. A failing selected hook is an execution
@@ -551,3 +555,29 @@ or finished preparation. It is unset with no workspace, and then a
 `${{ kit.env.WORKSPACE_DIR }}` reference fails at create. A process cwd
 does not change the assigned workspace. Hooks list each of these inputs
 they consume in `env`; none is in lifecycle's automatic baseline.
+
+### Capability execution relationships
+
+Use optional explicit `id` names only when another entry needs to target
+one declaration. IDs are local to the original Kit. `before` and `after`
+accept an exact type such as `com.docker.sandbox/dockerd@1`, a provided
+name such as `com.example/agent`, a quoted local ID such as `"#setup"`,
+or a qualified ID such as `com.example/agent#setup`. Do not derive IDs
+from positions. Relationships never grant or select their targets.
+
+Prepare, Install, and Start each run Attach, then Place, then Execute.
+Files are Start Place work, so they precede services and startup commands
+but are unavailable during Install. A file and a startup command can stay
+in one lifecycle entry. Split entries when commands must run on opposite
+sides of another service. A root startup command can write daemon.json
+before Docker with `before: [com.docker.sandbox/dockerd@1]`. That explicit
+override removes the engine-readiness default for that entry only, so the
+command cannot itself depend on Docker. Lifecycle files still belong to
+the agent.
+
+Workspace cloning and required access finish before lifecycle install
+commands. Keep workspace dependency installation in an install hook when
+it should run once. Startup commands run every boot. An explicit edge
+cannot bypass workspace readiness, phase boundaries, or step boundaries.
+A skipped optional entry retains its written ordering edges but runs no
+effects. Ordinary Stop reverses the start order.

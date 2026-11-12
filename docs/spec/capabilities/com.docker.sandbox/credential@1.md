@@ -80,11 +80,12 @@ A conforming runtime:
 - **MUST** intercept the OAuth `tokenEndpoint` and serve sentinel tokens, <!-- tck: credential@1/oauth-token-endpoint-intercepted -->
   refreshing host-side; `passthrough: true` is the explicit opt-out and a
   security downgrade a runtime MAY refuse.
-- **MUST** scope by phase: an install-only credential is injectable only while <!-- tck: credential@1/phase-scoped -->
-  install hooks run and is revoked before the workload's entrypoint starts;
-  a runtime-only credential is unavailable to install hooks and is the
-  agent's steady state. When both phases are listed, the credential is
-  available in both, with the same configuration.
+- **MUST** scope by phase: an install-only credential is injectable during <!-- tck: credential@1/phase-scoped -->
+  Install, including workspace preparation and install commands, and is
+  revoked before Start. Runtime credentials cover Start through Stop,
+  including startup hooks, and are unavailable during Install. When both
+  phases are listed, the credential is available in both with the same
+  configuration.
 - **MUST** scope a bound, named, proxy-managed API key's sentinel to its <!-- tck: credential@1/sentinel-phase-scoped -->
   declared phases. This includes install hooks that declare its
   variable in `env`, the workload's initial environment, and later runtime

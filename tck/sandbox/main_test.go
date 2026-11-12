@@ -46,5 +46,16 @@ func run(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	ordering := filepath.Join(dir, "ordering-runtime")
+	buildOrdering := exec.Command("go", "build", "-o", ordering, "./testdata/ordering-runtime")
+	buildOrdering.Stdout, buildOrdering.Stderr = os.Stderr, os.Stderr
+	if err := buildOrdering.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "build the fake ordering planner:", err)
+		return 1
+	}
+	if err := os.Setenv("KIT_TCK_FAKE_ORDERING", ordering); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	return m.Run()
 }

@@ -327,7 +327,8 @@ unchanged. `phase` also accepts a non-empty list of distinct phases:
 
 ### lifecycle@1
 
-One entry holding `install:`, `startup:`, `files:` and `interactive:`. Commands,
+One or more independent entries holding `install:`, `startup:`, `files:`
+and `interactive:`. Commands,
 `user:` and `description:` carry over verbatim. `interactive` names the same
 launch as `agent-interactive-sessions@1`'s `newSession`, which defaults to it.
 
@@ -386,9 +387,12 @@ that needs nothing from create time. Keep it a hook when:
 - A v2 `startup[].background` carries over unchanged. The field is
   **startup-only** in v3 — `InstallHook` has no `background`, so strict
   decoding rejects it on an install hook rather than ignoring it.
-- Install hooks run once at create, before the entrypoint, with the install-phase
-  network and credentials open. Startup hooks run on every boot and must be
-  idempotent.
+- Install hooks run once at create, after initial workspace preparation,
+  with install network access and credentials available. Startup hooks run
+  on every boot and must be idempotent. Files are written in Start Place,
+  after Install and before startup commands. Split entries for commands
+  on opposite sides of a service. Use explicit local IDs and `before` or
+  `after` relationships; preserve separate entries through publication.
 
 ### agent-context@2
 
@@ -532,7 +536,8 @@ It replaces the parts a v2 kit assembled by hand, so remove them with a
   and recreation, and validation refuses storage at or under that path beside
   `dockerd@1`. Its size arg goes with it.
 - a startup hook whose only job is starting `dockerd`: the runtime starts the
-  engine before any startup hook runs. Keep hooks that use the engine. A kit
+  engine before startup hooks by default. Keep hooks that use the engine.
+  An explicit opposing relationship can put a preparation command first. A kit
   whose hook must start the engine itself, with its own flags, keeps that hook
   and sets `config: {autoStart: false}`; the runtime still grants elevation
   and the store, and starts nothing. The hook then waits until

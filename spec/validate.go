@@ -62,6 +62,7 @@ func Validate(d *Descriptor) (warnings []string, err error) {
 	errs.add(validateIconURL(d.IconURL))
 	errs.add(validateCapabilityNames(d))
 	errs.add(validateCapabilityEntries(d))
+	errs.add(validateOrderingDeclarations(d))
 	errs.add(validateArgs(d.Args))
 	errs.add(validateRecipe(d))
 	errs.add(validateKits(d))
@@ -489,7 +490,6 @@ var singletonCapabilities = map[string]bool{
 	CapabilityKitRegistry:              true,
 	CapabilityAgentSessions:            true,
 	CapabilityAgentInteractiveSessions: true,
-	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
 	CapabilityOpenURL:                  true,
@@ -640,6 +640,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 	// lifecycle inside a group once one is selected.
 	var newSession, interactive []string
 	newSessionAt, interactiveAt := -1, -1
+	fileOwners := map[string]int{}
 	// Both session capabilities enumerate the same sessions whichever
 	// mode opened them, so a Kit declaring list on both states one
 	// command. Compared on the decoded argv, so the string and list
@@ -675,7 +676,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 		}
 		// surface is set for every entry that reaches here: checkEntry
 		// returns before setting it only for the two cases skipped above.
-		if prev, dup := seenExact[c.surface]; dup {
+		if prev, dup := seenExact[c.surface]; dup && ArityOf(n.Type) != AritySequence {
 			if !duplicateSingleton && reported.first(ruleIdentical, c, checks[prev], noKey) {
 				errs.add(fieldErrorf(path, "capabilities[%d]: identical to capabilities[%d]", i, prev))
 			}
@@ -791,7 +792,19 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 			newSession, newSessionAt = c.newSession, i
 			interactiveList, interactiveListAt = c.interactiveList, i
 		case CapabilityLifecycle:
-			interactive, interactiveAt = c.interactive, i
+			if c.interactive != nil {
+				if interactiveAt >= 0 && reported.first(ruleLifecycleInteractive, c, checks[interactiveAt], noKey) {
+					errs.add(fieldErrorf(path+".config.interactive", "multiple lifecycle interactive declarations, first at capabilities[%d]", interactiveAt))
+				}
+				interactive, interactiveAt = c.interactive, i
+			}
+			for _, file := range c.lifecycleFiles {
+				clean := containerpath.Clean(file)
+				if prev, duplicate := fileOwners[clean]; duplicate && prev != i && reported.first(ruleLifecycleFile, c, checks[prev], clean) {
+					errs.add(fieldErrorf(path+".config.files", "lifecycle file %q already declared at capabilities[%d]", clean, prev))
+				}
+				fileOwners[clean] = i
+			}
 		}
 	}
 
@@ -880,6 +893,7 @@ type entryCheck struct {
 	hasDirectory, hasBody bool
 	// The decoded argvs the block compares across entries, set only when
 	// the typed checks decoded the config.
+	lifecycleFiles                []string
 	newSession, interactive       []string
 	headlessList, interactiveList CommandLine
 }
@@ -1210,6 +1224,9 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 			return false
 		}
 		c.interactive = l.Interactive
+		for _, file := range l.Files {
+			c.lifecycleFiles = append(c.lifecycleFiles, file.Path)
+		}
 		if len(l.Install) == 0 && len(l.Startup) == 0 && len(l.Files) == 0 && len(l.Interactive) == 0 {
 			c.errs.add(fieldErrorf(path+".config", "capabilities[%d]: lifecycle declares no hooks, no files, and no interactive tail; drop the entry instead", i))
 		}
@@ -1308,6 +1325,8 @@ const (
 	ruleContextBody           = "context-body"
 	ruleContextProfile        = "context-profile"
 	ruleInteractive           = "interactive"
+	ruleLifecycleInteractive  = "lifecycle-interactive"
+	ruleLifecycleFile         = "lifecycle-file"
 	ruleList                  = "list"
 	ruleNetworkPolicyVersions = "network-policy-versions"
 	ruleEngineStore           = "engine-store"

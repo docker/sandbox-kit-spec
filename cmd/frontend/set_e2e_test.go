@@ -169,7 +169,11 @@ kits:
 	require.Empty(t, d.Requires, "the set answers e2e-base itself, so the merged kit does not require it")
 	require.Equal(t, []string{"Apache-2.0", "BSD-3-Clause", "MIT"}, d.Licenses)
 
-	policy, err := spec.NetworkPolicyOf(d.Capabilities)
+	composition, err := spec.ComposeRuntime(t.Context(), []spec.Contribution{{Reference: "published-team", Descriptor: d}}, spec.RuntimeOptions{
+		Select: spec.Supported(spec.KnownCapabilities()...),
+	})
+	require.NoError(t, err)
+	policy, err := spec.NetworkPolicyOf(composition.Descriptor.Capabilities)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"base.example.com", "extra.example.com"}, policy.Runtime.Allow)
 	require.Equal(t, []string{"evil.example.com"}, policy.Runtime.Deny,
@@ -177,17 +181,25 @@ kits:
 
 	// The re-exported arg: the set's build-phase value reaches the other
 	// kit's hook text, which is the regression this test exists for.
-	lifecycle, err := spec.LifecycleOf(d.Capabilities)
+	lifecycle, err := spec.LifecycleOf(composition.Descriptor.Capabilities)
 	require.NoError(t, err)
 	require.Len(t, lifecycle.Files, 1)
 	require.Equal(t, "flavor=spicy", lifecycle.Files[0].Content)
 
-	context, err := spec.AgentContextOf(d.Capabilities)
+	profile, err := spec.AgentContextOf(composition.Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, "CLAUDE.md", context.Filename,
+	require.Equal(t, "CLAUDE.md", profile.Filename,
 		"the agent mixin and set agree on the explicit profile overriding the base's legacy filename")
-	require.Equal(t, "/home/agent/.claude", context.Directory)
-	require.Equal(t, "/usr/share/sandbox/kit/team/context.md", context.ContentFile)
+	require.Equal(t, "/home/agent/.claude", profile.Directory)
+	var bodyPaths []string
+	for _, entry := range spec.DeclaredCapabilities(d.Capabilities) {
+		if entry.Type == spec.CapabilityAgentContext {
+			var body spec.AgentContext
+			require.NoError(t, spec.DecodeCapabilityConfig(entry, &body))
+			bodyPaths = append(bodyPaths, body.ContentFile)
+		}
+	}
+	require.Len(t, bodyPaths, 3, "publication keeps each body independently selectable")
 
 	require.Len(t, d.Kits, 2)
 	for _, k := range d.Kits {
@@ -196,10 +208,8 @@ kits:
 	require.Equal(t, map[string]string{"flavor": "spicy"}, d.Kits[1].Args,
 		"the recorded value is the one that was merged in, not the reference it was written as")
 
-	// The merged filesystem carries every kit's staged sources and the
-	// concatenated context body.
 	out := e.run("docker", "run", "--rm", "--pull=always", registry+"/sbx-kit-team:3.0.0",
-		"-c", "ls /usr/share/sandbox/kit/ && cat /usr/share/sandbox/kit/team/context.md && cat /opt/extra")
+		"-c", "ls /usr/share/sandbox/kit/ && cat /usr/share/sandbox/kit/team/context.md.parts/*.md && cat /opt/extra")
 	for _, want := range []string{"base", "extra", "team", "Base guidance.", "Extra is installed.", "Team guidance."} {
 		require.Contains(t, out, want)
 	}
@@ -227,6 +237,9 @@ kits:
 	t.Run("conditional declarations", func(t *testing.T) {
 		child := &e2e{t: t, builder: e.builder}
 		child.groupSet(frontend, registry)
+	})
+	t.Run("scoped execution order", func(t *testing.T) {
+		(&e2e{t: t, builder: e.builder}).orderedSet(frontend, registry)
 	})
 	t.Run("re-exported volume size", func(t *testing.T) {
 		child := &e2e{t: t, builder: e.builder}
@@ -294,7 +307,11 @@ kits:
 		manifest := e.manifest(registry, "sbx-kit-"+name+"-set", "1.0.0")
 		d, err := spec.Decode([]byte(manifest.Annotations[spec.AnnotationDescriptor]))
 		require.NoError(t, err)
-		policy, err := spec.NetworkPolicyOf(d.Capabilities)
+		composition, err := spec.ComposeRuntime(t.Context(), []spec.Contribution{{Reference: set, Descriptor: d}}, spec.RuntimeOptions{
+			Select: spec.Supported(spec.KnownCapabilities()...),
+		})
+		require.NoError(t, err)
+		policy, err := spec.NetworkPolicyOf(composition.Descriptor.Capabilities)
 		require.NoError(t, err)
 		require.Equal(t, []string{"derived.example.com"}, policy.Runtime.Allow,
 			"FROM inherits content, not the base kit's declarations")
@@ -302,12 +319,12 @@ kits:
 		require.Contains(t, d.Provides, "e2e-derived@1.0.0")
 		require.NotContains(t, d.Provides, "e2e-base@1.0.0")
 		require.NotContains(t, d.Provides, "e2e-team@3.0.0")
-		lifecycle, err := spec.LifecycleOf(d.Capabilities)
+		lifecycle, err := spec.LifecycleOf(composition.Descriptor.Capabilities)
 		require.NoError(t, err)
 		require.Len(t, lifecycle.Files, 1)
 		require.Equal(t, "flavor=selected", lifecycle.Files[0].Content)
 		out := e.run("docker", "run", "--rm", "--pull=always", set, "-c",
-			"cat /usr/share/sandbox/kit/"+name+"/guidance.md && cat /usr/share/sandbox/kit/base/kit.dockerfile && cat /usr/share/sandbox/kit/team/context.md && cat /opt/extra")
+			"cat /usr/share/sandbox/kit/"+name+"/guidance.md && cat /usr/share/sandbox/kit/base/kit.dockerfile && cat /usr/share/sandbox/kit/team/context.md.parts/*.md && cat /opt/extra")
 		require.Contains(t, out, "Derived guidance.")
 		require.Contains(t, out, "FROM busybox:1.37")
 		require.Contains(t, out, "Team guidance.")
@@ -476,7 +493,8 @@ kits:
 		{Path: "${{ kit.args.shared_path }}", Size: "${{ kit.args.shared_size }}", Mode: "${{ kit.args.shared_mode }}"},
 		{Path: "/literal-cache", Size: "1024", Mode: "755"},
 		{Path: "${{ kit.args.shared_path }}", Size: "${{ kit.args.shared_size }}", Mode: "${{ kit.args.shared_mode }}"},
-	}, volumes, "only unresolved requests remain separate at publication")
+		{Path: "/literal-cache", Size: "1k", Mode: "0755"},
+	}, volumes, "publication preserves concrete requests and their original scopes")
 	client, err := fetch.New(fetch.WithPlainHTTP())
 	require.NoError(t, err)
 	for _, size := range []string{"2g", "1024", "1.5", "18446744073709551617"} {
@@ -693,13 +711,15 @@ kits:
 		resolved, err := client.Resolve(t.Context(), []fetch.Request{{Reference: ref}}, fetch.WithCapabilitySelector(func(_ context.Context, _ spec.SelectionTarget, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
 			calls++
 			return spec.CapabilityDecision{Accepted: accept || c.Type != "com.example/feature@1"}
-		}))
+		}), fetch.WithExecutionContracts(map[string]spec.ExecutionContract{"com.example/feature@1": {}}))
 		require.NoError(t, err)
-		lc, err := spec.LifecycleOf(resolved.Descriptor.Capabilities)
+		lifecycles, err := spec.LifecyclesOf(resolved.Descriptor.Capabilities)
 		require.NoError(t, err)
 		var commands []string
-		for _, hook := range lc.Startup {
-			commands = append(commands, strings.Join(hook.Command, " "))
+		for _, lifecycle := range lifecycles {
+			for _, hook := range lifecycle.Startup {
+				commands = append(commands, strings.Join(hook.Command, " "))
+			}
 		}
 		expected := []string{"sh -c before", "sh -c after"}
 		if accept {
@@ -731,6 +751,85 @@ kits:
 		require.NoError(t, err)
 		require.NoError(t, rep.Err(), "%s", rep)
 	}
+}
+
+func (e *e2e) orderedSet(frontend, registry string) {
+	t := e.t
+	dir := t.TempDir()
+	provider := registry + "/sbx-kit-order-provider:1.0.0"
+	e.publish(dir, "order-provider", provider, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: mixin
+version: "1.0.0"
+provides: [com.example/ordering]
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    id: setup
+    before: [com.docker.sandbox/dockerd@1]
+    config:
+      startup: [{command: echo configure}]
+  - type: com.docker.sandbox/dockerd@1
+  - type: com.docker.sandbox/lifecycle@1
+    id: launch
+    config:
+      startup: [{command: [docker, info]}]
+build: |
+  FROM scratch
+  COPY marker /opt/order-marker
+`, map[string]string{"marker": "ordering fixture"})
+	nested := registry + "/sbx-kit-order-nested:1.0.0"
+	e.publish(dir, "order-nested", nested, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: set
+kits:
+  - ref: `+provider+`
+`, nil)
+	outer := registry + "/sbx-kit-order-outer:1.0.0"
+	e.publish(dir, "order-outer", outer, `# syntax=`+frontend+`
+schemaVersion: "3"
+kind: set
+kits:
+  - ref: `+registry+`/sbx-kit-base:1.0.0
+  - ref: `+nested+`
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    id: setup
+    after: [com.example/ordering#setup]
+    before: [com.example/ordering#launch]
+    config:
+      startup: [{command: echo middle}]
+`, nil)
+	client, err := fetch.New(fetch.WithPlainHTTP())
+	require.NoError(t, err)
+	resolved, err := client.Resolve(t.Context(), []fetch.Request{{Reference: outer}})
+	require.NoError(t, err)
+	var actions []string
+	for _, phase := range resolved.Plan.Phases {
+		if phase.Phase != spec.PhaseStart {
+			continue
+		}
+		for _, step := range phase.Steps {
+			if step.Step != spec.StepExecute {
+				continue
+			}
+			for _, action := range step.Actions {
+				if action.Action == "engine" {
+					actions = append(actions, "engine")
+					continue
+				}
+				var lifecycle spec.Lifecycle
+				require.NoError(t, spec.DecodeCapabilityConfig(*action.Capability, &lifecycle))
+				for _, hook := range lifecycle.Startup {
+					actions = append(actions, strings.Join(hook.Command, " "))
+				}
+			}
+		}
+	}
+	require.Equal(t, []string{"sh -c echo configure", "engine", "sh -c echo middle", "docker info"}, actions)
+	require.NotEmpty(t, resolved.Warnings, "the explicit override of Docker's default is reported")
+	lifecycles, err := spec.LifecyclesOf(resolved.Descriptor.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, lifecycles, 3)
 }
 
 func (e *e2e) environmentSet(frontend, registry string) {

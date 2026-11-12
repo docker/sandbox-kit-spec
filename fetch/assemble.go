@@ -27,6 +27,10 @@ type Options struct {
 	// Nil uses DefaultCapabilitySelector; a runtime with fewer implementations
 	// supplies spec.Supported with its actual claims. Groups remain atomic.
 	CapabilitySelector spec.SelectCapability
+	// ExecutionContracts supplies exact-version semantics for selected third-party types.
+	ExecutionContracts map[string]spec.ExecutionContract
+	// WorkspaceAssigned schedules initial workspace readiness before install commands.
+	WorkspaceAssigned bool
 	// RetainExpandedDescriptors opts into independent pre-selection snapshots in
 	// Resolved.Selections. They include skipped declarations and may contain
 	// secrets from the final environment. Default false; excluded from JSON even
@@ -54,7 +58,7 @@ type Overrides struct {
 }
 
 // Result contains the image, selected declarations, and container settings.
-// Persist Resolved.Descriptor and Resolved.Selections for restart; recreate
+// Persist Resolved.Plan, Resolved.Descriptor and Resolved.Selections for restart; recreate
 // resolves and selects afresh. Use Resolved.Kits with resolve.Resolve and
 // resolve.LockFrom for permission checks and locking.
 type Result struct {
@@ -160,7 +164,10 @@ func Assemble(ctx context.Context, requests []Request, options Options) (*Result
 			selector = DefaultCapabilitySelector
 		}
 		var err error
-		resolveOptions := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(environment, options.Overrides.Env)}
+		resolveOptions := []ResolveOption{
+			WithCapabilitySelector(selector), WithEnvironment(environment, options.Overrides.Env),
+			WithExecutionContracts(options.ExecutionContracts), WithWorkspaceAssigned(options.WorkspaceAssigned),
+		}
 		if options.RetainExpandedDescriptors {
 			resolveOptions = append(resolveOptions, WithExpandedDescriptors())
 		}

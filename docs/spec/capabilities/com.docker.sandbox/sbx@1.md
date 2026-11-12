@@ -124,8 +124,9 @@ working directory alone does not designate a workspace; the runtime
 assigns one. When an absolute image `WORKDIR` determines its placement
 under the rule above, `WORKSPACE_DIR` identifies that location. A
 process-specific cwd does not change the assigned workspace. Presence
-identifies a path, without promising that cloning or other preparation
-has finished; preparation timing is a separate lifecycle concern.
+identifies a path; it is not itself a readiness signal. The runtime
+finishes initial cloning or other preparation before lifecycle install
+commands, under [§12](../../SPEC-v3.md#12-runtime-environment).
 
 `SANDBOX_NAME` and `SANDBOX_ID` **MUST** identify the same sandbox. <!-- tck: sbx@1/identity-consistent -->
 Names can be reused; identifiers distinguish sandbox instances.

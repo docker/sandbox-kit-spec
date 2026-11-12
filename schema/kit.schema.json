@@ -89,6 +89,12 @@
       },
       "description": "Typed, versioned capability requests, each answered \u2014 granted, refused, or prompted \u2014 by the host. A host refuses a required type it does not provide by name; an optional one is skipped and recorded. Engine-executed behaviors (lifecycle hooks, agent context with an optional discovery profile directory) live here beside resource grants."
     },
+    "capabilityScopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/definitions/capabilityScope"},
+      "description": "Original Kit ID namespaces in a published set, including empty providers. Every ordinary declaration references one scope. Indexes grant no permissions."
+    },
     "args": {
       "type": "object",
       "propertyNames": {
@@ -213,6 +219,74 @@
     },
     {
       "$ref": "#/definitions/noNul"
+    },
+    {
+      "if": {
+        "required": [
+          "capabilityScopes"
+        ]
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "if": {
+                "required": [
+                  "group"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "group": {
+                    "properties": {
+                      "capabilities": {
+                        "items": {
+                          "required": [
+                            "scope"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "else": {
+                "required": [
+                  "scope"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "not": {
+                "required": [
+                  "scope"
+                ]
+              },
+              "properties": {
+                "group": {
+                  "properties": {
+                    "capabilities": {
+                      "items": {
+                        "not": {
+                          "required": [
+                            "scope"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {
@@ -280,6 +354,19 @@
         "type"
       ],
       "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9+.-]{0,62}[a-z0-9+])?$",
+          "description": "Literal explicit ID, unique within the originating Kit across all groups."
+        },
+        "before": {"$ref": "#/definitions/orderingTargets"},
+        "after": {"$ref": "#/definitions/orderingTargets"},
+        "scope": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Descriptor-local capabilityScopes index. Required on every ordinary member when the scope table is present."
+        },
         "type": {
           "type": "string",
           "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$",
@@ -942,6 +1029,30 @@
           }
         }
       ]
+    },
+    "capabilityScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provides": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9+.-]{0,62}[a-z0-9+])?$"
+          },
+          "description": "Normalized unversioned names also present in descriptor provides. An empty scope still identifies a present provider occurrence."
+        }
+      }
+    },
+    "orderingTargets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(#[a-z0-9]([a-z0-9+.-]{0,62}[a-z0-9+])?|([a-z0-9]([a-z0-9.-]*[a-z0-9])?/)?[a-z0-9]([a-z0-9+.-]{0,62}[a-z0-9+])?(#[a-z0-9]([a-z0-9+.-]{0,62}[a-z0-9+])?)?|[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*)$"
+      },
+      "description": "Literal targets are exact capability types, provided names, #local-id, or provided-name#id. Relationships cannot reverse execution phase or step barriers."
     },
     "capabilitySource": {
       "type": "object",

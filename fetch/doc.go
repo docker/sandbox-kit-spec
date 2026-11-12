@@ -22,8 +22,8 @@
 //
 // Resolve fetches a closed set of requests, resolves create arguments, validates
 // every input, orders the dependency graph, selects capability groups,
-// reconciles the selected descriptors with
-// spec.Compose, and validates the final descriptor. ResolvePartial performs the
+// reconciles selected requests and emits a validated execution plan through
+// spec.ComposeRuntime. ResolvePartial performs the
 // same checks while allowing a mixin-only set. There is no validation bypass.
 //
 // WithCapabilitySelector supplies runtime decisions over expanded entries.
@@ -48,7 +48,14 @@
 // resolved arguments, and each Kit's Env exports in dependency order.
 // Resolved.ContainerEnv contains their conflict-checked union for container
 // creation; these override image defaults at runtime.
-// Resolved.Warnings contains advisory findings from final validation.
+// Resolved.Plan contains the global entry order and phase/step actions, immediate
+// Install cleanup, and reverse Stop sequence. Execute these actions individually;
+// do not batch handlers by type or replay once-only installation on each boot.
+// WithWorkspaceAssigned (Options.WorkspaceAssigned in Assemble) includes the
+// initial workspace readiness action before install commands. Additional trusted
+// execution contracts use WithExecutionContracts or Options.ExecutionContracts.
+// Selected third-party types need contracts, even when their order is explicit.
+// Resolved.Warnings contains validation and ordering advisories.
 // Inline agent-context@2 guidance is complete in Resolved.Descriptor: read
 // every effective profile with spec.AgentContextsV2Of. No contributor lookup
 // or layer read is needed. agent-context@1 retains its staged-file contract;

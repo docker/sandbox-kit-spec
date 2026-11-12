@@ -153,9 +153,9 @@ For example, a mixin can declare a lifecycle file with
 the user's home. All group members expand and validate before selection;
 optional declarations do not hide missing variables or malformed results.
 
-Persist `Resolved.Descriptor` and `Resolved.Selections` with the sandbox
-and reuse the decision on restart. A recreation selects afresh. Apply
-hooks from `Resolved.Descriptor`; use
+Persist `Resolved.Plan`, `Resolved.Descriptor`, and `Resolved.Selections`
+with the sandbox and reuse the decision on restart. A recreation selects
+afresh. Execute lifecycle actions from `Resolved.Plan`; use
 `spec.AgentContextsOf(kit.Descriptor.Capabilities)` for each selected
 Kit's guidance bodies. Do not execute original, unselected declarations.
 Use `resolve.Resolve(result.Resolved.Kits)` with the existing lock/gate
@@ -301,9 +301,8 @@ including its argument declarations and unexpanded references.
 `KitSelection.ExpandedDescriptor`, when explicitly requested, retains every
 expanded declaration before selection and source-label completion. It is
 excluded from JSON serialization because expanded values may be secrets.
-Apply the
-expanded, selected declarations from `Resolved.Kits` or
-`Resolved.Descriptor`.
+Inspect effective grants through `Resolved.Kits` or `Resolved.Descriptor`.
+Execute scheduled effects through `Resolved.Plan`.
 
 With `LayerValidator: fetch.DefaultLayerValidator`, the one-call API also reads
 and checks layer inventories. With a nil validator it reads metadata only.
@@ -313,4 +312,43 @@ safe. Errors after environment expansion omit expanded values and source
 excerpts that could disclose them; print the returned error directly.
 Publishing a flattened Kit remains `spec.Merge`'s job, with staged
 context bodies owned by the publisher. Runtime composition uses
-`spec.Compose` and preserves each selected context source separately.
+`spec.ComposeRuntime` and preserves each selected context source
+separately. `spec.Compose` remains available for reconciliation alone.
+
+## Executing the runtime plan
+
+`Result.Resolved.Plan` is the execution contract returned by assembly.
+It contains a global entry order and actions grouped by phase and step.
+Each action identifies one capability effect. The handler performs that
+effect and waits for its contract-defined completion before advancing.
+A service launch completes only after readiness. A background lifecycle
+command retains launch-completion behavior.
+
+Run Prepare, Install, Start, and Running in their fixed order, completing
+Attach before Place before Execute in each phase. After Install, run
+`Plan.InstallEnd` before Start so install grants and temporary material
+are withdrawn. Record completed once-only actions against the sandbox
+and action identity; later boots repeat Prepare and Start without
+replaying installation. On ordinary shutdown after a successful start,
+consume `Plan.Stop` in its emitted order. The runtime owns persistence,
+process operations, grants, and readiness checks; assembly performs none
+of those effects.
+
+Set `Options.WorkspaceAssigned` when the sandbox has a workspace. The
+runtime-owned `workspace-ready` action completes initial cloning or
+copying and establishes required file access before install commands.
+A populated `WORKSPACE_DIR` alone does not satisfy that action.
+The runtime-owned `workload` action launches the final workload, and its
+Stop action ends it before supporting services are stopped.
+
+Provide `Options.ExecutionContracts` for selected third-party capability
+versions. Registrations supply pure effect lowering and declarative
+default relationships. Built-in contracts cannot be replaced. A selected
+type without a contract fails planning; an optional type must be rejected
+by the selector if the runtime does not support it.
+
+For callers that already resolve dependencies and expand the final
+image environment, `spec.ComposeRuntime` provides the same pure planning
+boundary. Keep the returned plan and original selection records together.
+The reconciled descriptor is for inspecting effective requests and does
+not retain enough information to reconstruct skipped nodes or scoped IDs.

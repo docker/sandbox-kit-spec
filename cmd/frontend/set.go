@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -59,9 +60,9 @@ type resolvedKit struct {
 	// mixin's recorded delta.
 	config ocispecs.Image
 
-	// stem is its own staged root, where its context body (and its
-	// sources) live in the merged filesystem.
-	stem string
+	// sourceStems includes its own descriptor and the descriptors retained
+	// from nested sets. None may be overwritten by another contribution.
+	sourceStems []string
 
 	// env are the variables this kit's args bound, resolved. A kit's
 	// arg declarations do not survive the merge — the set answered
@@ -683,7 +684,7 @@ func checkAuthoredKind(authored, derived string) error {
 // leaving the merged filesystem describing that kit as the set.
 func checkStemCollision(stem string, kits []resolvedKit) error {
 	for _, k := range kits {
-		if k.stem == stem {
+		if slices.Contains(k.sourceStems, stem) {
 			return fmt.Errorf("%s stages its sources at %s, which is where this set would stage its own; rename the descriptor",
 				k.reference, path.Join(tckkit.StagedKitRoot, stem))
 		}
@@ -787,7 +788,7 @@ func resolveKit(ctx context.Context, c gwclient.Client, k spec.Kit, p ocispecs.P
 	}
 
 	state := llb.Image(pinned, llb.Platform(p), llb.WithCustomName("[kit] "+k.Ref))
-	published, stem, err := readKitDescriptor(ctx, c, state, p)
+	published, sourceStems, err := readKitDescriptor(ctx, c, state, p, config.Config.Labels)
 	if err != nil {
 		return nil, err
 	}
@@ -806,92 +807,86 @@ func resolveKit(ctx context.Context, c gwclient.Client, k spec.Kit, p ocispecs.P
 	descriptor.Version = resolve.EffectiveProvideVersion(k.Ref, descriptor)
 
 	return &resolvedKit{
-		reference:  k.Ref,
-		env:        env,
-		pinned:     pinned,
-		digest:     dgst.String(),
-		descriptor: descriptor,
-		state:      state,
-		config:     config,
-		stem:       stem,
+		reference:   k.Ref,
+		env:         env,
+		pinned:      pinned,
+		digest:      dgst.String(),
+		descriptor:  descriptor,
+		state:       state,
+		config:      config,
+		sourceStems: sourceStems,
 	}, nil
 }
 
 // readKitDescriptor reads one listed kit's published descriptor out of
 // the sources every kit stages into its own filesystem.
 //
-// The staged copy is the only place a frontend can read it: BuildKit
-// resolves an image's config, never its manifest annotations. It is the
-// same document — the staged-sources conformance check asserts the two
-// agree — so a kit that went through any conforming publisher carries
-// it, and one that does not is not a kit this set can compose.
-//
-// Several staged roots mean the kit was itself built from kits, and
-// only one of them describes what this reference names. Nothing in the
-// filesystem says which: a merged set's own root is the one carrying
-// kits:, but a kit built FROM a merged set has exactly the same shape
-// with the answer being the other root. Telling them apart needs the
-// artifact's own identity, which lives in the manifest annotation a
-// frontend cannot read. So the ambiguity is refused rather than
-// guessed — merging against the wrong kit's declarations would publish
-// policy nobody wrote, and the remedy (list the underlying kits) is
-// one the author can act on.
-func readKitDescriptor(ctx context.Context, c gwclient.Client, state llb.State, p ocispecs.Platform) (*spec.Descriptor, string, error) {
+// BuildKit resolves image configs, not manifest annotations. The publisher's
+// source-stem label selects its own staged descriptor when a set carries the
+// descriptors of its members. Older artifacts without that label are readable
+// only when they contain one descriptor, so ambiguous artifacts still fail.
+func readKitDescriptor(ctx context.Context, c gwclient.Client, state llb.State, p ocispecs.Platform, labels map[string]string) (*spec.Descriptor, []string, error) {
+	labeled, hasLabel := labels[spec.LabelSourceStem]
+	if hasLabel && !validSourceStem(labeled) {
+		return nil, nil, fmt.Errorf("image config label %s has invalid staged source stem %q", spec.LabelSourceStem, labeled)
+	}
 	def, err := state.Marshal(ctx, llb.Platform(p))
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	res, err := c.Solve(ctx, gwclient.SolveRequest{Definition: def.ToPB()})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	ref, err := res.SingleRef()
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-
 	entries, err := ref.ReadDir(ctx, gwclient.ReadDirRequest{Path: stagedKitRoot})
 	if err != nil {
-		return nil, "", fmt.Errorf("read %s: %w; a set composes kits, and every kit stages its own sources", stagedKitRoot, err)
+		return nil, nil, fmt.Errorf("read %s: %w; a set composes kits, and every kit stages its own sources", stagedKitRoot, err)
 	}
+	staged := map[string][]byte{}
 	var stems []string
 	for _, entry := range entries {
-		if os.FileMode(entry.Mode).IsDir() {
-			stems = append(stems, path.Base(entry.Path))
-		}
-	}
-
-	staged := map[string][]byte{}
-	var found []string
-	for _, candidate := range stems {
-		body, err := ref.ReadFile(ctx, gwclient.ReadRequest{
-			Filename: path.Join(stagedKitRoot, candidate, stagedDescriptorName),
-		})
-		if err != nil {
+		if !os.FileMode(entry.Mode).IsDir() {
 			continue
 		}
-		found = append(found, candidate)
-		staged[candidate] = body
+		stem := path.Base(entry.Path)
+		body, err := ref.ReadFile(ctx, gwclient.ReadRequest{Filename: path.Join(stagedKitRoot, stem, stagedDescriptorName)})
+		if err != nil {
+			if isNotExist(err) {
+				continue
+			}
+			return nil, nil, fmt.Errorf("read staged descriptor %q: %w", stem, err)
+		}
+		staged[stem] = body
+		stems = append(stems, stem)
 	}
-	if len(found) == 0 {
-		return nil, "", fmt.Errorf("no kit sources staged under %s; a set composes kits", stagedKitRoot)
+	slices.Sort(stems)
+	if hasLabel {
+		if _, exists := staged[labeled]; !exists {
+			return nil, nil, fmt.Errorf("image config label %s names missing staged descriptor %q", spec.LabelSourceStem, labeled)
+		}
+	} else {
+		switch len(stems) {
+		case 0:
+			return nil, nil, fmt.Errorf("no kit sources staged under %s; a set composes kits", stagedKitRoot)
+		case 1:
+			labeled = stems[0]
+		default:
+			return nil, nil, fmt.Errorf("carries staged sources for %d kits (%s) without %s identifying its own; rebuild with a publisher that records the source stem", len(stems), strings.Join(stems, ", "), spec.LabelSourceStem)
+		}
 	}
-
-	if len(found) > 1 {
-		return nil, "", fmt.Errorf("carries staged sources for %d kits (%s), so which of them this reference names cannot be read from the image — list those kits directly instead of the kit that merged them",
-			len(found), strings.Join(found, ", "))
-	}
-
-	stem := found[0]
-	raw := staged[stem]
+	raw := staged[labeled]
 	d, err := spec.Decode(raw)
 	if err != nil {
-		return nil, "", fmt.Errorf("staged descriptor does not decode: %w", err)
+		return nil, nil, fmt.Errorf("staged descriptor does not decode: %w", err)
 	}
 	if _, err := spec.ValidatePublished(raw, d); err != nil {
-		return nil, "", fmt.Errorf("staged descriptor is not a valid published descriptor: %w", err)
+		return nil, nil, fmt.Errorf("staged descriptor is not a valid published descriptor: %w", err)
 	}
-	return d, stem, nil
+	return d, stems, nil
 }
 
 // kitDeclarations resolves one listed kit's create-phase args from the
@@ -1131,14 +1126,12 @@ func mergeKitContent(ctx context.Context, c gwclient.Client, kits []resolvedKit,
 func checkKitCollisions(kits []resolvedKit) error {
 	owners := map[string]string{}
 	for _, k := range kits {
-		if k.stem == "" {
-			continue
+		for _, stem := range k.sourceStems {
+			if prev, dup := owners[stem]; dup {
+				return fmt.Errorf("%s and %s both stage their sources at %s; one of them would describe the other", prev, k.reference, path.Join(tckkit.StagedKitRoot, stem))
+			}
+			owners[stem] = k.reference
 		}
-		if prev, dup := owners[k.stem]; dup {
-			return fmt.Errorf("%s and %s both stage their sources at %s; one of them would describe the other",
-				prev, k.reference, path.Join(tckkit.StagedKitRoot, k.stem))
-		}
-		owners[k.stem] = k.reference
 	}
 	return nil
 }

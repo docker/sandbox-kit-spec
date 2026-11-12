@@ -82,8 +82,12 @@ A conforming runtime, whatever `autoStart` says:
 
 With `autoStart` true or omitted, the runtime:
 
-- **MUST** start the engine so that it answers before any `startup` <!-- tck: dockerd@1/engine-before-startup -->
-  hook runs, on every boot, so a hook can use it without waiting.
+- **MUST** establish an engine-before-startup default in Start Execute <!-- tck: dockerd@1/engine-before-startup -->
+  on every boot, waiting until the engine answers and its socket is
+  usable by the image user. A directly opposing written relationship
+  overrides the default for that entry pair under
+  [§7.1.3](../../SPEC-v3.md#713-capability-execution-order). A hook
+  deliberately placed before the engine cannot rely on it.
 - **MUST** fail the start when the engine does not answer within a <!-- tck: dockerd@1/fails-when-engine-unanswered -->
   bound the runtime chooses, rather than run hooks and the workload
   against an engine that is not there.
@@ -98,18 +102,22 @@ With `autoStart` true or omitted, the runtime:
   the image user by changing its group or mode once the engine answers,
   or relies on the image's `daemon.json` setting `group`.
 
-No engine is promised during `install` hooks: the duty above covers
-`startup` hooks only. This page orders no `lifecycle@1` `files` write
-relative to the engine start, so a file the engine reads when it
-starts, such as `daemon.json`, belongs in the image rather than in
-`files`.
+Elevation and engine storage are Prepare Attach effects. Automatic
+engine startup is Start Execute. No engine is promised during Install.
+Lifecycle files complete in Start Place before the engine starts.
+Those files belong to the agent; root-owned configuration can be supplied
+by the image or by a root startup command in a separate lifecycle entry
+with `before: [com.docker.sandbox/dockerd@1]`.
 
 With `autoStart: false`, the Kit starts the engine from its own hook
 (a [`lifecycle@1`](lifecycle@1.md) `startup` hook with `user: "0"`, for
 example). That hook owns what the runtime does in the default mode:
 waiting until the engine answers and making the socket usable by the
-image user. A later hook that uses the engine waits for `GET /_ping` to
-return 200 itself, because nothing orders it after the engine is ready.
+image user. A foreground launch hook can wait for `GET /_ping` to return
+200 before exiting. A later hook ordered after that entry then observes
+readiness. A background hook completing at launch offers no readiness
+promise. The runtime contributes no engine-before-startup default when
+automatic startup is disabled.
 The runtime:
 
 - **MUST** still run the sandbox elevated, as when the engine is <!-- tck: dockerd@1/manual-elevation-granted -->

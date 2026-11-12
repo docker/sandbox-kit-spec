@@ -105,7 +105,7 @@ func TestDockerdAutoStartMerge(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, order := range [][2]map[string]any{{tc.a, tc.b}, {tc.b, tc.a}} {
-				merged := mergeOK(t,
+				merged := composeOK(t,
 					Contribution{Reference: "workload", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindWorkload,
 						Capabilities: []Capability{{Type: CapabilityLongRunning}, ask(order[0])}}},
 					Contribution{Reference: "mixin", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
@@ -122,7 +122,7 @@ func TestDockerdAutoStartMerge(t *testing.T) {
 	}
 
 	// Required wins and a name is kept, as for any merged entry.
-	merged := mergeOK(t,
+	merged := composeOK(t,
 		Contribution{Reference: "workload", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindWorkload,
 			Capabilities: []Capability{{Type: CapabilityDockerd, Optional: true, Config: manual}}}},
 		Contribution{Reference: "mixin", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
@@ -136,7 +136,7 @@ func TestDockerdAutoStartMerge(t *testing.T) {
 		{Reference: "mixin", Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
 			Capabilities: []Capability{ask(map[string]any{"autoStart": "no"})}}},
 	}, MergeOptions{})
-	require.ErrorContains(t, err, "merge: mixin capabilities[0]: "+CapabilityDockerd)
+	require.ErrorContains(t, err, CapabilityDockerd)
 }
 
 // The engine needs privileged@1's elevation and brings persistent storage
@@ -286,7 +286,7 @@ func TestDockerEngineStoreComposition(t *testing.T) {
 	})
 
 	// Presence unions, and a required declaration wins.
-	merged := mergeOK(t,
+	merged := composeOK(t,
 		Contribution{Reference: "workload", Descriptor: kit(KindWorkload, Capability{Type: CapabilityDockerd, Optional: true})},
 		Contribution{Reference: "mixin", Descriptor: kit(KindMixin, docker)},
 	).Descriptor
@@ -384,7 +384,7 @@ func TestDockerdMergedLabelsFollowContributionOrder(t *testing.T) {
 			contributions = append(contributions, Contribution{Reference: fmt.Sprintf("kit-%d", i),
 				Descriptor: &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{c}}})
 		}
-		merged := mergeOK(t, contributions...).Descriptor
+		merged := composeOK(t, contributions...).Descriptor
 		require.Equal(t, []Capability{tc.want}, merged.Capabilities)
 	}
 }
@@ -447,10 +447,10 @@ func TestDockerdMergeOfDecodedAsks(t *testing.T) {
 						{Reference: "workload", Descriptor: decode(t, format, KindWorkload, order[0])},
 						{Reference: "mixin", Descriptor: decode(t, format, KindMixin, order[1])},
 					}
-					published := mergeOK(t, contributions...).Descriptor
+					published := publishOK(t, contributions...).Descriptor
 					composed, err := Compose(contributions)
 					require.NoError(t, err)
-					for _, merged := range []*Descriptor{published, composed} {
+					for _, merged := range []*Descriptor{selectPublished(t, published), composed} {
 						_, err := Validate(merged)
 						require.NoError(t, err)
 						d, err := DockerdOf(merged.Capabilities)

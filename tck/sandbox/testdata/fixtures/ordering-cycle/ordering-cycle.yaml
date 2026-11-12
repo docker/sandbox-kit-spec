@@ -1,0 +1,13 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+provides:
+- kit-tck-order-cycle@1.0.0
+capabilities:
+- type: com.docker.sandbox/lifecycle@1
+  id: cycle
+  after:
+  - kit-tck-order-trace#first
+  config:
+    startup:
+    - command: 'true'

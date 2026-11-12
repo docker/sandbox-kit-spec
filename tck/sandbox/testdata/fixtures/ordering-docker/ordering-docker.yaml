@@ -1,0 +1,23 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+capabilities:
+- type: com.docker.sandbox/lifecycle@1
+  id: observe
+  config:
+    startup:
+    - command: curl --noproxy "*" --fail --silent --unix-socket /var/run/docker.sock http://localhost/_ping
+        >> /var/tmp/ordering-ping
+    - command: cat /var/tmp/ordering-engine-config >> /var/tmp/ordering-config-observed
+- type: com.docker.sandbox/dockerd@1
+- type: com.docker.sandbox/lifecycle@1
+  id: configure
+  before:
+  - com.docker.sandbox/dockerd@1
+  config:
+    startup:
+    - command: mkdir -p /etc/docker; printf '%s' '{"ordering":"from-lifecycle"}' > /etc/docker/daemon.json
+      user: '0'
+    files:
+    - path: /var/tmp/ordering-engine-file
+      content: placed

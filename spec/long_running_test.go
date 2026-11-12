@@ -54,7 +54,7 @@ func TestLongRunningMergeAndSurface(t *testing.T) {
 		// members supply the resolved kind that validation judges.
 		own := &Descriptor{SchemaVersion: SchemaVersion, Capabilities: []Capability{{Type: CapabilityLongRunning}}}
 		base.Capabilities = []Capability{{Type: CapabilityLongRunning, Optional: true}}
-		merged := mergeOK(t, Contribution{Reference: "base", Descriptor: base}, Contribution{Reference: "set", Descriptor: own}).Descriptor
+		merged := composeOK(t, Contribution{Reference: "base", Descriptor: base}, Contribution{Reference: "set", Descriptor: own}).Descriptor
 		_, err := Validate(merged)
 		require.NoError(t, err)
 		require.Len(t, merged.Capabilities, 1)
@@ -89,7 +89,7 @@ func TestLongRunningMixinComposition(t *testing.T) {
 				SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: tc.mixin,
 			}}
 			for _, inputs := range [][]Contribution{{workload, mixin}, {mixin, workload}} {
-				merged := mergeOK(t, inputs...).Descriptor
+				merged := composeOK(t, inputs...).Descriptor
 				_, err := Validate(merged)
 				require.NoError(t, err)
 				require.Equal(t, KindWorkload, merged.Kind)

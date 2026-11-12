@@ -31,12 +31,10 @@ type MergeResult struct {
 	// Descriptor is the merged declaration set, under the derived kind.
 	Descriptor *Descriptor
 
-	// ContextSources are @1 agent-context bodies in contribution order. Empty
-	// when no contribution declared any context content. Sources with an
-	// empty Target are concatenated into the merged entry's contentFile.
-	// Each source with a Target must instead be staged separately at that
-	// path, preserving its conditional selection boundary. The caller owns
-	// reading and staging the bodies; this package only computes the paths.
+	// ContextSources are @1 agent-context bodies in contribution order.
+	// Each body stages separately at Target, preserving its declaration and
+	// selection boundary. Empty when no contribution declares context content.
+	// The caller reads and stages bodies; this package computes their paths.
 	ContextSources []ContextSource
 
 	// Warnings includes the serialized descriptor advisory size budget.
@@ -58,16 +56,16 @@ type ContextSource struct {
 	// Content is the inline body; empty when Path is set.
 	Content string
 
-	// Target is set when publication preserves a separately selectable body.
+	// Target is the separate staging path for this published body.
 	Target string
 }
 
 // MergeOptions carries what the merge cannot derive from the
 // contributions themselves.
 type MergeOptions struct {
-	// ContextPath is the in-image path the merged agent-context body
-	// will be staged at, written into the merged entry's contentFile.
-	// Required when a contribution declares @1 context content.
+	// ContextPath is the in-image base path for @1 context staging.
+	// Each original body stages at ContextPath + ".parts/<index>.md", and its
+	// declaration retains that path. Required when @1 context content exists.
 	ContextPath string
 }
 
@@ -79,54 +77,19 @@ type MergeOptions struct {
 // what several of the rules below mean by "first" and "last", and
 // deriving it needs the resolver, which does not belong here.
 //
-// Unconditional context bodies are concatenated at opts.ContextPath;
-// grouped publication stages each ContextSource at its separate Target.
-// @2 publication preserves declarations inline, with selection boundaries.
-// Runtime consumers use Compose and retain the input contributions.
+// Publication preserves every declaration, selection boundary, and local
+// ID scope. Each @1 context body stages at its own ContextSource.Target;
+// @2 bodies remain inline. Reconciliation happens after runtime selection.
+// Runtime consumers use ComposeRuntime to select and plan these declarations.
+// Compose remains available for callers that only need payload reconciliation.
 func Merge(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
-	result, err := mergeForPublication(contributions, opts)
+	result, err := preserveGroups(contributions, opts)
 	if err != nil {
 		return nil, err
 	}
 	result.Warnings, err = checkMergedSize(result.Descriptor)
 	if err != nil {
 		return nil, err
-	}
-	return result, nil
-}
-
-func mergeForPublication(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
-	if contributionsNeedDeferredMerge(contributions) {
-		return preserveGroups(contributions, opts)
-	}
-	result, err := mergeDeclarations(contributions)
-	if err != nil {
-		return nil, err
-	}
-	if len(result.ContextSources) > 0 {
-		if opts.ContextPath == "" {
-			return nil, fmt.Errorf("merge: %d agent-context bodies to stage but no ContextPath to stage them at", len(result.ContextSources))
-		}
-		// One entry carries the shared body, and every surviving profile
-		// needs it. Prefer the first required profile so selection cannot
-		// discard the body by skipping an optional destination.
-		bodyAt, profiles := -1, 0
-		for i, c := range result.Descriptor.Capabilities {
-			if c.Type != CapabilityAgentContext {
-				continue
-			}
-			profiles++
-			if bodyAt == -1 || (result.Descriptor.Capabilities[bodyAt].Optional && !c.Optional) {
-				bodyAt = i
-			}
-		}
-		if profiles > 1 && result.Descriptor.Capabilities[bodyAt].Optional {
-			// No profile is guaranteed to survive selection. Keep the
-			// original bodies with their independently selected requests,
-			// using the same publication path as conditional groups.
-			return preserveGroups(contributions, opts)
-		}
-		result.Descriptor.Capabilities[bodyAt].Config["contentFile"] = opts.ContextPath
 	}
 	return result, nil
 }
@@ -140,6 +103,33 @@ func mergeForPublication(contributions []Contribution, opts MergeOptions) (*Merg
 // The caller resolves dependencies and validates inputs before calling;
 // Compose does not perform descriptor validation or registry IO.
 func Compose(contributions []Contribution) (*Descriptor, error) {
+	contributions = slices.Clone(contributions)
+	// Positions belong to this invocation, not an earlier Compose result a
+	// caller may reuse as an input. Assign fresh origins without mutating inputs.
+	next := 0
+	for i, contribution := range contributions {
+		if contribution.Descriptor == nil {
+			continue
+		}
+		d := *contribution.Descriptor
+		d.Capabilities = slices.Clone(d.Capabilities)
+		for j := range d.Capabilities {
+			d.Capabilities[j].executionOrigins = []int{next}
+			next++
+		}
+		contributions[i].Descriptor = &d
+	}
+	descriptor, err := composeWithOrigins(contributions)
+	if err != nil {
+		return nil, err
+	}
+	for i := range descriptor.Capabilities {
+		descriptor.Capabilities[i].executionOrigins = nil
+	}
+	return descriptor, nil
+}
+
+func composeWithOrigins(contributions []Contribution) (*Descriptor, error) {
 	result, err := mergeDeclarations(contributions)
 	if err != nil {
 		return nil, err
@@ -149,7 +139,15 @@ func Compose(contributions []Contribution) (*Descriptor, error) {
 	for i := range result.Descriptor.Capabilities {
 		result.Descriptor.Capabilities[i].Source = nil
 		result.Descriptor.Capabilities[i].DeclarationBlocks = nil
+		result.Descriptor.Capabilities[i].ID = ""
+		result.Descriptor.Capabilities[i].Before = nil
+		result.Descriptor.Capabilities[i].After = nil
+		result.Descriptor.Capabilities[i].Scope = nil
 	}
+	result.Descriptor.CapabilityScopes = nil
+	slices.SortStableFunc(result.Descriptor.Capabilities, func(a, b Capability) int {
+		return a.executionOrigins[0] - b.executionOrigins[0]
+	})
 	// Unlike @1 profile stubs, @2 carries every body here, so this API
 	// itself enforces the bound even without a caller validation pass.
 	if HasCapability(result.Descriptor.Capabilities, CapabilityAgentContextV2) {
@@ -579,6 +577,7 @@ type capabilityMerge struct {
 }
 
 type networkAsk struct {
+	origins   []int
 	reference string
 	name      string
 	v2        bool
@@ -587,13 +586,13 @@ type networkAsk struct {
 }
 
 type lifecycleAsk struct {
-	reference string
-	name      string
-	lifecycle *Lifecycle
-	optional  bool
+	capability Capability
+	reference  string
+	lifecycle  *Lifecycle
 }
 
 type contextAsk struct {
+	origins   []int
 	reference string
 	// Content lookup uses the consuming Kit, while diagnostics retain member paths.
 	contribution string
@@ -625,6 +624,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 			return fmt.Errorf("merge: %s: %w", reference, err)
 		}
 		m.network = append(m.network, networkAsk{
+			origins:   n.executionOrigins,
 			reference: reference,
 			name:      n.Name,
 			v2:        n.Type == CapabilityNetworkPolicyV2,
@@ -638,7 +638,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if err := decodeForMerge(reference, n, &l); err != nil {
 			return err
 		}
-		m.lifecycle = append(m.lifecycle, lifecycleAsk{reference: reference, name: n.Name, lifecycle: &l, optional: n.Optional})
+		m.lifecycle = append(m.lifecycle, lifecycleAsk{capability: n, reference: reference, lifecycle: &l})
 		return nil
 
 	case CapabilityAgentContextV2:
@@ -646,7 +646,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if err := decodeForMerge(reference, n, &a); err != nil {
 			return err
 		}
-		m.context = append(m.context, contextAsk{reference: reference, name: n.Name,
+		m.context = append(m.context, contextAsk{origins: n.executionOrigins, reference: reference, name: n.Name,
 			context:  &AgentContext{Directory: a.Directory, Filename: a.Filename, Content: a.Content},
 			optional: n.Optional, v2: true})
 		return nil
@@ -656,7 +656,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if err := decodeForMerge(reference, n, &a); err != nil {
 			return err
 		}
-		m.context = append(m.context, contextAsk{reference: reference, name: n.Name, context: &a, optional: n.Optional})
+		m.context = append(m.context, contextAsk{origins: n.executionOrigins, reference: reference, name: n.Name, context: &a, optional: n.Optional})
 		return nil
 
 	case CapabilityResources:
@@ -742,6 +742,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		if merged.Name == "" {
 			merged.Name = n.Name
 		}
+		merged.executionOrigins = unionExecutionOrigins(prev.capability.executionOrigins, n.executionOrigins)
 		m.byKey[key] = keyed{reference: prev.reference, capability: *merged}
 		if !n.Optional {
 			m.optional[key] = false
@@ -787,8 +788,9 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 	// Identical asks collapse, and the stricter optionality wins.
 	if prev.capability.Name == "" {
 		prev.capability.Name = n.Name
-		m.byKey[key] = prev
 	}
+	prev.capability.executionOrigins = unionExecutionOrigins(prev.capability.executionOrigins, n.executionOrigins)
+	m.byKey[key] = prev
 	if !n.Optional {
 		m.optional[key] = false
 	}
@@ -823,6 +825,7 @@ func (m *capabilityMerge) addDockerd(reference string, n Capability) error {
 	if held.Description == "" {
 		held.Description = n.Description
 	}
+	held.executionOrigins = unionExecutionOrigins(held.executionOrigins, n.executionOrigins)
 	m.byKey[CapabilityDockerd] = keyed{reference: m.docker.reference, capability: held}
 	if !n.Optional {
 		m.optional[CapabilityDockerd] = false
@@ -860,6 +863,7 @@ func mergeSole(slot **keyed, reference string, n Capability, label string) error
 		return nil
 	}
 	if sameRequest((*slot).capability, n) {
+		(*slot).capability.executionOrigins = unionExecutionOrigins((*slot).capability.executionOrigins, n.executionOrigins)
 		if (*slot).capability.Name == "" {
 			(*slot).capability.Name = n.Name
 		}
@@ -1005,10 +1009,11 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 	if err := m.checkInteractiveAgreement(); err != nil {
 		return nil, nil, err
 	}
-	if lifecycle, err := m.mergedLifecycle(); err != nil {
+	if err := m.checkLifecycles(); err != nil {
 		return nil, nil, err
-	} else if lifecycle != nil {
-		out = append(out, *lifecycle)
+	}
+	for _, ask := range m.lifecycle {
+		out = append(out, ask.capability)
 	}
 
 	contexts, sources, err := m.mergedContext()
@@ -1077,6 +1082,9 @@ func (m *capabilityMerge) mergedNetwork() (*Capability, error) {
 	}
 	c.Optional = optional
 	c.Name = name
+	for _, ask := range m.network {
+		c.executionOrigins = unionExecutionOrigins(c.executionOrigins, ask.origins)
+	}
 	return c, nil
 }
 
@@ -1218,58 +1226,28 @@ func hasReference(argv []string) bool {
 	return slices.ContainsFunc(argv, func(a string) bool { return ContainsArgRef(a) || ContainsEnvRef(a) })
 }
 
-// mergedLifecycle concatenates the contributors' hooks in composition
-// order, which is the order a runtime would have run them in.
-//
-// The interactive tail is the exception: it is the workload's launch
-// argv, not an addition to it, so two contributors stating one cannot
-// both be honored.
-func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
-	if len(m.lifecycle) == 0 {
-		return nil, nil
-	}
-	merged := &Lifecycle{}
+func (m *capabilityMerge) checkLifecycles() error {
 	interactiveFrom := ""
-	name := ""
-	optional := true
 	seenFile := map[string]string{}
 	for _, ask := range m.lifecycle {
-		if name == "" {
-			name = ask.name
-		}
-		merged.Install = append(merged.Install, ask.lifecycle.Install...)
-		merged.Startup = append(merged.Startup, ask.lifecycle.Startup...)
 		for _, f := range ask.lifecycle.Files {
 			if ContainsArgRef(f.Path) {
-				return nil, fmt.Errorf("merge: %s: lifecycle file path %q resolves at create; pin the path", ask.reference, f.Path)
+				return fmt.Errorf("merge: %s: lifecycle file path %q resolves at create; pin the path", ask.reference, f.Path)
 			}
 			clean := path.Clean(f.Path)
 			if prev, dup := seenFile[clean]; dup {
-				return nil, fmt.Errorf("merge: %s and %s: %s is written by two contributions; one file has one author", prev, ask.reference, clean)
+				return fmt.Errorf("merge: %s and %s: %s is written by two contributions; one file has one author", prev, ask.reference, clean)
 			}
 			seenFile[clean] = ask.reference
 		}
-		merged.Files = append(merged.Files, ask.lifecycle.Files...)
 		if ask.lifecycle.Interactive != nil {
 			if interactiveFrom != "" {
-				return nil, fmt.Errorf("merge: %s and %s both declare a lifecycle interactive tail; it replaces the launch command's arguments, so it has one author",
-					interactiveFrom, ask.reference)
+				return fmt.Errorf("merge: %s and %s both declare a lifecycle interactive tail; it replaces the launch command's arguments, so it has one author", interactiveFrom, ask.reference)
 			}
 			interactiveFrom = ask.reference
-			merged.Interactive = ask.lifecycle.Interactive
-		}
-		if !ask.optional {
-			optional = false
 		}
 	}
-
-	c, err := capabilityFrom(CapabilityLifecycle, merged)
-	if err != nil {
-		return nil, err
-	}
-	c.Optional = optional
-	c.Name = name
-	return c, nil
+	return nil
 }
 
 // mergedContext folds the contributors' agent-context into the profiles a
@@ -1380,6 +1358,13 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		}
 		c.Optional = optional[i]
 		c.Name = names[i]
+		for _, ask := range m.context {
+			if ask.context.Content != "" || ask.context.ContentFile != "" ||
+				(len(profiles) == 1 && ask.context.Directory == "") ||
+				contextDestination(ask.context.Directory, ask.context.Filename) == contextDestination(profiles[i].Directory, profiles[i].Filename) {
+				c.executionOrigins = unionExecutionOrigins(c.executionOrigins, ask.origins)
+			}
+		}
 		out = append(out, *c)
 	}
 	if v2 {

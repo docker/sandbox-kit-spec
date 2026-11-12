@@ -45,7 +45,8 @@ func TestResolveEnvironmentDiagnosticsUseDecodedReferences(t *testing.T) {
 				if failure == "composition" {
 					require.ErrorContains(t, err, "compose capabilities after environment expansion")
 				} else {
-					require.ErrorContains(t, err, "merged descriptor is invalid after environment expansion")
+					require.ErrorContains(t, err, "compose capabilities after environment expansion")
+					require.ErrorIs(t, err, spec.ErrDescriptorTooLarge)
 				}
 			})
 		}

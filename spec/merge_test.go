@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -16,11 +17,31 @@ func contribute(t *testing.T, reference, yaml string) Contribution {
 	return Contribution{Reference: reference, Descriptor: mustDecode(t, yaml)}
 }
 
-func mergeOK(t *testing.T, contributions ...Contribution) *MergeResult {
+func composeOK(t *testing.T, contributions ...Contribution) *MergeResult {
+	t.Helper()
+	d, err := Compose(contributions)
+	require.NoError(t, err)
+	return &MergeResult{Descriptor: d}
+}
+
+func publishOK(t *testing.T, contributions ...Contribution) *MergeResult {
 	t.Helper()
 	res, err := Merge(contributions, MergeOptions{ContextPath: "/usr/share/sandbox/kit/set/context.md"})
 	require.NoError(t, err)
 	return res
+}
+
+func selectPublished(t *testing.T, d *Descriptor) *Descriptor {
+	t.Helper()
+	selection, err := SelectCapabilities(context.Background(), "published", d, func(context.Context, SelectionTarget, Descriptor, Capability) CapabilityDecision {
+		return CapabilityDecision{Accepted: true}
+	})
+	require.NoError(t, err)
+	selected := *d
+	selected.Capabilities = selection.Capabilities
+	composed, err := Compose([]Contribution{{Reference: "published", Descriptor: &selected}})
+	require.NoError(t, err)
+	return composed
 }
 
 // The merged kit's role is a fact about the kits it lists, not a claim
@@ -43,8 +64,8 @@ version: "1.0.0"
 provides: [tool]
 `)
 
-	require.Equal(t, KindWorkload, mergeOK(t, workload, mixin).Descriptor.Kind)
-	require.Equal(t, KindMixin, mergeOK(t, mixin, other).Descriptor.Kind,
+	require.Equal(t, KindWorkload, composeOK(t, workload, mixin).Descriptor.Kind)
+	require.Equal(t, KindMixin, composeOK(t, mixin, other).Descriptor.Kind,
 		"a set of overlays is an overlay, composable onto a workload the way its own kits were")
 
 	_, err := Merge([]Contribution{workload, contribute(t, "hello", `schemaVersion: "3"
@@ -84,7 +105,7 @@ provides: ["claude-acp@0.5.0"]
 requires: ["claude >= 2.0.0"]
 `)
 
-	out := mergeOK(t, workload, claude, acp).Descriptor
+	out := composeOK(t, workload, claude, acp).Descriptor
 	require.ElementsMatch(t, []string{"shell@1.0.0", "claude@2.1.6", "claude-acp@0.5.0"}, out.Provides,
 		"a bare provide carries the version its own kit declared, not the set's")
 	require.Empty(t, out.Requires,
@@ -100,7 +121,7 @@ version: "1.0.0"
 provides: [future]
 requires: ["claude >= 99.0.0"]
 `)
-	out = mergeOK(t, workload, claude, tooNew).Descriptor
+	out = composeOK(t, workload, claude, tooNew).Descriptor
 	require.Equal(t, []string{"claude >= 99.0.0"}, out.Requires)
 }
 
@@ -117,7 +138,7 @@ kind: mixin
 version: "1.0.0"
 licenses: [MIT, Apache-2.0]
 `)
-	require.Equal(t, []string{"Apache-2.0", "MIT"}, mergeOK(t, a, b).Descriptor.Licenses)
+	require.Equal(t, []string{"Apache-2.0", "MIT"}, composeOK(t, a, b).Descriptor.Licenses)
 }
 
 // Two grants union: the merged kit reaches both sets of hosts, and a
@@ -145,7 +166,7 @@ capabilities:
         allow: [api.anthropic.com, github.com]
 `)
 
-	out := mergeOK(t, a, b).Descriptor
+	out := composeOK(t, a, b).Descriptor
 	require.Len(t, out.Capabilities, 1, "one policy entry: the type is a singleton")
 	require.Equal(t, CapabilityNetworkPolicy, out.Capabilities[0].Type,
 		"a set of @1 kits publishes the version those kits wrote")
@@ -181,7 +202,7 @@ capabilities:
             methods: [GET]
 `)
 
-	out := mergeOK(t, v1, v2).Descriptor
+	out := composeOK(t, v1, v2).Descriptor
 	require.Equal(t, CapabilityNetworkPolicyV2, out.Capabilities[0].Type)
 
 	policy, err := NetworkPolicyV2Of(out.Capabilities)
@@ -218,7 +239,7 @@ capabilities:
         allow: [api.github.com]
 `)
 
-	policy, err := NetworkPolicyV2Of(mergeOK(t, bounded, unbounded).Descriptor.Capabilities)
+	policy, err := NetworkPolicyV2Of(composeOK(t, bounded, unbounded).Descriptor.Capabilities)
 	require.NoError(t, err)
 	require.Len(t, policy.Runtime.Allow, 2)
 	require.Equal(t, []string{"api.other.com"}, policy.Runtime.Allow[0].Hosts,
@@ -229,7 +250,7 @@ capabilities:
 
 // Hooks concatenate in composition order — the order a runtime would
 // have run them in.
-func TestMergeLifecycleConcatenatesInOrder(t *testing.T) {
+func TestComposeLifecyclePreservesEntriesInOrder(t *testing.T) {
 	first := contribute(t, "first", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
@@ -254,13 +275,15 @@ capabilities:
         - {path: /etc/one, content: "1"}
 `)
 
-	lifecycle, err := LifecycleOf(mergeOK(t, first, second).Descriptor.Capabilities)
+	lifecycles, err := LifecyclesOf(composeOK(t, first, second).Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Len(t, lifecycle.Install, 2)
-	require.Equal(t, CommandLine{"sh", "-c", "echo base"}, lifecycle.Install[0].Command)
-	require.Equal(t, CommandLine{"sh", "-c", "echo overlay"}, lifecycle.Install[1].Command)
-	require.Len(t, lifecycle.Startup, 1)
-	require.Equal(t, []string{"--interactive"}, lifecycle.Interactive)
+	require.Len(t, lifecycles, 2)
+	require.Len(t, lifecycles[0].Install, 1)
+	require.Len(t, lifecycles[1].Install, 1)
+	require.Equal(t, CommandLine{"sh", "-c", "echo base"}, lifecycles[0].Install[0].Command)
+	require.Equal(t, CommandLine{"sh", "-c", "echo overlay"}, lifecycles[1].Install[0].Command)
+	require.Len(t, lifecycles[1].Startup, 1)
+	require.Equal(t, []string{"--interactive"}, lifecycles[0].Interactive)
 }
 
 // The interactive tail replaces the launch command's arguments rather
@@ -321,7 +344,7 @@ capabilities:
     config: {container: 8080}
 `)
 
-	out := mergeOK(t, a, b).Descriptor
+	out := composeOK(t, a, b).Descriptor
 	volumes, err := VolumesOf(out.Capabilities)
 	require.NoError(t, err)
 	require.Len(t, volumes, 2)
@@ -370,7 +393,7 @@ capabilities:
 
 	// A different service is a different credential, and unions.
 	other := strings.Replace(fmt.Sprintf(cred, KindMixin, "GL_TOKEN"), "service: github", "service: gitlab", 1)
-	out := mergeOK(t,
+	out := composeOK(t,
 		contribute(t, "a", fmt.Sprintf(cred, KindWorkload, "GH_TOKEN")),
 		contribute(t, "b", other),
 	).Descriptor
@@ -397,7 +420,7 @@ capabilities:
   - type: com.docker.sandbox/privileged@1
 `)
 
-	out := mergeOK(t, optional, required).Descriptor
+	out := composeOK(t, optional, required).Descriptor
 	require.Len(t, out.Capabilities, 1)
 	require.False(t, out.Capabilities[0].Optional)
 }
@@ -418,7 +441,7 @@ capabilities:
 	}, MergeOptions{})
 	require.ErrorContains(t, err, "one author")
 
-	out := mergeOK(t,
+	out := composeOK(t,
 		contribute(t, "a", fmt.Sprintf(resources, KindWorkload, "2")),
 		contribute(t, "b", fmt.Sprintf(resources, KindMixin, "2")),
 	).Descriptor
@@ -443,7 +466,7 @@ capabilities:
   - type: com.docker.sandbox/resources@1
     config: {cpu: 2}
 `)
-	out := mergeOK(t, workload, mixin).Descriptor
+	out := composeOK(t, workload, mixin).Descriptor
 	sessions, err := AgentInteractiveSessionsOf(out.Capabilities)
 	require.NoError(t, err)
 	require.NotNil(t, sessions)
@@ -460,7 +483,7 @@ capabilities:
 `
 	_, err = Merge([]Contribution{workload, contribute(t, "b", fmt.Sprintf(other, "continue: [-c]"))}, MergeOptions{})
 	require.ErrorContains(t, err, "one author")
-	same := mergeOK(t, workload, contribute(t, "b", fmt.Sprintf(other, "newSession: [], continue: [--continue]"))).Descriptor
+	same := composeOK(t, workload, contribute(t, "b", fmt.Sprintf(other, "newSession: [], continue: [--continue]"))).Descriptor
 	require.Len(t, same.Capabilities, 1, "an identical restatement is the same ask")
 }
 
@@ -702,26 +725,27 @@ capabilities:
       content: "gh is available"
 `)
 
-	res := mergeOK(t, workload, mixin)
-	context, err := AgentContextOf(res.Descriptor.Capabilities)
+	res := publishOK(t, workload, mixin)
+	contexts, err := AgentContextsOf(DeclaredCapabilities(res.Descriptor.Capabilities))
 	require.NoError(t, err)
-	require.Equal(t, "AGENTS.md", context.Filename)
-	require.Equal(t, "/usr/share/sandbox/kit/set/context.md", context.ContentFile)
-	require.Empty(t, context.Content, "the bodies are staged, not inlined")
-
+	require.Len(t, contexts, 2)
+	require.Equal(t, "AGENTS.md", contexts[0].Filename)
 	require.Equal(t, []ContextSource{
-		{Reference: "shell", Path: "/usr/share/sandbox/kit/shell/context.md"},
-		{Reference: "gh", Content: "gh is available"},
+		{Reference: "shell", Path: "/usr/share/sandbox/kit/shell/context.md", Target: "/usr/share/sandbox/kit/set/context.md.parts/0.md"},
+		{Reference: "gh", Content: "gh is available", Target: "/usr/share/sandbox/kit/set/context.md.parts/1.md"},
 	}, res.ContextSources)
-
-	_, err = Merge([]Contribution{workload, contribute(t, "other", `schemaVersion: "3"
+	for i, entry := range contexts {
+		require.Equal(t, res.ContextSources[i].Target, entry.ContentFile)
+		require.Empty(t, entry.Content)
+	}
+	_, err = Compose([]Contribution{workload, contribute(t, "other", `schemaVersion: "3"
 kind: mixin
 version: "1.0.0"
 capabilities:
   - type: com.docker.sandbox/agent-context@1
     config:
       filename: CLAUDE.md
-`)}, MergeOptions{ContextPath: "/x"})
+`)})
 	require.ErrorContains(t, err, "agent-context filename")
 }
 
@@ -756,7 +780,7 @@ capabilities:
     config: {path: /work}
 `)
 
-	out := mergeOK(t, workload, mixin).Descriptor
+	out := composeOK(t, workload, mixin).Descriptor
 	out.Version = "9.9.9"
 	raw, err := json.Marshal(out)
 	require.NoError(t, err)
@@ -1002,7 +1026,7 @@ provides: ["tool@2.0.0"]
 requires: ["base >= 1.0.0"]
 `)
 
-	out := mergeOK(t, bare, needs).Descriptor
+	out := composeOK(t, bare, needs).Descriptor
 	require.ElementsMatch(t, []string{"base@1.4.2", "tool@2.0.0"}, out.Provides)
 	require.Empty(t, out.Requires,
 		"the minimum is met by base@1.4.2; an unversioned provide would have left it unsatisfied")
@@ -1014,7 +1038,7 @@ version: "1.0.0"
 provides: [future]
 requires: ["base >= 9.0.0"]
 `)
-	out = mergeOK(t, bare, tooNew).Descriptor
+	out = composeOK(t, bare, tooNew).Descriptor
 	require.Equal(t, []string{"base >= 9.0.0"}, out.Requires)
 }
 
@@ -1052,13 +1076,13 @@ capabilities:
       runtime:
         allow: [%s]
 `
-	out := mergeOK(t,
+	out := composeOK(t,
 		contribute(t, "a", fmt.Sprintf(policy, KindWorkload, "true", "a.example.com")),
 		contribute(t, "b", fmt.Sprintf(policy, KindMixin, "true", "b.example.com")),
 	).Descriptor
 	require.True(t, out.Capabilities[0].Optional, "every contributor degrades without it")
 
-	out = mergeOK(t,
+	out = composeOK(t,
 		contribute(t, "a", fmt.Sprintf(policy, KindWorkload, "true", "a.example.com")),
 		contribute(t, "b", fmt.Sprintf(policy, KindMixin, "false", "b.example.com")),
 	).Descriptor
@@ -1083,7 +1107,7 @@ provides: ["tool@1.0.0"]
 requires: ["foo >= 2.0.0"]
 `)
 
-	out := mergeOK(t, both, needs).Descriptor
+	out := composeOK(t, both, needs).Descriptor
 	require.ElementsMatch(t, []string{"foo@1.0.0", "foo@2.0.0", "tool@1.0.0"}, out.Provides,
 		"both versions the owner offers carry over")
 	require.Empty(t, out.Requires,
@@ -1106,7 +1130,7 @@ capabilities:
             methods: [GET]
             paths: %s
 `
-	out := mergeOK(t,
+	out := composeOK(t,
 		contribute(t, "a", fmt.Sprintf(policy, KindWorkload, `["/a,/b"]`)),
 		contribute(t, "b", fmt.Sprintf(policy, KindMixin, `["/a", "/b"]`)),
 	).Descriptor
@@ -1118,7 +1142,7 @@ capabilities:
 	require.Equal(t, []string{"/a", "/b"}, p.Runtime.Allow[1].Paths)
 
 	// An exact repeat still collapses.
-	out = mergeOK(t,
+	out = composeOK(t,
 		contribute(t, "a", fmt.Sprintf(policy, KindWorkload, `["/a", "/b"]`)),
 		contribute(t, "b", fmt.Sprintf(policy, KindMixin, `["/a", "/b"]`)),
 	).Descriptor
@@ -1144,7 +1168,7 @@ version: "1.0.0"
 provides: ["tool@1.0.0"]
 `)
 
-	out := mergeOK(t, selfish, other).Descriptor
+	out := composeOK(t, selfish, other).Descriptor
 	require.Equal(t, []string{"team >= 1.0.0"}, out.Requires,
 		"its own provide does not answer it, so the requirement stands")
 
@@ -1160,7 +1184,7 @@ version: "1.0.0"
 provides: ["asker@1.0.0"]
 requires: ["needed >= 2.0.0"]
 `)
-	out = mergeOK(t, provider, asker).Descriptor
+	out = composeOK(t, provider, asker).Descriptor
 	require.Empty(t, out.Requires)
 }
 
@@ -1213,7 +1237,7 @@ capabilities:
   - type: com.docker.sandbox/port@1
     config: {container: 8080%s}
 `
-	out := mergeOK(t,
+	out := composeOK(t,
 		contribute(t, "a", fmt.Sprintf(port, KindWorkload, "")),
 		contribute(t, "b", fmt.Sprintf(port, KindMixin, ", transport: tcp")),
 	).Descriptor
@@ -1221,7 +1245,7 @@ capabilities:
 	require.NoError(t, err)
 	require.Len(t, ports, 1, "an omitted transport and an explicit tcp are one publication")
 
-	out = mergeOK(t,
+	out = composeOK(t,
 		contribute(t, "a", fmt.Sprintf(port, KindWorkload, ", name: api")),
 		contribute(t, "b", fmt.Sprintf(port, KindMixin, ", name: http")),
 	).Descriptor
@@ -1230,7 +1254,7 @@ capabilities:
 	require.Len(t, ports, 1, "a name describes the port, it does not make a second one")
 
 	// A different port is still a different ask.
-	out = mergeOK(t,
+	out = composeOK(t,
 		contribute(t, "a", fmt.Sprintf(port, KindWorkload, "")),
 		contribute(t, "b", `schemaVersion: "3"
 kind: mixin
@@ -1265,7 +1289,7 @@ capabilities:
 		{"both omitted", "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out := mergeOK(t,
+			out := composeOK(t,
 				contribute(t, "a", fmt.Sprintf(port, KindWorkload, tc.a)),
 				contribute(t, "b", fmt.Sprintf(port, KindMixin, tc.b)),
 			).Descriptor
@@ -1293,7 +1317,8 @@ capabilities:
 		contribute(t, "v4", fmt.Sprintf(port, KindMixin, ", family: ipv4")),
 		contribute(t, "v6", fmt.Sprintf(port, KindMixin, ", family: ipv6")),
 	}, MergeOptions{ContextPath: "/usr/share/sandbox/kit/set/context.md"})
-	require.ErrorContains(t, err, "merge: v4 capabilities[0] and v6 capabilities[0] both declare")
+	require.ErrorContains(t, err, "v4 capabilities[0]")
+	require.ErrorContains(t, err, "v6 capabilities[0]")
 }
 
 // A re-exported family is a placeholder at publication, so it cannot be
@@ -1307,7 +1332,7 @@ capabilities:
   - type: com.docker.sandbox/port@1
     config: {container: 8080, family: %s}
 `
-	published := mergeOK(t,
+	published := publishOK(t,
 		contribute(t, "a", fmt.Sprintf(port, KindWorkload, `"${{ kit.args.family }}"`)),
 		contribute(t, "b", fmt.Sprintf(port, KindMixin, PortFamilyIPv4)),
 	).Descriptor
@@ -1336,7 +1361,7 @@ capabilities:
 // A lifecycle path that resolves at create cannot be held to the
 // one-writer rule: two contributions could write one file with the
 // contributions gone and nothing left to notice.
-func TestMergeRefusesADeferredLifecyclePath(t *testing.T) {
+func TestComposeRefusesADeferredLifecyclePath(t *testing.T) {
 	file := `schemaVersion: "3"
 kind: %s
 version: "1.0.0"
@@ -1349,7 +1374,7 @@ capabilities:
       files:
         - {path: "${{ kit.args.target }}", content: x}
 `
-	_, err := Merge([]Contribution{
+	_, err := Compose([]Contribution{
 		contribute(t, "a", fmt.Sprintf(file, KindWorkload)),
 		contribute(t, "b", `schemaVersion: "3"
 kind: mixin
@@ -1360,7 +1385,7 @@ capabilities:
       files:
         - {path: /etc/other.conf, content: y}
 `),
-	}, MergeOptions{})
+	})
 	require.ErrorContains(t, err, "resolves at create")
 }
 
@@ -1424,12 +1449,17 @@ capabilities:
 					require.ErrorContains(t, err, "first-kit capabilities[0]")
 					require.ErrorContains(t, err, "second-kit capabilities[0]")
 					require.ErrorContains(t, err, "/data/cache")
-					require.EqualError(t, composeErr, err.Error())
+					require.ErrorContains(t, composeErr, "first-kit capabilities[0]")
+					require.ErrorContains(t, composeErr, "second-kit capabilities[0]")
+					require.ErrorContains(t, composeErr, "/data/cache")
 					continue
 				}
 				require.NoError(t, err)
 				require.NoError(t, composeErr)
-				require.Equal(t, published.Descriptor, composed)
+				require.Len(t, DeclaredCapabilities(published.Descriptor.Capabilities), 2)
+				republished := selectPublished(t, published.Descriptor)
+				require.Equal(t, composed.Capabilities[0].Config, republished.Capabilities[0].Config)
+				require.Equal(t, composed.Capabilities[0].Optional, republished.Capabilities[0].Optional)
 				require.Len(t, composed.Capabilities, 1)
 				require.False(t, composed.Capabilities[0].Optional)
 				require.Equal(t, inputs[0].Descriptor.Capabilities[0].Config, composed.Capabilities[0].Config)
@@ -1441,7 +1471,7 @@ capabilities:
 // An omitted config and one written as {} are the only two spellings a
 // config-less type has, and they are the same request.
 func TestMergeTreatsAnEmptyConfigAsNone(t *testing.T) {
-	out := mergeOK(t,
+	out := composeOK(t,
 		contribute(t, "a", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
@@ -1522,7 +1552,7 @@ kits: [{ref: "${{ kit.args.nope }}/base:1.0.0"}]
 // a boolean of a request the merge reconciles, the merge cannot read it,
 // and the author needs to be told that rather than shown a JSON type
 // error. A key holding one is not read until create, which types it.
-func TestMergeExplainsAReExportItCannotCarry(t *testing.T) {
+func TestCompositionDefersReExportedValuesUntilRuntime(t *testing.T) {
 	typed := contribute(t, "reg.io/tool:1", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
@@ -1530,7 +1560,7 @@ capabilities:
   - type: com.docker.sandbox/credential@1
     config: {service: github, phase: runtime, apiKey: {name: TOKEN, proxyManaged: "${{ kit.args.managed }}"}}
 `)
-	_, err := Merge([]Contribution{typed}, MergeOptions{})
+	_, err := Compose([]Contribution{typed})
 	require.ErrorContains(t, err, "still parameterized where the merge has to read it")
 	require.ErrorContains(t, err, "pin the arg in kits[].args")
 
@@ -1541,7 +1571,7 @@ capabilities:
   - type: com.docker.sandbox/port@1
     config: {container: "${{ kit.args.port }}"}
 `)
-	deferred := mergeOK(t, key)
+	deferred := publishOK(t, key)
 	require.Len(t, deferred.Descriptor.Capabilities, 1)
 	require.NotNil(t, deferred.Descriptor.Capabilities[0].Group, "kept apart for create to key")
 
@@ -1555,8 +1585,8 @@ capabilities:
       runtime:
         allow: ["${{ kit.args.host }}"]
 `)
-	out := mergeOK(t, text)
-	policy, err := NetworkPolicyOf(out.Descriptor.Capabilities)
+	out := publishOK(t, text)
+	policy, err := NetworkPolicyOf(DeclaredCapabilities(out.Descriptor.Capabilities))
 	require.NoError(t, err)
 	require.Equal(t, []string{"${{ kit.args.host }}"}, policy.Runtime.Allow)
 }
@@ -1652,7 +1682,7 @@ capabilities:
 // ParseProvide accepts surrounding whitespace, so materializing the
 // fallback by extending the original text would publish "shell @1.0.0".
 func TestTheProvidesFallbackTrimsBeforeAppending(t *testing.T) {
-	out := mergeOK(t, contribute(t, "reg.io/shell:1", `schemaVersion: "3"
+	out := composeOK(t, contribute(t, "reg.io/shell:1", `schemaVersion: "3"
 kind: workload
 version: "1.0.0"
 provides: ["shell "]

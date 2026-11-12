@@ -214,7 +214,7 @@ func TestExpandedDescriptorCaptureIsIsolated(t *testing.T) {
 				values[0].(map[string]any)["value"] = "snapshot"
 				c.Source.Kit = "snapshot"
 				require.Equal(t, "effective", effective[i].Config["values"].([]any)[0].(map[string]any)["value"])
-				require.Equal(t, "selector", effective[i].Source.Kit)
+				require.Equal(t, "original", effective[i].Source.Kit)
 			}
 		})
 	}
@@ -242,7 +242,11 @@ func resolveSelectionFixtureRaw(t *testing.T, method, kind string, raw []byte, c
 	client, err := New()
 	require.NoError(t, err)
 	requests := reqs(reg.ref("kit", "test"))
-	options := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(nil, environment)}
+	contracts := map[string]spec.ExecutionContract{
+		"com.example/ordinary@1": {},
+		"com.example/grouped@1":  {},
+	}
+	options := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(nil, environment), WithExecutionContracts(contracts)}
 	if capture {
 		options = append(options, WithExpandedDescriptors())
 	}
@@ -255,7 +259,7 @@ func resolveSelectionFixtureRaw(t *testing.T, method, kind string, raw []byte, c
 	case "Assemble":
 		var assembled *Result
 		assembled, err = Assemble(t.Context(), requests, Options{Loader: client.LoadKit, CapabilitySelector: selector,
-			RetainExpandedDescriptors: capture, Overrides: Overrides{Env: environment}})
+			ExecutionContracts: contracts, RetainExpandedDescriptors: capture, Overrides: Overrides{Env: environment}})
 		if err == nil {
 			result = assembled.Resolved
 		}

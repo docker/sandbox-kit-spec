@@ -319,7 +319,7 @@ func validateCapabilityEntries(d *Descriptor) error {
 			}
 			continue
 		}
-		if c.Type != "" || c.Name != "" || c.Description != "" || c.Optional || c.optionalSet || c.ConfigStated() {
+		if c.Type != "" || c.Name != "" || c.Description != "" || c.Optional || c.optionalSet || c.ConfigStated() || c.ID != "" || c.Before != nil || c.After != nil || c.Scope != nil {
 			errs.add(fieldErrorf(at, "item must be exactly one ordinary entry or group"))
 		}
 		if len(c.Group.Capabilities) == 0 {
@@ -529,57 +529,14 @@ func SelectCapabilities(ctx context.Context, reference string, d *Descriptor, se
 	return result, errs.err()
 }
 
-func contributionsNeedDeferredMerge(contributions []Contribution) bool {
-	for _, c := range contributions {
-		if c.Descriptor == nil {
-			continue
-		}
-		if HasGroups(c.Descriptor.Capabilities) || HasEnvReferences(c.Descriptor.Capabilities) {
-			return true
-		}
-		for _, item := range c.Descriptor.Capabilities {
-			// Inline guidance stays with its original selectable declaration.
-			// Combining it now would couple optional bodies to profile selection
-			// and duplicate shared guidance when this set is composed again.
-			if item.Type == CapabilityAgentContextV2 {
-				return true
-			}
-			// A set may re-export storage or host-port settings. Keep
-			// their requests separate until create expands the values:
-			// instance keys and equivalence cannot judge placeholders.
-			if (item.Type == CapabilityVolume || item.Type == CapabilityHostMount || item.Type == CapabilityHostPort) && capabilityIsParameterized(item) {
-				return true
-			}
-			// A port's family is reconciled, not keyed, so a placeholder
-			// shares a slot with a stated family it cannot yet be compared
-			// with, and collapsing them would drop one of the constraints.
-			if item.Type == CapabilityPort {
-				if family, ok := item.Config["family"].(string); ok && ContainsArgRef(family) {
-					return true
-				}
-			}
-			// Any type's key is judged the same way once it holds a
-			// reference; references beside a literal key still reconcile.
-			if keyHoldsReference(item) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// refuseConcreteConflicts holds the requests a deferred publication leaves
-// apart to the rules an undeferred merge applies, where they are already
-// concrete: an unrelated deferred request cannot hide a conflict between
-// them. A required group's member, as a nested set's required requests
-// arrive, is asked for as surely as an ungrouped entry. An optional group
-// may be declined independently, so its members wait for selection,
-// as agent-context bodies wait for staging. A request holding a reference
-// waits for create, except
-// what its literal keys already settle: a credential or host mount has one
-// owner whatever its config, so each literal key, a credential's per
-// phase, refuses a second asker, and a volume's literal path is a
-// destination a host mount owns alone, whatever the volume's settings.
+// refuseConcreteConflicts checks what publication can decide without runtime
+// selection. Preserving declarations must not hide concrete conflicts between
+// unconditional entries or required groups. Optional groups can be declined
+// independently, so their members wait for selection; agent-context bodies wait
+// for staging. A request containing a reference also waits for expansion, except
+// where literal keys already establish exclusive ownership. A credential's
+// service and phase, or a host mount's destination, can prohibit a second owner
+// even when unrelated config values remain unresolved.
 func refuseConcreteConflicts(contributions []Contribution) error {
 	type claim struct {
 		key       InstanceKey
@@ -677,15 +634,14 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 	return nil
 }
 
-// preserveGroups preserves selection boundaries and unresolved declarations.
-// Concrete, ungrouped storage still reconciles at publication.
-// Wrapping the remaining ordinary entries preserves their optionality and
-// allows independent singleton contributions without a publishing-only grammar.
 func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResult, error) {
 	stripped := make([]Contribution, len(contributions))
 	for i, c := range contributions {
 		if c.Descriptor == nil {
 			return nil, fmt.Errorf("merge: %s has no descriptor", c.Reference)
+		}
+		if err := validateOrderingDeclarations(c.Descriptor); err != nil {
+			return nil, fmt.Errorf("merge: %s: %w", c.Reference, err)
 		}
 		d := *c.Descriptor
 		d.Capabilities = nil
@@ -699,9 +655,24 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 		return nil, err
 	}
 	count := 0
-	storage := capabilityMerge{byKey: map[string]keyed{}, optional: map[string]bool{}}
-	storagePositions := map[string]int{}
 	for contributionIndex, contribution := range contributions {
+		scopeOffset := uint32(len(result.Descriptor.CapabilityScopes))
+		scopes, err := publicationScopes(contribution.Descriptor)
+		if err != nil {
+			return nil, fmt.Errorf("merge: %s: %w", contribution.Reference, err)
+		}
+		result.Descriptor.CapabilityScopes = append(result.Descriptor.CapabilityScopes, scopes...)
+		items, err := MapCapabilities(contribution.Descriptor.Capabilities, func(c Capability) (Capability, error) {
+			scope := scopeOffset
+			if c.Scope != nil {
+				scope += *c.Scope
+			}
+			c.Scope = &scope
+			return c, nil
+		})
+		if err != nil {
+			return nil, err
+		}
 		// Remap descriptor-local IDs, even when a set includes the same
 		// reference twice. Attribution cannot provide structural identity.
 		blockIDs := map[string]string{}
@@ -713,7 +684,7 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 			blockIDs[id] = mapped
 			return mapped
 		}
-		for i, item := range contribution.Descriptor.Capabilities {
+		for i, item := range items {
 			ids := item.DeclarationBlocks
 			item.DeclarationBlocks = nil
 			if len(ids) == 0 && item.Group == nil {
@@ -728,31 +699,6 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 				if source.Kit == "" {
 					source.Kit = contribution.Reference
 				}
-			}
-			if item.Group == nil && (item.Type == CapabilityVolume || item.Type == CapabilityHostMount) && !capabilityIsParameterized(item) {
-				// An unrelated deferred request cannot hide a concrete conflict.
-				// Explicit group members stay separate until atomic selection.
-				item.Source = source
-				reference := fmt.Sprintf("%s (%s %s)", contribution.Reference, source.Kit, source.Path)
-				if err := storage.add(reference, item); err != nil {
-					return nil, err
-				}
-				key, err := storage.instanceKey(reference, item)
-				if err != nil {
-					return nil, err
-				}
-				merged := storage.byKey[key].capability
-				merged.Optional = storage.optional[key]
-				if position, seen := storagePositions[key]; seen {
-					merged.DeclarationBlocks = append(append([]string(nil), result.Descriptor.Capabilities[position].DeclarationBlocks...), item.DeclarationBlocks...)
-					result.Descriptor.Capabilities[position] = merged
-				} else {
-					storagePositions[key] = len(result.Descriptor.Capabilities)
-					result.Descriptor.Capabilities = append(result.Descriptor.Capabilities, merged)
-				}
-				// Keeping these entries ordinary lets an enclosing set also
-				// reconcile them without crossing an explicit group boundary.
-				continue
 			}
 			if item.Group == nil {
 				member := item
@@ -793,7 +739,7 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 					continue
 				}
 				if opts.ContextPath == "" {
-					return nil, fmt.Errorf("merge: conditional agent-context requires ContextPath")
+					return nil, fmt.Errorf("merge: agent-context publication requires ContextPath")
 				}
 				target := fmt.Sprintf("%s.parts/%d.md", opts.ContextPath, count)
 				count++

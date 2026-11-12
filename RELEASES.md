@@ -95,6 +95,37 @@ syntax=docker/sandbox-kit:N` line in the wild points at the old one, and
 `spec.SchemaVersion` gates decoding. Treat it as a new specification
 document (`docs/spec/SPEC-v4.md`) rather than an edit to the current one.
 
+## Draft lifecycle ordering compatibility
+
+The maintainer-requested implementation of
+[issue #205](https://github.com/docker/sandbox-kit-spec/issues/205),
+including workspace readiness from
+[issue #132](https://github.com/docker/sandbox-kit-spec/issues/132),
+uses an explicit exception for the unfinished schema-3 grammar. It adds
+capability `id`, `before`, `after`, and structural `scope`, plus the
+publisher's descriptor-level `capabilityScopes` table. SchemaVersion
+remains 3 for this draft. This exception extends beyond capability config
+versioning because the scope table is a descriptor field. It is not a
+precedent for adding top-level fields after the stable specification.
+
+Matching draft readers and runtimes are required. Older strict readers
+reject the new fields and repeated lifecycle entries. Publication now
+preserves original declarations, including concrete storage, so that
+selection and scoped relationships survive nesting. Runtime composition
+reconciles selected requests and preserves independent lifecycle entries.
+`LifecycleOf` refuses multiple entries; inspection uses `LifecyclesOf`,
+and execution uses the phase/step plan from `ComposeRuntime`.
+
+The same authorization applies the capability draft exception to changed
+observable behavior: lifecycle dependency order becomes an execution
+tie-break, Docker readiness before startup hooks becomes an overridable
+default, files are placed after Install and before Start Execute,
+workspace preparation precedes install commands, foreground hook failure
+stops phase progression, install grants end before Start, and ordinary
+Stop reverses startup effects. Existing capability versions remain in
+place during this draft. This does not assert that older runtime
+implementations provide these guarantees.
+
 ## Capability versions
 
 Each capability type addresses its config schema and observable behavior
