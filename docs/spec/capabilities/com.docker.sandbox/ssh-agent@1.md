@@ -116,8 +116,8 @@ A conforming runtime:
   runtime itself happens to reach, such as an `SSH_AUTH_SOCK` in its own
   environment, is never passed into the sandbox that way.
 - **MUST** scope by phase: an `install` grant is reachable during Install, <!-- tck: ssh-agent@1/phase-scoped -->
-  including workspace preparation and install commands, and closes before
-  Start. A `runtime` grant covers Start through Stop, including startup
+  including install commands, and closes before Start. Runtime-owned
+  workspace preparation uses the runtime's own access before Install. A `runtime` grant covers Start through Stop, including startup
   hooks that declare `SSH_AUTH_SOCK`.
 - **MUST** re-establish the agent on every boot, so a runtime grant <!-- tck: ssh-agent@1/every-boot -->
   survives stop and start.

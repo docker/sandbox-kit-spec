@@ -278,8 +278,12 @@ type Kit struct {
 
 // CapabilityScope binds provided names to one original Kit's declarations.
 // Empty scopes remain present so a provider with no ID is not an absent provider.
+// Dependencies retain each original Kit's normal ordering constraints when
+// publication removes requirements already satisfied inside the assembled set.
 type CapabilityScope struct {
-	Provides []string `json:"provides,omitempty" yaml:"provides,omitempty"`
+	Provides   []string `json:"provides,omitempty" yaml:"provides,omitempty"`
+	Requires   []string `json:"requires,omitempty" yaml:"requires,omitempty"`
+	Integrates []string `json:"integrates,omitempty" yaml:"integrates,omitempty"`
 }
 
 // Capability is one typed, versioned capability request. The type string is

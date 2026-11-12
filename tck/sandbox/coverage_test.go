@@ -210,16 +210,15 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"SPEC-v3 §12/workspace-access":       "workspace-ready observes content and access before Install, but the adapter has no trace of credentials, SSH access or network grants used by the runtime during cloning",
 	"SPEC-v3 §12/attach-before-place":    "volume mounted-before-hooks observes Attach before Execute, and step-barriers observes Place before Execute; the adapter exposes no observation between Attach and Place",
-	"SPEC-v3 §12/install-state":          "stop/start proves completed installation stays complete within one runtime process; the adapter cannot restart the host or daemon, and planner identity tests judge naming without persistent backend completion storage",
-	"SPEC-v3 §7.1.3/reconciled-bindings": "spec TestRuntimeSingletonAliasesAndPostMergeSelfReference and TestPublicationRetainsRepeatedNestedOrigins judge reconciliation bindings; the runtime fixtures observe distinct lifecycle scopes, not every shared keyed request fragment",
-	"SPEC-v3 §7.1.3/override-warning":    "the adapter has no warning stream; spec TestRuntimeTargetsAndAbsentWarnings and TestRuntimeDefaultOnlyMatchesActiveEffects judge planner warnings",
+	"SPEC-v3 §7.1.3/reconciled-bindings": "spec planner and publication tests judge first-declarer placement and reconciliation bindings; the runtime fixtures observe distinct lifecycle scopes, not every shared keyed request fragment",
 	"SPEC-v3 §12/within-step-order":      "lifecycle and service Execute order is observed, but order among host Attach operations and among Place operations needs an external operation trace; spec TestRuntimeLifecycleOrderAndFixedBarriers checks the emitted sequence",
-	"SPEC-v3 §12/host-stop-order":        "reverse-stop observes workload, lifecycle programs, and engine termination; reverse order of host attachments across Start and Prepare needs a host teardown trace",
+	"SPEC-v3 §12/host-stop-order":        "reverse-stop observes workload, lifecycle programs, and engine termination after a completed boot; the adapter cannot request Stop during Create, and host attachments across Start, active Install, and Prepare need a host teardown trace",
 	"SPEC-v3 §12/stop-timeout":           "the adapter exposes neither the runtime's declared termination bound nor its escalation record; reverse-stop observes cooperating programs only",
 	"SPEC-v3 §12/stop-resources-last":    "reverse-stop proves programs can still use the engine and placed content while terminating; complete host relay, storage, and device withdrawal requires an external inventory after stop",
 	"SPEC-v3 §12/install-grants-end":     "credential and SSH probes observe install-only sentinels and sockets absent from startup; withdrawal of outbound injection and OAuth presentations still needs phase-aware fixture services",
-	"SPEC-v3 §12/execution-contracts":    "trusted contract registration and planner purity are library duties, judged by spec TestRuntimeBuiltinContractInventory, TestRuntimeContractsRefuseUnknownOverrideAndInvalidEffects, and TestRuntimeCallbacksCannotMutatePlanningInputs; a guest cannot inspect host registrations",
+	"SPEC-v3 §12/execution-contracts":    "type-fixed phase/step metadata is judged by spec planner contract tests; a guest cannot inspect the full contract inventory for types the runtime does not implement",
 	"open-url@1/guest-interface":         "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
 	"open-url@1/opener-result":           "the isolated probe checks successful HTTP/HTTPS requests and validation failures; transport and host opener failures, and shell interpretation, remain unobserved",
 	"open-url@1/url-validation":          "the runtime probe checks rejection through the guest helper; the adapter cannot send raw host-service requests to distinguish guest-only validation from host enforcement",

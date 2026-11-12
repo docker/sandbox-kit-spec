@@ -82,15 +82,16 @@ A conforming runtime, whatever `autoStart` says:
 
 With `autoStart` true or omitted, the runtime:
 
-- **MUST** establish an engine-before-startup default in Start Execute <!-- tck: dockerd@1/engine-before-startup -->
-  on every boot, waiting until the engine answers and its socket is
-  usable by the image user. A directly opposing written relationship
-  overrides the default for that entry pair under
-  [§7.1.3](../../SPEC-v3.md#713-capability-execution-order). A hook
-  deliberately placed before the engine cannot rely on it.
+- **MUST** start the engine in Start Execute on every boot, at the <!-- tck: dockerd@1/engine-before-startup -->
+  entry's position under
+  [§7.1.3](../../SPEC-v3.md#713-capability-execution-order), waiting
+  until it answers and its socket is usable by the image user before
+  advancing. A startup hook that needs the engine follows it by
+  declaration, Kit dependency, or a written relationship. No automatic
+  ordering relationship places the engine before lifecycle entries.
 - **MUST** fail the start when the engine does not answer within a <!-- tck: dockerd@1/fails-when-engine-unanswered -->
-  bound the runtime chooses, rather than run hooks and the workload
-  against an engine that is not there.
+  bound the runtime chooses, rather than run later hooks and the
+  workload against an engine that is not there.
 - **MUST** name that bound in the failure. <!-- tck: dockerd@1/unanswered-bound-named -->
 - **MUST** make `/var/run/docker.sock` usable by the user the image <!-- tck: dockerd@1/socket-usable-by-image-user -->
   config declares.
@@ -107,7 +108,8 @@ engine startup is Start Execute. No engine is promised during Install.
 Lifecycle files complete in Start Place before the engine starts.
 Those files belong to the agent; root-owned configuration can be supplied
 by the image or by a root startup command in a separate lifecycle entry
-with `before: [com.docker.sandbox/dockerd@1]`.
+declared before the engine. A startup hook using the engine is declared
+after it. Cross-Kit relationships can make those positions explicit.
 
 With `autoStart: false`, the Kit starts the engine from its own hook
 (a [`lifecycle@1`](lifecycle@1.md) `startup` hook with `user: "0"`, for
@@ -116,8 +118,8 @@ waiting until the engine answers and making the socket usable by the
 image user. A foreground launch hook can wait for `GET /_ping` to return
 200 before exiting. A later hook ordered after that entry then observes
 readiness. A background hook completing at launch offers no readiness
-promise. The runtime contributes no engine-before-startup default when
-automatic startup is disabled.
+promise. The dockerd entry still participates in Start Execute when
+automatic startup is disabled, doing nothing at its turn.
 The runtime:
 
 - **MUST** still run the sandbox elevated, as when the engine is <!-- tck: dockerd@1/manual-elevation-granted -->

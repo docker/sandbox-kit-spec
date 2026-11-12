@@ -18,7 +18,7 @@ capabilities:
 - type: com.docker.sandbox/lifecycle@1
   id: repeated
   after:
-  - '#bridge'
+  - '#first'
   config:
     install:
     - command: test ! -e /var/tmp/ordering-file && printf 'R,' >> /var/tmp/ordering-install
@@ -28,7 +28,7 @@ capabilities:
 - type: com.docker.sandbox/lifecycle@1
   id: first
   before:
-  - '#bridge'
+  - '#repeated'
   config:
     install:
     - command: test ! -e /var/tmp/ordering-file && printf 'A,' >> /var/tmp/ordering-install
@@ -54,6 +54,8 @@ capabilities:
       id: bridge
       before:
       - '#repeated'
+      after:
+      - '#second'
       config:
         files:
         - path: /var/tmp/ordering-skipped

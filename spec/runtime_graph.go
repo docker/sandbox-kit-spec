@@ -9,7 +9,7 @@ import (
 )
 
 // runtimeNode keeps one original declaration, including declarations skipped by
-// selection. Dropping a skipped node would also drop authored edges through it.
+// selection. Skipped declarations bind IDs but never constrain execution order.
 // Its position in nodes is the dependency/declaration tie-break position.
 type runtimeNode struct {
 	capability Capability
@@ -22,27 +22,31 @@ type runtimeNode struct {
 // holds original node indexes; providers maps a name to its original Kit scopes.
 // Neither map is rebuilt from merged payloads or publisher-supplied attribution.
 type runtimeGraph struct {
-	nodes     []runtimeNode
-	scopes    [][]int
-	providers map[string][]int
+	nodes        []runtimeNode
+	scopes       [][]int
+	providers    map[string][]int
+	dependencies [][]bool
 }
 
-// runtimeEdge retains the authored relationship or contract default responsible
-// for an edge, so a cycle can explain which declarations need to change.
+// runtimeEdge retains the normal or written constraint responsible for an edge.
+// Writer and before preserve which endpoint authored a relationship, because
+// that endpoint alone may be released from its normal ordering constraints.
 type runtimeEdge struct {
 	from, to int
 	reason   string
+	writer   int
+	before   bool
 }
 
-// runtimeFragment is one reconciled request and its scheduled effects. Several
-// fragments can share an entry when reconciliation splits overlapping grants.
-// Keeping fragments separate runs each effective request once without inventing
-// several ordering positions for the same original declaration.
+// runtimeFragment is one reconciled request and its scheduled effects. Each
+// request sits at its first declaration; other origins contribute ID aliases
+// and written edges without contributing extra declaration constraints.
 type runtimeFragment struct {
-	capability Capability
-	entry      int
-	id         string
-	effects    []PlannedEffect
+	capability    Capability
+	entry         int
+	id            string
+	effects       []PlannedEffect
+	participation []ExecutionBoundary
 }
 
 // newRuntimeGraph enumerates inputs before selection or sorting. Each input
@@ -106,6 +110,9 @@ func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
 				add(&item.Group.Capabilities[j], fmt.Sprintf("%s.group.capabilities[%d]", path, j))
 			}
 		}
+	}
+	if err := graph.buildDependencies(contributions); err != nil {
+		return nil, err
 	}
 	return graph, nil
 }
@@ -171,31 +178,81 @@ func (g *runtimeGraph) resolve(writer int, target orderingTarget) ([]int, bool, 
 	return targets, true, nil
 }
 
-// runtimeRoot follows the reconciliation union and compresses its lookup path.
-// Nil parents is the pre-reconciliation graph, where every declaration is a node.
-func runtimeRoot(parents []int, index int) int {
-	if parents == nil {
-		return index
+// buildDependencies retains Kit dependency constraints independently of the
+// caller's chosen order among unrelated Kits. Scope metadata carries internal
+// dependencies through publication, where satisfied requirements disappear.
+func (g *runtimeGraph) buildDependencies(contributions []Contribution) error {
+	n := len(g.scopes)
+	g.dependencies = make([][]bool, n)
+	for i := range n {
+		g.dependencies[i] = make([]bool, n)
 	}
-	root := index
-	for parents[root] != root {
-		root = parents[root]
+	// Published scopes bind names while the enclosing descriptor retains the
+	// versions of every offer. Resolve constraints against those versions; a
+	// merely present but incompatible integrates provider contributes no edge.
+	provided := make([][]Provide, n)
+	base := 0
+	for _, contribution := range contributions {
+		d := contribution.Descriptor
+		count := max(1, len(d.CapabilityScopes))
+		for _, raw := range d.Provides {
+			p, err := ParseProvide(raw)
+			if err != nil {
+				return err
+			}
+			if p.Version == "" {
+				p.Version = d.Version
+			}
+			for _, scope := range g.providers[p.Name] {
+				if scope >= base && scope < base+count {
+					provided[scope] = append(provided[scope], p)
+				}
+			}
+		}
+		base += count
 	}
-	for parents[index] != index {
-		next := parents[index]
-		parents[index] = root
-		index = next
+	base = 0
+	for _, contribution := range contributions {
+		d := contribution.Descriptor
+		count := max(1, len(d.CapabilityScopes))
+		for local := range count {
+			relations := append(slices.Clone(d.Requires), d.Integrates...)
+			if len(d.CapabilityScopes) > 0 {
+				relations = append(relations, d.CapabilityScopes[local].Requires...)
+				relations = append(relations, d.CapabilityScopes[local].Integrates...)
+			}
+			for _, raw := range relations {
+				required, err := ParseRequire(raw)
+				if err != nil {
+					return err
+				}
+				for _, provider := range g.providers[required.Name] {
+					if provider != base+local && slices.ContainsFunc(provided[provider], func(p Provide) bool { return Satisfies(p, required) }) {
+						g.dependencies[provider][base+local] = true
+					}
+				}
+			}
+		}
+		base += count
 	}
-	return root
+	// Reachability includes empty intermediate Kits, so their lack of entries does
+	// not erase provider-before-requirer constraints on the Kits around them.
+	for k := range n {
+		for i := range n {
+			for j := range n {
+				g.dependencies[i][j] = g.dependencies[i][j] || g.dependencies[i][k] && g.dependencies[k][j]
+			}
+		}
+	}
+	return nil
 }
 
-// writtenEdges runs both before and after reconciliation. Broad targets exclude
-// their writing entry; an explicit ID edge collapsed into that entry instead
-// becomes contradictory. Skipped nodes retain their authored relationships.
-func (g *runtimeGraph) writtenEdges(parents []int) ([]runtimeEdge, []string, error) {
+// writtenEdges validates every declaration target before selection. Later the
+// planner maps these original endpoints to selected effective requests. An edge
+// collapsed by reconciliation has no effect, including an explicit ID edge.
+func (g *runtimeGraph) writtenEdges() ([]runtimeEdge, []string, error) {
 	var edges []runtimeEdge
 	var warnings []string
-	seen := map[[2]int]bool{}
 	for i, node := range g.nodes {
 		for _, relation := range []struct {
 			name    string
@@ -214,21 +271,17 @@ func (g *runtimeGraph) writtenEdges(parents []int) ([]runtimeEdge, []string, err
 					warnings = append(warnings, fmt.Sprintf("%s: %s target %q is absent", g.label(i), relation.name, raw))
 				}
 				for _, j := range targets {
-					from, to := runtimeRoot(parents, i), runtimeRoot(parents, j)
-					if from == to {
+					if i == j {
 						if target.id != "" {
-							return nil, nil, fmt.Errorf("%s: %s %q is a self-reference after reconciliation", g.label(i), relation.name, raw)
+							return nil, nil, fmt.Errorf("%s: %s %q is a self-reference", g.label(i), relation.name, raw)
 						}
 						continue
 					}
+					from, to := i, j
 					if relation.name == "after" {
 						from, to = to, from
 					}
-					key := [2]int{from, to}
-					if !seen[key] {
-						seen[key] = true
-						edges = append(edges, runtimeEdge{from: from, to: to, reason: fmt.Sprintf("%s %s %q", g.label(i), relation.name, raw)})
-					}
+					edges = append(edges, runtimeEdge{from: from, to: to, writer: i, before: relation.name == "before", reason: fmt.Sprintf("%s %s %q", g.label(i), relation.name, raw)})
 				}
 			}
 		}
@@ -236,207 +289,267 @@ func (g *runtimeGraph) writtenEdges(parents []int) ([]runtimeEdge, []string, err
 	return edges, warnings, nil
 }
 
-// fragments groups connected origins before lowering effective requests. For
-// example, one grant can contribute to two phase-specific requests that each
-// merge with another grant. All connected origins need one ordering position.
-// The smallest original index is always the root, preserving the first
-// contributor's tie-break position and every contributor's ID binding.
-func (g *runtimeGraph) fragments(ctx context.Context, capabilities []Capability, contracts map[string]ExecutionContract) ([]runtimeFragment, []int, error) {
-	parents := make([]int, len(g.nodes))
-	for i := range parents {
-		parents[i] = i
-	}
-	for _, c := range capabilities {
-		if len(c.executionOrigins) == 0 {
-			return nil, nil, fmt.Errorf("effective capability %s has no reconciliation origins", c.Type)
-		}
-		first := c.executionOrigins[0]
-		for _, origin := range c.executionOrigins {
-			if origin < 0 || origin >= len(g.nodes) || !g.nodes[origin].selected {
-				return nil, nil, fmt.Errorf("effective capability %s has invalid reconciliation origin %d", c.Type, origin)
-			}
-			left, right := runtimeRoot(parents, first), runtimeRoot(parents, origin)
-			if left != right {
-				parents[max(left, right)] = min(left, right)
-			}
-		}
-	}
+// fragments lowers effective requests without joining connected origin sets.
+// A shared grant can reconcile into different requests in different phases;
+// connecting their origins would invent constraints between those requests.
+func (g *runtimeGraph) fragments(ctx context.Context, capabilities []Capability, contracts map[string]ExecutionContract) ([]runtimeFragment, error) {
 	fragments := make([]runtimeFragment, 0, len(capabilities))
 	for i, c := range capabilities {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
+		}
+		if len(c.executionOrigins) == 0 {
+			return nil, fmt.Errorf("effective capability %s has no reconciliation origins", c.Type)
+		}
+		first := len(g.nodes)
+		for _, origin := range c.executionOrigins {
+			if origin < 0 || origin >= len(g.nodes) || !g.nodes[origin].selected {
+				return nil, fmt.Errorf("effective capability %s has invalid reconciliation origin %d", c.Type, origin)
+			}
+			first = min(first, origin)
 		}
 		contract, known := contracts[c.Type]
 		if !known {
-			return nil, nil, fmt.Errorf("effective capability %s has no execution contract", c.Type)
+			return nil, fmt.Errorf("effective capability %s has no execution contract", c.Type)
 		}
 		var effects []PlannedEffect
 		if contract.Effects != nil {
-			// Registrations are trusted to describe execution, but a callback
-			// still receives its own copy so it cannot rewrite the composition.
+			// Pure callbacks still receive detached copies, protecting inspection data
+			// and all neighboring requests from accidental mutation.
 			copy, err := cloneRuntimeCapability(c)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			effects, err = contract.Effects(copy)
 			if err != nil {
-				return nil, nil, fmt.Errorf("execution contract %s: %w", c.Type, err)
+				return nil, fmt.Errorf("execution contract %s: %w", c.Type, err)
 			}
 			effects = slices.Clone(effects)
 		}
 		seen := map[string]bool{}
 		for _, effect := range effects {
 			if err := validateRuntimeEffect(effect); err != nil {
-				return nil, nil, fmt.Errorf("execution contract %s: %w", c.Type, err)
+				return nil, fmt.Errorf("execution contract %s: %w", c.Type, err)
+			}
+			if !slices.Contains(contract.Participation, ExecutionBoundary{effect.Phase, effect.Step}) {
+				return nil, fmt.Errorf("execution contract %s effect %s is outside fixed participation %s/%s", c.Type, effect.Action, effect.Phase, effect.Step)
 			}
 			key := string(effect.Phase) + "/" + string(effect.Step) + "/" + effect.Action
 			if seen[key] {
-				return nil, nil, fmt.Errorf("execution contract %s repeats effect %s", c.Type, key)
+				return nil, fmt.Errorf("execution contract %s repeats effect %s", c.Type, key)
 			}
 			seen[key] = true
 		}
-		fragments = append(fragments, runtimeFragment{capability: c, entry: runtimeRoot(parents, c.executionOrigins[0]),
-			id: fmt.Sprintf("effective[%d]", i), effects: effects})
+		fragments = append(fragments, runtimeFragment{capability: c, entry: first, id: fmt.Sprintf("effective[%d]", i), effects: effects, participation: contract.Participation})
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	return fragments, parents, nil
+	return fragments, ctx.Err()
 }
 
-// plan validates the reconciled written graph before adding defaults. A written
-// cycle is never repaired by defaults; a cycle introduced by defaults is also an
-// error. No schedule escapes either failure path.
+// plan computes an independent constraint graph at each fixed boundary. Types
+// participate even when config lowers no work there; absent effects never let
+// a config edit reshuffle another entry. No partial schedule escapes a cycle.
 func (g *runtimeGraph) plan(ctx context.Context, capabilities []Capability, contracts map[string]ExecutionContract, workspace bool) (ExecutionPlan, []string, error) {
-	fragments, parents, err := g.fragments(ctx, capabilities, contracts)
+	fragments, err := g.fragments(ctx, capabilities, contracts)
 	if err != nil {
 		return ExecutionPlan{}, nil, err
 	}
-	written, _, err := g.writtenEdges(parents)
+	written, _, err := g.writtenEdges()
 	if err != nil {
 		return ExecutionPlan{}, nil, err
 	}
-	if _, err := g.order(written, parents); err != nil {
-		return ExecutionPlan{}, nil, err
-	}
-	edges, warnings := g.defaultEdges(written, fragments, contracts)
-	order, err := g.order(edges, parents)
-	if err != nil {
-		return ExecutionPlan{}, nil, err
-	}
-	return g.schedule(order, parents, fragments, workspace), warnings, nil
-}
-
-func runtimeHasEffect(fragment runtimeFragment, ordering OrderingDefault, action string) bool {
-	for _, effect := range fragment.effects {
-		if effect.Phase == ordering.Phase && effect.Step == ordering.Step && (action == "" || effect.Action == action) {
-			return true
-		}
-	}
-	return false
-}
-
-// defaultEdges only connects active effects in the same phase and step. An
-// explicit opposite edge overrides that pair's default. An indirect opposite
-// path does not override it: the resulting cycle must be reported to the author.
-func (g *runtimeGraph) defaultEdges(written []runtimeEdge, fragments []runtimeFragment, contracts map[string]ExecutionContract) ([]runtimeEdge, []string) {
-	edges := slices.Clone(written)
-	explicit := map[[2]int]bool{}
-	added := map[[2]int]bool{}
-	for _, edge := range written {
-		explicit[[2]int{edge.from, edge.to}] = true
-		added[[2]int{edge.from, edge.to}] = true
-	}
-	var warnings []string
-	warned := map[[2]int]bool{}
-	byType := map[string][]runtimeFragment{}
-	for _, fragment := range fragments {
-		byType[fragment.capability.Type] = append(byType[fragment.capability.Type], fragment)
-	}
-	for _, source := range fragments {
-		for _, ordering := range contracts[source.capability.Type].Defaults {
-			if !runtimeHasEffect(source, ordering, ordering.Action) {
+	orders := map[ExecutionBoundary][]int{}
+	for _, phase := range []ExecutionPhase{PhasePrepare, PhaseInstall, PhaseStart, PhaseRunning} {
+		for _, step := range []ExecutionStep{StepAttach, StepPlace, StepExecute} {
+			if !runtimePhaseStep(phase, step) {
 				continue
 			}
-			typ := ordering.BeforeType
-			if typ == "" {
-				typ = ordering.AfterType
+			boundary := ExecutionBoundary{phase, step}
+			order, err := g.boundaryOrder(boundary, fragments, written)
+			if err != nil {
+				return ExecutionPlan{}, nil, fmt.Errorf("%s/%s: %w", phase, step, err)
 			}
-			for _, target := range byType[typ] {
-				if source.entry == target.entry || !runtimeHasEffect(target, ordering, ordering.TargetAction) {
+			orders[boundary] = order
+		}
+	}
+	return g.schedule(orders, fragments, workspace), nil, nil
+}
+
+// boundaryOrder implements the normative computation. Normal constraints are
+// complete pairwise Kit declaration/dependency constraints, not just adjacent
+// edges: moving one entry must not release the order of untouched neighbors.
+func (g *runtimeGraph) boundaryOrder(boundary ExecutionBoundary, fragments []runtimeFragment, written []runtimeEdge) ([]int, error) {
+	var nodes []int
+	origins := make([][]int, len(g.nodes))
+	for i, fragment := range fragments {
+		if !slices.Contains(fragment.participation, boundary) {
+			continue
+		}
+		nodes = append(nodes, i)
+		for _, origin := range fragment.capability.executionOrigins {
+			origins[origin] = append(origins[origin], i)
+		}
+	}
+	normal := map[[2]int]runtimeEdge{}
+	for _, i := range nodes {
+		for _, j := range nodes {
+			if i == j {
+				continue
+			}
+			left, right := fragments[i].entry, fragments[j].entry
+			ls, rs := g.nodes[left].scope, g.nodes[right].scope
+			if ls == rs && left < right || ls != rs && g.dependencies[ls][rs] {
+				normal[[2]int{i, j}] = runtimeEdge{from: i, to: j, reason: "normal Kit declaration/dependency order"}
+			}
+		}
+	}
+	var explicit []runtimeEdge
+	for _, edge := range written {
+		for _, from := range origins[edge.from] {
+			for _, to := range origins[edge.to] {
+				if from == to {
 					continue
 				}
-				from, to := source.entry, target.entry
-				if ordering.AfterType != "" {
-					from, to = to, from
+				writer := from
+				if !edge.before {
+					writer = to
 				}
-				key := [2]int{from, to}
-				if explicit[[2]int{to, from}] {
-					if !warned[key] {
-						warnings = append(warnings, fmt.Sprintf("written relationship %s before %s overrides %s default in %s/%s", g.label(to), g.label(from), source.capability.Type, ordering.Phase, ordering.Step))
-						warned[key] = true
-					}
-					continue
+				explicit = append(explicit, runtimeEdge{from: from, to: to, writer: writer, before: edge.before, reason: edge.reason})
+			}
+		}
+	}
+	// Step 2 observes the initial normal relation. All removals are applied
+	// together so edge enumeration order cannot affect the resulting constraints.
+	removals := map[[2]int]bool{}
+	for _, edge := range explicit {
+		target := edge.to
+		if !edge.before {
+			target = edge.from
+		}
+		for _, other := range nodes {
+			if edge.before {
+				if _, ok := normal[[2]int{target, other}]; target == other || ok {
+					removals[[2]int{other, edge.writer}] = true
 				}
-				if !added[key] {
-					added[key] = true
-					edges = append(edges, runtimeEdge{from: from, to: to, reason: fmt.Sprintf("%s default in %s/%s", source.capability.Type, ordering.Phase, ordering.Step)})
+			} else {
+				if _, ok := normal[[2]int{other, target}]; target == other || ok {
+					removals[[2]int{edge.writer, other}] = true
 				}
 			}
 		}
 	}
-	return edges, warnings
+	for key := range removals {
+		delete(normal, key)
+	}
+	// Step 3 expands displacement through remaining normal constraints and written
+	// edges of the same orientation. Each pass observes one snapshot and applies
+	// removals simultaneously. Written edges are never candidates for removal.
+	for {
+		removals = map[[2]int]bool{}
+		for _, edge := range explicit {
+			target := edge.to
+			if !edge.before {
+				target = edge.from
+			}
+			reached := map[int]bool{}
+			var walk func(int)
+			walk = func(node int) {
+				if node == edge.writer || reached[node] {
+					return
+				}
+				reached[node] = true
+				for _, next := range nodes {
+					key := [2]int{node, next}
+					if !edge.before {
+						key = [2]int{next, node}
+					}
+					if _, ok := normal[key]; ok {
+						walk(next)
+					}
+				}
+				for _, other := range explicit {
+					if other.before != edge.before {
+						continue
+					}
+					if edge.before && other.from == node {
+						walk(other.to)
+					}
+					if !edge.before && other.to == node {
+						walk(other.from)
+					}
+				}
+			}
+			walk(target)
+			for other := range reached {
+				key := [2]int{other, edge.writer}
+				if !edge.before {
+					key = [2]int{edge.writer, other}
+				}
+				if _, ok := normal[key]; ok {
+					removals[key] = true
+				}
+			}
+		}
+		if len(removals) == 0 {
+			break
+		}
+		for key := range removals {
+			delete(normal, key)
+		}
+	}
+	edges := slices.Clone(explicit)
+	// Iterating nodes, rather than map keys, keeps cycle diagnostics deterministic.
+	for _, i := range nodes {
+		for _, j := range nodes {
+			if edge, ok := normal[[2]int{i, j}]; ok {
+				edges = append(edges, edge)
+			}
+		}
+	}
+	return g.order(edges, nodes, fragments)
 }
 
-// order uses Kahn's algorithm with a min-heap of eligible original positions.
+// order uses Kahn's algorithm with a min-heap of eligible composition positions.
 // A FIFO queue would leave a newly eligible early declaration behind later
 // declarations, violating the specified dependency/declaration tie-break.
-func (g *runtimeGraph) order(edges []runtimeEdge, parents []int) ([]int, error) {
-	indegree := make([]int, len(g.nodes))
-	outgoing := make([][]int, len(g.nodes))
+func (g *runtimeGraph) order(edges []runtimeEdge, nodes []int, fragments []runtimeFragment) ([]int, error) {
+	indegree := make([]int, len(fragments))
+	outgoing := make([][]int, len(fragments))
 	for i, edge := range edges {
 		indegree[edge.to]++
 		outgoing[edge.from] = append(outgoing[edge.from], i)
 	}
-	var roots []int
-	for i := range g.nodes {
-		if runtimeRoot(parents, i) == i {
-			roots = append(roots, i)
-		}
-	}
 	var order []int
-	visited := make([]bool, len(g.nodes))
+	visited := make([]bool, len(fragments))
 	eligible := &runtimeEligible{}
-	for _, root := range roots {
-		if indegree[root] == 0 {
-			heap.Push(eligible, root)
+	for _, node := range nodes {
+		if indegree[node] == 0 {
+			heap.Push(eligible, node)
 		}
 	}
 	for eligible.Len() > 0 {
 		next := heap.Pop(eligible).(int)
 		visited[next] = true
 		order = append(order, next)
-		for _, edge := range outgoing[next] {
-			target := edges[edge].to
+		for _, index := range outgoing[next] {
+			target := edges[index].to
 			indegree[target]--
 			if indegree[target] == 0 {
 				heap.Push(eligible, target)
 			}
 		}
 	}
-	if len(order) != len(roots) {
-		return nil, g.cycleError(edges, outgoing, roots, visited)
+	if len(order) != len(nodes) {
+		return nil, g.cycleError(edges, outgoing, nodes, visited, fragments)
 	}
 	return order, nil
 }
 
 // cycleError reports an actual cycle in the unscheduled remainder. Reporting
 // every blocked node would also blame entries merely downstream of the cycle.
-func (g *runtimeGraph) cycleError(edges []runtimeEdge, outgoing [][]int, roots []int, completed []bool) error {
-	active := make([]bool, len(g.nodes))
+func (g *runtimeGraph) cycleError(edges []runtimeEdge, outgoing [][]int, nodes []int, completed []bool, fragments []runtimeFragment) error {
+	active := make([]bool, len(fragments))
 	visited := slices.Clone(completed)
-	var path []int
-	var cycle []int
+	var path, cycle []int
 	var visit func(int) bool
 	visit = func(node int) bool {
 		active[node] = true
@@ -460,15 +573,15 @@ func (g *runtimeGraph) cycleError(edges []runtimeEdge, outgoing [][]int, roots [
 		active[node] = false
 		return false
 	}
-	for _, root := range roots {
-		if !visited[root] && visit(root) {
+	for _, node := range nodes {
+		if !visited[node] && visit(node) {
 			break
 		}
 	}
 	details := make([]string, 0, len(cycle))
 	for _, index := range cycle {
 		edge := edges[index]
-		details = append(details, fmt.Sprintf("%s -> %s [%s]", g.label(edge.from), g.label(edge.to), edge.reason))
+		details = append(details, fmt.Sprintf("%s -> %s [%s]", g.label(fragments[edge.from].entry), g.label(fragments[edge.to].entry), edge.reason))
 	}
 	return fmt.Errorf("execution ordering cycle: %s", strings.Join(details, "; "))
 }

@@ -82,12 +82,13 @@ A conforming runtime:
   runs.
 - **MUST** run hooks in the entry order defined by <!-- tck: lifecycle@1/hooks-dependency-order -->
   [§7.1.3](../../SPEC-v3.md#713-capability-execution-order), retaining
-  dependency and declaration order among currently eligible entries.
-  Explicit relationships and contract defaults may put a requirer first.
-  Preserve the command order inside each entry.
+  normal dependency and declaration order except where an entry's own
+  written relationship releases it. Each phase and step has its own
+  order. Preserve the command order inside each entry.
 - **MUST** hold the [network policy's](network-policy@1.md) install phase <!-- tck: lifecycle@1/install-network-scope-held -->
-  open during Install, including workspace preparation and install hooks,
-  and close it before Start begins.
+  open during Install hooks, and close it before Start begins.
+  Runtime-owned workspace preparation precedes Install and uses the
+  runtime's own access.
 - **MUST** end install-phase [credentials](credential@1.md) with the <!-- tck: lifecycle@1/install-credentials-end-with-phase -->
   install phase, exactly as the network scope ends.
 - **MUST** restrict a hook's environment to its declared `env` names plus <!-- tck: lifecycle@1/hook-env-restricted -->
@@ -152,5 +153,10 @@ Publication preserves those boundaries and their original ID scopes.
 Place, and `startup` commands to Start Execute. A single entry can place
 files before a service and run startup commands after that service.
 Commands on both sides of another Execute effect need separate entries.
-The runtime completes initial workspace preparation before any install
-command, under [§12](../../SPEC-v3.md#12-runtime-environment).
+Every lifecycle entry participates in Install Execute, Start Place, and
+Start Execute. An absent command or file list does nothing at that turn;
+adding a command or file does not move another entry. The runtime
+completes initial workspace preparation in Prepare Attach before Install,
+using its own access under
+[§12](../../SPEC-v3.md#12-runtime-environment). Kit install grants do not
+cover cloning.

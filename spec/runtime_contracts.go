@@ -22,11 +22,13 @@ func runtimeContracts(additional map[string]ExecutionContract) (map[string]Execu
 			return nil, fmt.Errorf("execution contract %q must name an exact capability type and version", typ)
 		}
 		contract := additional[typ]
-		contract.Defaults = slices.Clone(contract.Defaults)
-		for _, ordering := range contract.Defaults {
-			if err := validateRuntimeDefault(ordering); err != nil {
-				return nil, fmt.Errorf("execution contract %s: %w", typ, err)
+		contract.Participation = slices.Clone(contract.Participation)
+		seen := map[ExecutionBoundary]bool{}
+		for _, boundary := range contract.Participation {
+			if !runtimePhaseStep(boundary.Phase, boundary.Step) || seen[boundary] {
+				return nil, fmt.Errorf("execution contract %s has invalid or duplicate participation %s/%s", typ, boundary.Phase, boundary.Step)
 			}
+			seen[boundary] = true
 		}
 		contracts[typ] = contract
 	}
@@ -45,7 +47,14 @@ func builtinRuntimeContracts() map[string]ExecutionContract {
 		return PlannedEffect{Phase: phase, Step: StepPlace, Action: action, Kind: EffectContent}
 	}
 	fixed := func(effects ...PlannedEffect) ExecutionContract {
-		return ExecutionContract{Effects: func(Capability) ([]PlannedEffect, error) {
+		participation := make([]ExecutionBoundary, 0, len(effects))
+		for _, effect := range effects {
+			boundary := ExecutionBoundary{Phase: effect.Phase, Step: effect.Step}
+			if !slices.Contains(participation, boundary) {
+				participation = append(participation, boundary)
+			}
+		}
+		return ExecutionContract{Participation: participation, Effects: func(Capability) ([]PlannedEffect, error) {
 			return slices.Clone(effects), nil
 		}}
 	}
@@ -64,22 +73,28 @@ func builtinRuntimeContracts() map[string]ExecutionContract {
 		CapabilityPort:            fixed(attach(PhaseStart, "port")),
 		CapabilityNetworkPolicy:   fixed(attach(PhaseInstall, "network-policy"), attach(PhaseStart, "network-policy")),
 		CapabilityNetworkPolicyV2: fixed(attach(PhaseInstall, "network-policy"), attach(PhaseStart, "network-policy")),
-		CapabilityCredential:      {Effects: runtimeGrantEffects},
-		CapabilitySSHAgent:        {Effects: runtimeGrantEffects},
+		CapabilityCredential:      {Participation: runtimeGrantParticipation(), Effects: runtimeGrantEffects},
+		CapabilitySSHAgent:        {Participation: runtimeGrantParticipation(), Effects: runtimeGrantEffects},
 		CapabilityAgentSkill:      fixed(place(PhaseStart, "skill")),
 		CapabilityAgentContext:    fixed(place(PhaseStart, "agent-context")),
 		CapabilityAgentContextV2:  fixed(place(PhaseStart, "agent-context")),
 		CapabilitySbx:             fixed(place(PhasePrepare, "sandbox-environment")),
-		CapabilityLifecycle:       {Effects: runtimeLifecycleEffects},
+		CapabilityLifecycle:       {Participation: []ExecutionBoundary{{PhaseInstall, StepExecute}, {PhaseStart, StepPlace}, {PhaseStart, StepExecute}}, Effects: runtimeLifecycleEffects},
 		CapabilityDockerd: {
-			Effects:  runtimeDockerdEffects,
-			Defaults: []OrderingDefault{{Phase: PhaseStart, Step: StepExecute, Action: "engine", BeforeType: CapabilityLifecycle, TargetAction: "startup"}},
+			Participation: []ExecutionBoundary{{PhasePrepare, StepAttach}, {PhaseStart, StepExecute}},
+			Effects:       runtimeDockerdEffects,
 		},
 		CapabilityAgentSessions:            {},
 		CapabilityAgentInteractiveSessions: {},
 		CapabilityACP:                      {},
 		CapabilityLongRunning:              {},
 	}
+}
+
+// Grants participate in both phases even when a particular config grants only
+// one. Optional guest material also keeps its Place position when absent.
+func runtimeGrantParticipation() []ExecutionBoundary {
+	return []ExecutionBoundary{{PhaseInstall, StepAttach}, {PhaseInstall, StepPlace}, {PhaseStart, StepAttach}, {PhaseStart, StepPlace}}
 }
 
 // runtimeGrantEffects separates access from material placed inside the sandbox.
@@ -118,8 +133,10 @@ func runtimeGrantEffects(c Capability) ([]PlannedEffect, error) {
 
 // runtimeLifecycleEffects preserves each declaration as separate actions. Files
 // belong to Start Place, so they precede startup services but cannot supply an
-// earlier install command. A startup list containing background commands needs
-// cleanup; its handler still executes every command in the list's original order.
+// earlier install command. Every command has a cleanup candidate so Stop can
+// end an in-flight foreground command too. Completed commands leave no active
+// effect to end; earlier commands are never undone. The handler executes each
+// list in its original order and retains any deliberate background processes.
 func runtimeLifecycleEffects(c Capability) ([]PlannedEffect, error) {
 	var lifecycle Lifecycle
 	if err := DecodeCapabilityConfig(c, &lifecycle); err != nil {
@@ -127,17 +144,16 @@ func runtimeLifecycleEffects(c Capability) ([]PlannedEffect, error) {
 	}
 	var effects []PlannedEffect
 	if len(lifecycle.Install) > 0 {
-		effects = append(effects, PlannedEffect{Phase: PhaseInstall, Step: StepExecute, Action: "install", Kind: EffectCommand})
+		effects = append(effects, PlannedEffect{Phase: PhaseInstall, Step: StepExecute, Action: "install", Kind: EffectCommand, End: true})
 	}
 	if len(lifecycle.Files) > 0 {
 		effects = append(effects, PlannedEffect{Phase: PhaseStart, Step: StepPlace, Action: "files", Kind: EffectContent})
 	}
 	if len(lifecycle.Startup) > 0 {
-		startup := PlannedEffect{Phase: PhaseStart, Step: StepExecute, Action: "startup", Kind: EffectCommand}
+		startup := PlannedEffect{Phase: PhaseStart, Step: StepExecute, Action: "startup", Kind: EffectCommand, End: true}
 		for _, hook := range lifecycle.Startup {
 			if hook.Background {
 				startup.Kind = EffectProgram
-				startup.End = true
 			}
 		}
 		effects = append(effects, startup)
@@ -147,7 +163,7 @@ func runtimeLifecycleEffects(c Capability) ([]PlannedEffect, error) {
 
 // runtimeDockerdEffects separates elevation/storage from engine execution.
 // Manual startup still needs those resources, but emits no automatic engine
-// action and therefore contributes no engine-before-startup default edge.
+// action. Its entry retains its Start Execute position even when it does no work.
 func runtimeDockerdEffects(c Capability) ([]PlannedEffect, error) {
 	var dockerd Dockerd
 	if err := DecodeCapabilityConfig(c, &dockerd); err != nil {
@@ -172,29 +188,6 @@ func validateRuntimeEffect(effect PlannedEffect) error {
 		effect.Step == StepExecute && (effect.Kind == EffectProgram || effect.Kind == EffectCommand)
 	if !validKind {
 		return fmt.Errorf("effect %q kind %q does not belong in step %q", effect.Action, effect.Kind, effect.Step)
-	}
-	return nil
-}
-
-func validateRuntimeDefault(ordering OrderingDefault) error {
-	if !runtimePhaseStep(ordering.Phase, ordering.Step) {
-		return fmt.Errorf("ordering default has invalid phase/step %q/%q", ordering.Phase, ordering.Step)
-	}
-	if (ordering.BeforeType == "") == (ordering.AfterType == "") {
-		return fmt.Errorf("ordering default must name exactly one beforeType or afterType")
-	}
-	typ := ordering.BeforeType
-	if typ == "" {
-		typ = ordering.AfterType
-	}
-	target, err := parseOrderingTarget(typ)
-	if err != nil || target.capabilityType == "" {
-		return fmt.Errorf("ordering default target %q must name an exact capability type and version", typ)
-	}
-	for _, action := range []string{ordering.Action, ordering.TargetAction} {
-		if action != "" && !runtimeActionName(action) {
-			return fmt.Errorf("ordering default has invalid action %q", action)
-		}
 	}
 	return nil
 }

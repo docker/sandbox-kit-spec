@@ -1042,6 +1042,16 @@
             "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9+.-]{0,62}[a-z0-9+])?$"
           },
           "description": "Normalized unversioned names also present in descriptor provides. An empty scope still identifies a present provider occurrence."
+        },
+        "requires": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Original Kit requirements in descriptor requires grammar. Preserve ordering dependencies even when publication satisfies them internally."
+        },
+        "integrates": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Original Kit optional integrations in descriptor integrates grammar. A met integration orders like a requirement."
         }
       }
     },

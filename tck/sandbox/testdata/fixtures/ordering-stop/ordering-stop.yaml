@@ -2,23 +2,6 @@
 schemaVersion: '3'
 kind: mixin
 capabilities:
-- type: com.docker.sandbox/lifecycle@1
-  id: b
-  after:
-  - '#a'
-  config:
-    startup:
-    - command:
-      - python3
-      - /usr/local/bin/kit-tck-ordering
-      - background
-      - B
-      background: true
-    - command:
-      - python3
-      - /usr/local/bin/kit-tck-ordering
-      - wait
-      - B
 - type: com.docker.sandbox/dockerd@1
 - type: com.docker.sandbox/lifecycle@1
   id: a
@@ -38,3 +21,20 @@ capabilities:
     files:
     - path: /var/tmp/ordering-stop-resource
       content: placed
+- type: com.docker.sandbox/lifecycle@1
+  id: b
+  after:
+  - '#a'
+  config:
+    startup:
+    - command:
+      - python3
+      - /usr/local/bin/kit-tck-ordering
+      - background
+      - B
+      background: true
+    - command:
+      - python3
+      - /usr/local/bin/kit-tck-ordering
+      - wait
+      - B

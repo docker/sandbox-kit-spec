@@ -318,7 +318,8 @@ separately. `spec.Compose` remains available for reconciliation alone.
 ## Executing the runtime plan
 
 `Result.Resolved.Plan` is the execution contract returned by assembly.
-It contains a global entry order and actions grouped by phase and step.
+It contains declaration records and actions ordered independently within
+each phase and step.
 Each action identifies one capability effect. The handler performs that
 effect and waits for its contract-defined completion before advancing.
 A service launch completes only after readiness. A background lifecycle
@@ -327,25 +328,32 @@ command retains launch-completion behavior.
 Run Prepare, Install, Start, and Running in their fixed order, completing
 Attach before Place before Execute in each phase. After Install, run
 `Plan.InstallEnd` before Start so install grants and temporary material
-are withdrawn. Record completed once-only actions against the sandbox
-and the effect key `(EntryID, FragmentID, Phase, Step, Action)`.
-Track application and cleanup (`End`) separately: completing a grant's
-application must not skip its later withdrawal. Later boots repeat
-Prepare and Start without replaying installation. On ordinary shutdown
-after a successful start, consume `Plan.Stop` in its emitted order. The
-runtime owns persistence, process operations, grants, and readiness checks.
+are withdrawn. Later boots repeat Prepare and Start without replaying a
+successful Install. Interrupted installation and crash recovery remain
+outside this contract.
+
+Track effects that have begun and have not ended. On Stop, walk
+`Plan.Stop` in its emitted order, ending only those active effects.
+The list includes Install cleanup for a Stop during Install. Skip that
+cleanup after `Plan.InstallEnd` has already withdrawn the effects.
+An effect that never began has nothing to end. The runtime owns process
+operations, grants, and readiness checks.
 Assembly performs none of those effects.
 
 Set `Options.WorkspaceAssigned` when the sandbox has a workspace. The
 runtime-owned `workspace-ready` action completes initial cloning or
-copying and establishes required file access before install commands.
+copying and establishes required file access in Prepare Attach before
+Install begins. The runtime uses its own access; Kit install credentials,
+SSH access, and network grants do not cover cloning.
 A populated `WORKSPACE_DIR` alone does not satisfy that action.
 The runtime-owned `workload` action launches the final workload, and its
 Stop action ends it before supporting services are stopped.
 
 Provide `Options.ExecutionContracts` for selected third-party capability
-versions. Registrations supply pure effect lowering and declarative
-default relationships. Built-in contracts cannot be replaced. A selected
+versions. Registrations supply fixed type participation through
+`ExecutionContract.Participation` and pure effect lowering through
+`Effects`. Lowered effects must stay within the registered boundaries.
+An entry participates even when its config lowers no effects there. Built-in contracts cannot be replaced. A selected
 type without a contract fails planning; an optional type must be rejected
 by the selector if the runtime does not support it.
 
@@ -353,4 +361,5 @@ For callers that already resolve dependencies and expand the final
 image environment, `spec.ComposeRuntime` provides the same pure planning
 boundary. Keep the returned plan and original selection records together.
 The reconciled descriptor is for inspecting effective requests and does
-not retain enough information to reconstruct skipped nodes or scoped IDs.
+not retain enough information to reconstruct original scoped IDs and
+dependency relationships.

@@ -1,7 +1,7 @@
 # `com.docker.sandbox/network-policy@1`
 
 Phase-scoped egress policy: what the sandbox may reach while the Kit's
-workspace preparation and install commands run, and what startup hooks
+install commands run, and what startup hooks
 and the workload may reach during runtime.
 
 - **Shape**: singleton — at most one entry per descriptor, and exclusive
@@ -18,7 +18,7 @@ narrow method and path over the connections these lists permit.
 ```yaml
 - type: com.docker.sandbox/network-policy@1
   config:
-    install:                      # workspace preparation and install commands
+    install:                      # install commands
       allow: [registry.npmjs.org]
     runtime:                      # the agent's steady state
       allow:
@@ -65,9 +65,10 @@ A conforming runtime:
 - **MUST** enforce deny-by-default: egress not matched by an allow entry is <!-- tck: network-policy@1/deny-by-default -->
   refused. An absent phase block grants nothing for that phase.
 - **MUST** apply deny precedence: a host matching both lists is refused. <!-- tck: network-policy@1/deny-precedence -->
-- **MUST** scope the install lists to Install, including workspace <!-- tck: network-policy@1/install-phase-scoped -->
-  preparation and [lifecycle install commands](lifecycle@1.md), and
-  close them before Start. Runtime lists apply from Start through Stop,
+- **MUST** scope the install lists to Install, including <!-- tck: network-policy@1/install-phase-scoped -->
+  [lifecycle install commands](lifecycle@1.md), and close them before
+  Start. Runtime-owned workspace preparation uses the runtime's own
+  access before Install. Runtime lists apply from Start through Stop,
   including startup commands. Install-phase grants
   are unreachable from the running agent.
 - **MUST** enforce at a boundary the sandbox cannot bypass (typically a <!-- tck: network-policy@1/unbypassable-boundary -->

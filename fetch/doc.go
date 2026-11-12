@@ -48,11 +48,14 @@
 // resolved arguments, and each Kit's Env exports in dependency order.
 // Resolved.ContainerEnv contains their conflict-checked union for container
 // creation; these override image defaults at runtime.
-// Resolved.Plan contains the global entry order and phase/step actions, immediate
-// Install cleanup, and reverse Stop sequence. Execute these actions individually;
+// Resolved.Plan contains independently ordered phase/step actions, immediate
+// Install cleanup, and reverse Stop candidates. End only effects that began and
+// remain active, including Install grants during an interrupted boot.
+// Execute these actions individually;
 // do not batch handlers by type or replay once-only installation on each boot.
 // WithWorkspaceAssigned (Options.WorkspaceAssigned in Assemble) includes the
-// initial workspace readiness action before install commands. Additional trusted
+// workspace readiness in Prepare Attach, using runtime access before Kit grants.
+// Additional trusted
 // execution contracts use WithExecutionContracts or Options.ExecutionContracts.
 // Selected third-party types need contracts, even when their order is explicit.
 // Resolved.Warnings contains validation and ordering advisories.

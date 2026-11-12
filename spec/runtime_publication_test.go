@@ -31,7 +31,8 @@ func TestRuntimePublicationRetainsRepeatedNestedScopes(t *testing.T) {
 	inner := runtimeTestPublish(t, Contribution{Reference: "same:tag", Descriptor: component}, Contribution{Reference: "same:tag", Descriptor: component})
 	outer := runtimeTestPublish(t, Contribution{Reference: "nested:tag", Descriptor: inner}, Contribution{Reference: "base", Descriptor: runtimeTestDescriptor()})
 	result := runtimeTestCompose(t, outer, RuntimeOptions{})
-	require.Equal(t, []string{"setup", "launch", "setup", "launch"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"launch", "setup", "launch", "setup"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"setup/startup", "launch/startup", "setup/startup", "launch/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 	require.Len(t, result.Descriptor.Capabilities, 4)
 	ids, scopes := map[string]bool{}, map[uint32]bool{}
 	for _, entry := range result.Plan.Entries {
@@ -58,9 +59,8 @@ func TestRuntimePublishedProviderBindingsAndSkippedLocalBridge(t *testing.T) {
 	outer := runtimeTestPublish(t, Contribution{Reference: "agent:1", Descriptor: provider}, Contribution{Reference: "base", Descriptor: runtimeTestDescriptor(hook)})
 	nested := runtimeTestPublish(t, Contribution{Reference: "outer:1", Descriptor: outer})
 	result := runtimeTestCompose(t, nested, RuntimeOptions{})
-	require.Equal(t, []string{"setup", "inserted", "bridge", "launch"}, runtimeTestEntryIDs(result.Plan))
-	require.False(t, result.Plan.Entries[2].Selected)
-	require.Equal(t, []string{"setup/startup", "inserted/startup", "launch/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
+	require.Equal(t, []string{"launch", "setup", "inserted"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"launch/startup", "setup/startup", "inserted/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 }
 
 func TestRuntimeAggregateProviderAliasesRemainWithinPublishedContribution(t *testing.T) {
@@ -72,7 +72,8 @@ func TestRuntimeAggregateProviderAliasesRemainWithinPublishedContribution(t *tes
 	outside.Before = []string{"com.example/aggregate"}
 	outer := runtimeTestPublish(t, Contribution{Reference: "nested", Descriptor: inner}, Contribution{Reference: "outside", Descriptor: runtimeTestDescriptor(outside)})
 	result := runtimeTestCompose(t, outer, RuntimeOptions{})
-	require.Equal(t, []string{"outside", "inside"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"inside", "outside"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"outside/install", "inside/install"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseInstall, StepExecute)))
 }
 
 func TestRuntimeAggregateQualifiedIDsRejectAmbiguity(t *testing.T) {

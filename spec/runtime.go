@@ -49,24 +49,21 @@ type PlannedEffect struct {
 	End    bool           `json:"end,omitempty"`
 }
 
-// OrderingDefault applies only when both entries have a matching effect in
-// Phase and Step. Action and TargetAction narrow those effects when nonempty.
-// Exactly one of BeforeType and AfterType names an exact capability version.
-type OrderingDefault struct {
-	Phase        ExecutionPhase `json:"phase"`
-	Step         ExecutionStep  `json:"step"`
-	Action       string         `json:"action,omitempty"`
-	TargetAction string         `json:"targetAction,omitempty"`
-	BeforeType   string         `json:"beforeType,omitempty"`
-	AfterType    string         `json:"afterType,omitempty"`
+// ExecutionBoundary is a phase/step in which a capability type participates.
+// Participation is fixed for the type, even when a particular entry does no
+// work there. A config change therefore cannot move neighboring entries.
+type ExecutionBoundary struct {
+	Phase ExecutionPhase `json:"phase"`
+	Step  ExecutionStep  `json:"step"`
 }
 
 // ExecutionContract is trusted runtime registration, never descriptor data.
-// Effects must be pure. A nil Effects function explicitly declares no boot
-// work, as session-only interfaces do. Builtin contracts cannot be replaced.
+// Participation states the type's fixed boundaries. Effects must be pure and
+// may return only effects at those boundaries. A nil Effects function explicitly
+// declares no boot work, as session-only interfaces do. Builtins cannot be replaced.
 type ExecutionContract struct {
-	Effects  func(Capability) ([]PlannedEffect, error)
-	Defaults []OrderingDefault
+	Participation []ExecutionBoundary
+	Effects       func(Capability) ([]PlannedEffect, error)
 }
 
 // ExecutionRepetition tells a runner which actions to skip on later boots.
@@ -91,8 +88,9 @@ type ExecutionOrigin struct {
 	Source       *CapabilitySource `json:"source,omitempty"`
 }
 
-// ExecutionEntry is one logical graph node. Reconciled requests share a node,
-// while skipped declarations retain their own nodes and ordering relationships.
+// ExecutionEntry identifies one effective request in declaration order.
+// Reconciled requests retain every origin; skipped declarations remain only in
+// selection records and never participate in an execution graph.
 // ID is an internal consumption identity, never an author-addressable ID.
 type ExecutionEntry struct {
 	ID       string            `json:"id"`
@@ -101,11 +99,11 @@ type ExecutionEntry struct {
 }
 
 // ExecutionAction applies or ends one effect of one effective request.
-// FragmentID distinguishes effective requests shared by the same logical entry.
+// FragmentID distinguishes effective requests derived from overlapping declarations.
 // Within a sandbox, (EntryID, FragmentID, Phase, Step, Action) identifies the
-// effect. End distinguishes its application from its cleanup. Completion state
-// must record those separately: applying an install grant does not complete the
-// later action that withdraws it.
+// effect. End distinguishes its application from its cleanup. A runner tracks
+// which effects remain active so shutdown never ends an effect twice. These
+// identities do not define how interrupted installation resumes.
 // Capability is nil only for runtime-owned workspace readiness and workload
 // actions. Their IDs cannot be targeted by descriptor relationships.
 type ExecutionAction struct {
@@ -121,7 +119,7 @@ type ExecutionAction struct {
 	End        bool                `json:"end,omitempty"`
 }
 
-// ExecutionStepPlan lists actions in the global entry order for one step.
+// ExecutionStepPlan lists actions in the independently computed order for one step.
 type ExecutionStepPlan struct {
 	Step    ExecutionStep     `json:"step"`
 	Actions []ExecutionAction `json:"actions"`
@@ -135,8 +133,9 @@ type PhasePlan struct {
 
 // ExecutionPlan is executable only after ComposeRuntime returns without error.
 // InstallEnd runs immediately after Install and before Start, once per sandbox.
-// Stop covers ordinary shutdown after a successful start. It ends Running, then
-// Start and Prepare in reverse step and entry order, without repeating InstallEnd.
+// Stop is the reverse walk from any reached boot boundary, including Install.
+// The runner ends only effects that began and remain active. Install effects
+// withdrawn by InstallEnd therefore do not end again during a later Stop.
 type ExecutionPlan struct {
 	Entries    []ExecutionEntry  `json:"entries"`
 	Phases     []PhasePlan       `json:"phases"`
@@ -146,7 +145,7 @@ type ExecutionPlan struct {
 
 // RuntimeOptions supplies the permission decision and trusted execution
 // contracts. WorkspaceAssigned schedules the runtime's mandatory readiness gate
-// before install hooks, after install attachments and settings are available.
+// in Prepare Attach, using runtime-owned access before any Kit install grant.
 type RuntimeOptions struct {
 	Select            SelectCapability
 	Contracts         map[string]ExecutionContract
@@ -223,20 +222,17 @@ func ComposeRuntime(ctx context.Context, contributions []Contribution, opts Runt
 		warnings = append(warnings, advisories...)
 		inputs[i] = Contribution{Reference: contribution.Reference, Descriptor: d}
 	}
-	// Capture declarations before selection so skipped entries can still bind
-	// IDs and carry ordering edges without gaining any executable effects.
+	// Capture declarations before selection so skipped entries still bind IDs.
+	// Their relationships are validated but they will not order selected work.
 	graph, err := newRuntimeGraph(inputs)
 	if err != nil {
 		return fail(err)
 	}
-	written, advisories, err := graph.writtenEdges(nil)
+	_, advisories, err := graph.writtenEdges()
 	if err != nil {
 		return fail(err)
 	}
 	warnings = append(warnings, advisories...)
-	if _, err := graph.order(written, nil); err != nil {
-		return fail(err)
-	}
 
 	selected := make([]Contribution, len(inputs))
 	for i, contribution := range inputs {

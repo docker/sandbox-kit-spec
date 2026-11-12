@@ -60,9 +60,6 @@ func run() error {
 			d.CapabilityScopes = nil
 			clearScopes(d.Capabilities)
 		}
-		if input.Broken == "ordering-drops-skipped-edges" {
-			removeSkippedEdges(d.Capabilities)
-		}
 		units = append(units, &resolve.Unit{Reference: kit, Descriptor: d})
 	}
 	dependencies, err := resolve.Dependencies(units, false)
@@ -96,31 +93,6 @@ func run() error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(composition.Plan)
-}
-
-func removeSkippedEdges(capabilities []spec.Capability) {
-	for i := range capabilities {
-		c := &capabilities[i]
-		if c.Group != nil {
-			for j := range c.Group.Capabilities {
-				c.Group.Capabilities[j].Before = nil
-				c.Group.Capabilities[j].After = nil
-			}
-			continue
-		}
-		c.Before = withoutBridge(c.Before)
-		c.After = withoutBridge(c.After)
-	}
-}
-
-func withoutBridge(targets []string) []string {
-	var out []string
-	for _, target := range targets {
-		if target != "#bridge" {
-			out = append(out, target)
-		}
-	}
-	return out
 }
 
 func clearScopes(capabilities []spec.Capability) {

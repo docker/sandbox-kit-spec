@@ -145,7 +145,7 @@ often got wrong:
 | `agent-sessions@1` | the headless verbs a harness drives (run one prompt, continue, resume, list) | Argv tails appended to the launch argv; `prompt` must reference `{{.Prompt}}` and `resume` `{{.SessionID}}`. **Most agent Kits declare both this and `agent-interactive-sessions@1`**; an agent with no interactive mode declares only this. Verify every flag against the tool's real CLI — never invent one. |
 | `agent-interactive-sessions@1` | the TUI verbs a human-facing host launches (seeded prompt, continue, resume, session picker, list) | The sibling of `agent-sessions@1` for an agent whose CLI has an interactive mode; an agent that also has a headless mode declares both, and one with only a TUI declares just this. **Presence is meaning**: a present key is supported, an absent key is not, and for `continue`, `newSession` and `sessionPicker` `[]` is the launch argv alone (`prompt` and `resume` carry their placeholders, so they are never empty). `newSession` is the exception: omit it when a bare launch opens the TUI, because it then defaults to `lifecycle@1`'s `interactive` launch; if you state both `newSession` and `interactive` they must be the same argv, an explicit `[]` included. `list` is the same command as in `agent-sessions@1`. Declare only verbs you verified. |
 | `host-port@1` | one host loopback TCP or UDP service | `host` is required (1–65535); `container` defaults to `host` (also when zero); `transport` is `tcp` (default when empty) or `udp`. `family` selects host loopback: `ipv4` (default), `ipv6`, or `dual` when either reaches the same service; it is part of the grant. The sandbox endpoint stays IPv4 loopback. A mapping conflicts with `port@1` on the same sandbox port and transport. This grants raw access to a host service, not general egress or a published guest port. |
-| `dockerd@1` | a Docker Engine (Docker-in-Docker) | Singleton; any kind may declare it. Omit `config` to have the runtime start the engine; `autoStart: false` leaves starting it, waiting for `GET /_ping` to return 200, and the socket's permissions to the Kit's own root startup hook, with the same elevation and store (and no wider surface). When Kits disagree, the merged entry starts it, so that hook must tolerate an engine already running. Engine settings go in the image's `/etc/docker/daemon.json`, which the runtime-started engine reads. It counts as `privileged@1` plus storage at `/var/lib/docker` on the permission surface, so declaring `privileged@1` beside it is redundant, not refused. By default the runtime starts the `dockerd` on the composed image config's `PATH` before startup hooks and owns `/var/lib/docker`: a `volume@1` or `host-mount@1` at or under it is refused. It does not install the engine; a mixin relying on the workload's keeps `requires: ["deb/docker-ce"]`. Use the `com.docker.sandboxes.start-docker` label only as a transition, beside an optional `dockerd@1`, for runtimes that predate it. `builder` is the example. |
+| `dockerd@1` | a Docker Engine (Docker-in-Docker) | Singleton; any kind may declare it. Omit `config` to have the runtime start the engine; `autoStart: false` leaves starting it, waiting for `GET /_ping` to return 200, and the socket's permissions to the Kit's own root startup hook, with the same elevation and store (and no wider surface). When Kits disagree, the merged entry starts it, so that hook must tolerate an engine already running. Engine settings go in the image's `/etc/docker/daemon.json`, which the runtime-started engine reads. It counts as `privileged@1` plus storage at `/var/lib/docker` on the permission surface, so declaring `privileged@1` beside it is redundant, not refused. The runtime starts the `dockerd` on the composed image config's `PATH` in Start Execute at its declared position. Declare the engine before hooks that need it. It owns `/var/lib/docker`: a `volume@1` or `host-mount@1` at or under it is refused. It does not install the engine; a mixin relying on the workload's keeps `requires: ["deb/docker-ce"]`. Use the `com.docker.sandboxes.start-docker` label only as a transition, beside an optional `dockerd@1`, for runtimes that predate it. `builder` is the example. |
 | `port@1`, `resources@1`, `privileged@1` | inbound ports, limits, elevation | Do not declare on speculation; `privileged@1` is the largest widening available. For an engine inside the sandbox, declare `dockerd@1` instead. |
 
 Host sharing is a separate grant from `volume@1`, including when the
@@ -515,8 +515,10 @@ original block after expansion, without coupling optional selection.
 A publisher remaps them per contribution occurrence and never derives
 them from diagnostic `source` metadata. Published declarations also carry
 `scope` indexes into `capabilityScopes` to preserve local IDs and original
-provided-name bindings. Preserve these fields when consuming a published
-set. Hand-authored Kits normally omit structural publication fields.
+provided-name bindings. The scope table also retains original `requires`
+and `integrates`, including internally satisfied dependencies, so normal
+execution constraints survive publication. Preserve these fields when
+consuming a published set. Hand-authored Kits normally omit structural publication fields.
 
 Selection lasts for one sandbox installation, including restarts.
 Recreation selects afresh. A failing selected hook is an execution
@@ -566,18 +568,29 @@ or a qualified ID such as `com.example/agent#setup`. Do not derive IDs
 from positions. Relationships never grant or select their targets.
 
 Prepare, Install, and Start each run Attach, then Place, then Execute.
+Each phase and step gets its own order among entries whose types take
+part there. Config can make an entry do nothing at its turn, but never
+changes participation. Declaration order and Kit dependency order are
+constraints. A written relationship can move only the entry that wrote
+it past conflicting normal constraints; other entries keep their order.
+Conflicting written relationships refuse composition. There are no
+capability ordering defaults.
+
 Files are Start Place work, so they precede services and startup commands
 but are unavailable during Install. A file and a startup command can stay
 in one lifecycle entry. Split entries when commands must run on opposite
-sides of another service. A root startup command can write daemon.json
-before Docker with `before: [com.docker.sandbox/dockerd@1]`. That explicit
-override removes the engine-readiness default for that entry only, so the
-command cannot itself depend on Docker. Lifecycle files still belong to
-the agent.
+sides of another service. Within a Kit, declare a root startup command
+that writes daemon.json, then dockerd, then startup commands that use
+Docker. Cross-Kit relationships can make those positions explicit.
+Lifecycle files still belong to the agent.
 
-Workspace cloning and required access finish before lifecycle install
-commands. Keep workspace dependency installation in an install hook when
-it should run once. Startup commands run every boot. An explicit edge
-cannot bypass workspace readiness, phase boundaries, or step boundaries.
-A skipped optional entry retains its written ordering edges but runs no
-effects. Ordinary Stop reverses the start order.
+Workspace cloning and required access finish in runtime-owned Prepare
+Attach, using the runtime's own access. Kit install credentials, SSH
+grants, and network grants do not cover cloning. Keep workspace
+dependency installation in an install hook when it should run once.
+Startup commands run every boot. A relationship cannot bypass workspace
+readiness, phase boundaries, or step boundaries. A skipped optional entry
+keeps its ID for target validation but orders nothing. Stop reverses
+what is still in effect from whichever phase the boot reached, including
+Install grants that have not already ended. Interrupted installation and
+crash recovery remain separate concerns.

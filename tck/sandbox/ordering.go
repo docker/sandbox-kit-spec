@@ -26,7 +26,6 @@ func init() {
 		check{requirement: "SPEC-v3 §7.1.3/stable-order", capability: capLifecycle, run: orderedLifecycle},
 		check{requirement: "SPEC-v3 §7.1.3/target-resolution", capability: capLifecycle, run: orderedTargets},
 		check{requirement: "SPEC-v3 §7.1.3/written-edges", capability: capLifecycle, needs: []string{capHostPort}, run: orderedCycleRefusal},
-		check{requirement: "SPEC-v3 §7.1.3/default-edges", capability: capDockerd, needs: []string{capLifecycle}, run: orderedDocker},
 		check{requirement: "lifecycle@1/hooks-dependency-order", capability: capLifecycle, run: orderedDependencies},
 		check{requirement: "SPEC-v3 §12/phase-barriers", capability: capLifecycle, run: orderedBarriers},
 		check{requirement: "SPEC-v3 §12/step-barriers", capability: capLifecycle, run: orderedBarriers},
@@ -115,7 +114,7 @@ func orderedDependencies(ctx context.Context, e *Env) []report.Finding {
 		return []report.Finding{report.Failf("dependency-ordered hooks create: %v", err)}
 	}
 	for _, phase := range []string{"install", "startup"} {
-		if f := orderingValue(ctx, e, id, "/var/tmp/ordering-dependencies-"+phase, "provider,requirer,"); f != nil {
+		if f := orderingValue(ctx, e, id, "/var/tmp/ordering-dependencies-"+phase, "provider,launch,requirer,"); f != nil {
 			return f
 		}
 	}
@@ -132,7 +131,7 @@ func orderedTargets(ctx context.Context, e *Env) []report.Finding {
 		if err != nil {
 			return []report.Finding{report.Failf("qualified target create: %v", err)}
 		}
-		if f := orderingValue(ctx, e, id, "/var/tmp/ordering-dependencies-startup", "insert,provider,requirer,"); f != nil {
+		if f := orderingValue(ctx, e, id, "/var/tmp/ordering-dependencies-startup", "insert,provider,launch,requirer,"); f != nil {
 			return f
 		}
 	}
@@ -140,7 +139,7 @@ func orderedTargets(ctx context.Context, e *Env) []report.Finding {
 }
 
 func orderedDocker(ctx context.Context, e *Env) []report.Finding {
-	control, removeControl, findings := dockerSandbox(ctx, e, []string{"ordering-workload", "ordering-docker-default"})
+	control, removeControl, findings := dockerSandbox(ctx, e, []string{"ordering-workload", "ordering-docker-declaration"})
 	defer removeControl()
 	if findings != nil {
 		return findings
@@ -169,7 +168,17 @@ func orderedDocker(ctx context.Context, e *Env) []report.Finding {
 			}
 		}
 	}
-	return nil
+	// A Start-only target cannot reorder Install. Both lifecycle entries
+	// participate in Install even when one has no startup command.
+	perStep, removePerStep, err := e.sandbox(ctx, []string{"ordering-workload", "ordering-per-step"}, nil)
+	defer removePerStep()
+	if err != nil {
+		return []report.Finding{report.Failf("independent phase order create: %v", err)}
+	}
+	if f := orderingValue(ctx, e, perStep, "/var/tmp/ordering-per-step", "tools,use,"); f != nil {
+		return f
+	}
+	return orderingValue(ctx, e, perStep, "/var/tmp/ordering-ping", "OK,")
 }
 
 func orderedStop(ctx context.Context, e *Env) []report.Finding {

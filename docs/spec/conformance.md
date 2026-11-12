@@ -634,16 +634,21 @@ future rejections, allowing the inverse transition.
 ## Lifecycle execution observations
 
 The ordering fixtures preserve independent lifecycle entries, including
-identical commands and an optional group whose skipped entry connects
-two selected entries. Install and startup commands append to records.
+identical commands and an optional group whose skipped entry has no
+effects and contributes no ordering. Install and startup commands append
+to records.
 The workload captures those records and placed content at entrypoint
 launch. Stop/start verifies that installation stays complete and start
 content and commands run again. Provider and requirer fixtures exercise
-dependency order and a qualified-ID relationship that overrides it.
+dependency order and a qualified-ID relationship that moves only its
+writer. A provider has separate setup and launch entries, so an inserted
+entry cannot swap the provider's unwritten order.
 
 An engine fixture reads its configuration before answering HTTP pings.
-A root startup command explicitly precedes the engine, while the next
-startup command retains the default engine-readiness prerequisite.
+Declaration order puts a root startup command before the engine and a
+consumer command after it. A separate fixture gives a lifecycle entry
+an edge to the engine and verifies that this Start relationship cannot
+move its Install command behind another lifecycle entry.
 Lifecycle files must already exist when the engine reads them.
 Background programs record their termination and check that the engine
 still answers and placed content remains. The suite reads the shutdown
@@ -657,6 +662,7 @@ side effect occurred.
 
 These observations do not expose the order among host attachment
 operations, internal placement operations, or the final release of every
-host resource. The coverage ledger names those gaps separately. Warning
-rendering and third-party contract registration are not observable
+host resource. Create returns after boot, so the adapter cannot request
+Stop partway through Install or Start. The coverage ledger names those
+gaps separately. Third-party contract registration is not observable
 through this adapter protocol.

@@ -275,7 +275,7 @@ kits: []                    # optional. §3.4. Exclusive with build, dockerfile.
 | `licenses` | list\<string\> | optional. SHOULD be SPDX identifiers. | <!-- tck: SPEC-v3 §4/licenses-spdx -->
 | `build` | string | optional. Literal Dockerfile text. Exclusive with `dockerfile` and `kits`. |
 | `dockerfile` | string | optional. Relative path inside the descriptor's directory; MUST NOT escape it (that directory is the build context's root). Exclusive with `build` and `kits`. | <!-- tck: SPEC-v3 §4/dockerfile-inside-context -->
-| `capabilityScopes` | object array | Publication structure preserving original Kit scopes and their unversioned `provides` names; see §7.1.3. |
+| `capabilityScopes` | object array | Publication structure preserving original Kit scopes, their unversioned `provides` names, and their `requires` and `integrates`; see §7.1.3. |
 | `kits` | list\<kit\> | optional. The Kits this Kit's content is merged from ([§3.4](#34-kit-set)). Exclusive with `build` and `dockerfile`. |
 
 **`version` is a fallback, never an override.** It supplies the version for
@@ -387,8 +387,10 @@ A conforming runtime resolving a Kit set:
   option. An absent provider is fine.
 - **MUST** order composition by the dependency graph (providers before <!-- tck: SPEC-v3 §5.3/dependency-order -->
   requirers; met `integrates` entries order like requires), never by flag
-  order. This is also the execution tie-break in §7.1.3; execution
-  relationships do not reorder image layers or dependency resolution.
+  order. These dependencies are normal execution constraints under
+  §7.1.3 and composition order breaks remaining execution ties. Written
+  execution relationships do not reorder image layers or dependency
+  resolution.
 - **MUST** include exactly one `workload` Kit per composition. <!-- tck: SPEC-v3 §5.3/one-workload -->
 - **MUST** fail when two Kits provide the same normalized name, at any <!-- tck: SPEC-v3 §5.3/one-provider-per-name -->
   versions. Only one provider's content is reachable after composition,
@@ -777,9 +779,9 @@ follow the same required/optional rule.
 Members MUST NOT be applied before selection finishes. <!-- tck: SPEC-v3 §7.1.1/selection-before-application -->
 
 The selection API MUST flatten accepted constructs at their declaration <!-- tck: SPEC-v3 §7.1.1/order -->
-positions, preserving member order and existing Kit dependency order.
-Only selected contributions merge; groups never merge by name. Lifecycle
-entries remain separate without deduplicating repeated commands. Conflicting
+positions, preserving member order and existing Kit dependency order
+as the normal order defined in §7.1.3. Only selected contributions merge;
+groups never merge by name. Lifecycle entries remain separate without deduplicating repeated commands. Conflicting
 file paths or multiple interactive declarations are composition errors.
 
 Selected composition conflicts MUST fail; optional <!-- tck: SPEC-v3 §7.1.1/conflicts -->
@@ -876,18 +878,16 @@ would violate group atomicity. There is no group-wide "highest version."
 Different instances and contributions from different Kits follow these
 same rules; a common family name does not make them replacements.
 
-Selection is separate from cross-version reconciliation. The
-`network-policy` union in §9.5 retains the contributing grants and emits
-`@2` when any contribution uses it. For concrete ungrouped declarations,
-publication performs that union before runtime selection. The published
-request therefore requires support for the resulting exact type. An
-`@1`-only runtime cannot select an optional published `@2` union, even
-when it could have selected an original `@1` contribution directly.
-Groups and other deferred forms retain their selection boundaries as
-specified in §9.5. The union combines grants rather than choosing
-between declarations. Selected `agent-context@1` and `@2` requests still
-refuse composition, even with inline `@1` content.
-Existing declaration-block validation applies before selection.
+Selection is separate from cross-version reconciliation. Publication
+preserves every original request, its exact type, and its selection
+boundary under §9.5. The `network-policy` union applies only to selected
+contributions: it retains their grants and emits `@2` when any selected
+contribution uses it. An `@1`-only runtime can therefore select an
+optional published `@1` request independently of a published optional
+`@2` request. The union combines grants rather than choosing between
+declarations. Selected `agent-context@1` and `@2` requests still refuse
+composition, even with inline `@1` content. Existing declaration-block
+validation applies before selection.
 
 For a portable Kit, publish the contract version the Kit requires and
 make the request optional only when its absence is tolerable. A rollout
@@ -941,7 +941,11 @@ quoting.
 Publishers **MUST** preserve original scopes and provided-name bindings <!-- tck: SPEC-v3 §7.1.3/published-scopes -->
 through composition, serialization, and nested sets. `capabilityScopes`
 is an ordered array of objects containing `provides`, an array of
-normalized unversioned names. Every ordinary entry in such a descriptor
+normalized unversioned names, and optional `requires` and `integrates`
+arrays using the dependency-expression grammar in §5. Each scope retains
+the original Kit's dependencies, including dependencies satisfied inside
+the published set, so their normal ordering constraints survive nested
+publication. Every ordinary entry in such a descriptor
 has an in-range `scope` index. Without the table, all declarations belong
 to one implicit scope containing the descriptor's provided names.
 Empty scopes remain present. Each occurrence of an imported Kit receives
@@ -959,55 +963,92 @@ share an aggregate provider alias. A set's own explicit provided names
 retain the scope of its own declarations.
 
 The runtime **MUST** treat written relationships as constraints and <!-- tck: SPEC-v3 §7.1.3/written-edges -->
-refuse cycles before applying any effects. `A.before: [B]` and
-`B.after: [A]` express the same edge. Diagnostics identify contributing
-locations. Selection, reconciliation, effective validation, and planning
-all finish before application; failure exposes no partial executable
-plan and cannot become an optional skip after selection.
+refuse cycles within a phase and step before applying any effects.
+`A.before: [B]` and `B.after: [A]` express the same edge. Diagnostics
+identify the Kits and entries on the cycle. Selection, reconciliation,
+effective validation, and ordering all finish before application.
+Failure exposes no partially executable result and cannot become an
+optional skip after selection.
 
-Contract defaults **MUST** apply only when both relevant effects occur <!-- tck: SPEC-v3 §7.1.3/default-edges -->
-in the same phase and step. A directly opposing written edge replaces
-that pair's default. An indirect path does not. Remaining cycles are
-errors. The engine-before-startup default therefore does not apply to
-install-only entries or an engine with `autoStart: false`.
+The runtime **MUST** compute a separate order for each phase and step <!-- tck: SPEC-v3 §7.1.3/stable-order -->
+using the following constraints and computation. An entry participates
+when its capability type has an effect at that phase and step. The type
+defines participation independently of the entry's config. A lifecycle
+entry with no install commands still participates in Install Execute,
+doing nothing there. `dockerd@1` does not participate in Install, so its
+relationships cannot change Install's order. A written edge applies
+only where both endpoints participate. Command order within an entry
+is preserved, and relationships cannot cross phase or step barriers.
 
-A runtime **SHOULD** warn when a relationship overrides a contract <!-- tck: SPEC-v3 §7.1.3/override-warning -->
-default or names an absent type or provider. The warning names the
-relationship and default or missing target.
+The normal order places an entry before another participating entry
+when it is declared first in the same original Kit, or when the second
+entry's Kit requires the first entry's Kit, directly or transitively.
+A met `integrates` counts as `requires`, as in §5.3. Entries from Kits
+with no dependency have no normal order. No capability contract adds
+ordering defaults or names another capability to establish order.
 
-The runtime **MUST** compute one stable topological entry order and <!-- tck: SPEC-v3 §7.1.3/stable-order -->
-reuse it within every phase and step. Repeatedly choose the earliest
-currently eligible entry in dependency/composition order, then original
-declaration order. Preserve command order within an entry. A relationship
-can place a requirer's entry before its provider's. It cannot reverse a
-phase or step barrier. Unrelated Kits have no portable relative order
-unless a relationship or contract default supplies it.
+A written edge moves only the entry that wrote it. `before T` releases
+the writer from its normal position after T and after entries T is ahead
+of. `after T` releases the writer from its normal position before T and
+before entries T is behind. Other normal constraints remain. In
+particular, two entries that have a normal order and wrote no edges
+never swap. A composition that would force that swap is refused.
 
-Skipped declarations **MUST** retain their IDs and written edges as <!-- tck: SPEC-v3 §7.1.3/skipped-nodes -->
-zero-effect ordering nodes. A before S and S before B still orders A
-before B when optional S is skipped, including an unselected group.
+The exact computation for each phase and step is:
+
+1. Take the participating selected entries, their normal constraints,
+   and their written edges.
+2. For each `before T` on v, remove the normal constraint u before v
+   for u = T and every u normally after T. For each `after T` on v,
+   remove the normal constraint v before x for x = T and every x
+   normally before T.
+3. Repeat until no constraint changes. For each `before T` on v, also
+   remove u before v for every u reachable from T through remaining
+   normal constraints and `before` edges, without passing through v.
+   For each `after T` on v, also remove v before x for every x that
+   reaches T through remaining normal constraints and `after` edges,
+   without passing through v. Find all removals in a pass before
+   applying any of them. Never remove a written edge.
+4. Refuse if the remaining constraints contain a cycle.
+5. Repeatedly take the earliest entry in composition order whose
+   predecessors have all been taken. Composition order is Kit
+   dependency order, then original declaration order, under §5.3.
+
+A requirer's entry follows every entry of its providers unless one of
+the two entries writes an edge that releases that normal constraint.
+Between unrelated Kits, a portable relative order exists only when a
+written edge establishes one. Except for merged entries whose first
+declarers are unrelated, changing the composition order of unrelated
+Kits does not change whether constraints are refused.
+
+Skipped declarations **MUST** retain their IDs for target validation, <!-- tck: SPEC-v3 §7.1.3/skipped-nodes -->
+but participate in no step and contribute no ordering constraints.
+A before S and S before B does not order A before B when S is skipped,
+including when S belongs to an unselected group.
 
 Ordering **MUST NOT** select or grant a referenced capability. <!-- tck: SPEC-v3 §7.1.3/ordering-no-grant -->
 Permissions and whole-group decisions remain independent of ordering.
 
 Reconciliation **MUST** preserve all contributing bindings and edges <!-- tck: SPEC-v3 §7.1.3/reconciled-bindings -->
-and use the first contributor's position for the effective request.
-It never duplicates a service to satisfy relationships. When one
-original declaration contributes to several effective fragments, and
-those fragments share other contributors, their connected origins form
-one logical ordering entry. Each fragment executes once. An explicit ID
-edge whose endpoints reconcile into that same entry is contradictory.
-Broad type/provider targets exclude the resulting writing entry.
-Revalidate the graph after reconciliation.
+and position each effective entry where its first declarer in composition
+order wrote it. Other declarations add their IDs and written edges,
+without adding positions or duplicating the service. An edge between
+declarations that reconcile into that same entry has no effect. Broad
+type and provider targets also exclude the resulting writing entry.
+Where first declarers have no dependency, the runtime's choice of their
+composition order determines the merged entry's position. A Kit that
+needs a portable shared-service position can require one provider Kit
+that owns the declaration.
 
-One global order can reject constraints that independent phase orders
-could satisfy. Split lifecycle declarations when install and startup
-commands need different positions. An effective descriptor is an
-inspection of reconciled payloads. It alone cannot reconstruct original
-bindings, skipped nodes, or selection decisions. Preserve the runtime
-composition or the original expanded inputs and recorded selections.
-The Go reference API is `ComposeRuntime`; `Compose` remains the lower
-level payload reconciler and `Merge` preserves publication declarations.
+An effective descriptor inspects reconciled payloads. It alone cannot
+reconstruct original bindings or selection decisions. The original
+expanded declarations and recorded selections retain that information.
+
+**Reference implementation note.** The Go API `ComposeRuntime` returns
+selection records, effective payloads, and the phase/step execution plan.
+`Compose` remains the lower-level payload reconciler; `Merge` preserves
+publication declarations. Runtime integrations consume the plan rather
+than batching capability types into their own schedule.
 
 ### 7.2 Well-known types
 
@@ -1265,7 +1306,9 @@ before the Kits that require or integrate with them. The set's own
 declarations come last among equals, being the statement made with the
 whole composition in view; a Kit that integrates with something the set
 provides puts the set ahead of it, and a circle between them is an
-error. In that order they reconcile into one descriptor:
+error. Publication retains their capability declarations in that order
+for runtime selection. The table distinguishes aggregate metadata from
+capability requests, which reconcile only after expansion and selection:
 
 | Declaration | Rule |
 |---|---|
@@ -1556,33 +1599,34 @@ outside the ordered boot lifecycle.
 
 | Phase | Work |
 |---|---|
-| Prepare | Establish resources and settings needed throughout the boot, including installation |
-| Install | Establish install access, prepare the initial workspace, run install commands, then end install access |
+| Prepare | Establish resources and settings needed throughout the boot, including the assigned workspace |
+| Install | Establish install access, run install commands, then end install access |
 | Start | Establish runtime access, write start-time content, start services and run startup commands |
 | Running | Launch the workload |
-| Stop | End Running, then reverse Start and Prepare |
+| Stop | Reverse the reached effects of Running, Start, Install, then Prepare |
 
 Phases **MUST NOT** overlap: each completes before the next begins. <!-- tck: SPEC-v3 §12/phase-barriers -->
-Install completion includes withdrawal of its grants. Workload launch
-waits for Start completion.
+Install completion includes withdrawal of its grants and their temporary
+material. Workload launch waits for Start completion.
 
 Each of Prepare, Install, and Start contains these steps:
 
 | Step | Requirement on the effect | Examples |
 |---|---|---|
-| Attach | Runtime-provided resources, independent of a Kit process inside | Mounts, devices, network access, limits |
+| Attach | Runtime-provided resources, independent of a Kit process inside | Mounts, devices, network access, limits, initial workspace preparation |
 | Place | Content requiring only completed attachments | Files, settings, environment inputs |
-| Execute | Work requiring a process inside the sandbox | Services, hooks, an in-sandbox clone |
+| Execute | Work requiring a Kit process inside the sandbox | Services, hooks |
 
 Within each phase, the runtime **MUST** finish all Attach work before <!-- tck: SPEC-v3 §12/attach-before-place -->
 any Place work.
 
 The runtime **MUST** finish all Place work before any Execute work. <!-- tck: SPEC-v3 §12/step-barriers -->
-A process providing storage is Execute work, regardless of the resource it provides.
-A runtime's own boundary helper is part of the runtime, not a Kit entry.
+A process a Kit runs to provide storage is Execute work. A runtime's own
+boundary helper is part of the runtime's Attach, even when that helper
+runs inside the sandbox.
 
-Each step **MUST** walk the same entry order from §7.1.3, including <!-- tck: SPEC-v3 §12/within-step-order -->
-Attach and Place effects that have no process inside the sandbox.
+Each step **MUST** use its own entry order from §7.1.3, including <!-- tck: SPEC-v3 §12/within-step-order -->
+Attach and Place effects that have no Kit process inside the sandbox.
 
 The runtime **MUST** await each effect's contract-defined completion <!-- tck: SPEC-v3 §12/readiness -->
 before advancing within a step. A program completes startup when its
@@ -1590,64 +1634,73 @@ readiness condition holds; a foreground command completes at exit. A
 background command completes at launch and establishes no service
 readiness. Contract effect order is preserved within each entry.
 
-The runtime **MUST** repeat Prepare and Start each boot, while running <!-- tck: SPEC-v3 §12/repetition -->
-completed install actions only once per sandbox.
-
-The runtime **MUST** retain action completion state across host and <!-- tck: SPEC-v3 §12/install-state -->
-daemon restarts. Execution identities derive from
-pinned contribution occurrences and original declaration paths before
-sorting, independently of display names and publisher attribution.
-Their persistence across arbitrary Kit updates or descriptor restructuring
-requires a separate migration rule.
+The runtime **MUST** repeat Prepare and Start each boot. Install runs <!-- tck: SPEC-v3 §12/repetition -->
+once per sandbox, at create, as lifecycle@1 defines. This specification
+does not change interrupted Install behavior, where install completion
+is recorded, or whether recreation reruns installation.
 
 Install grants and their temporary material **MUST** end before Start, <!-- tck: SPEC-v3 §12/install-grants-end -->
 while runtime grants apply from Start through Stop, including startup
 hooks. Existing `install` and `runtime` config values retain these
 meanings. Install-only credentials never become runtime credentials.
 
-When a workspace is assigned, the runtime **MUST** finish its initial <!-- tck: SPEC-v3 §12/workspace-ready -->
-preparation, including clone/copy completion and required file access,
-before any lifecycle install command begins. `WORKSPACE_DIR` identifies
-a path; setting it alone does not establish readiness. This runtime-owned
-barrier needs no author ID and cannot be bypassed by a relationship.
-An in-sandbox clone needing install-scoped access runs in Install Execute,
-after that phase's Attach and Place effects. Preparation outside the
-sandbox may finish earlier. A runtime cannot depend on an install hook
-to prepare the workspace for that same hook. Later boots reuse prepared
-content under its storage contract, without replaying installation.
+When a workspace is assigned, the runtime **MUST** prepare it as a <!-- tck: SPEC-v3 §12/workspace-ready -->
+runtime-owned Attach in Prepare, done when its initial content is
+complete and accessible. This includes clone/copy completion and required
+file access, before any Install or Start effect. `WORKSPACE_DIR`
+identifies a path; setting
+it alone does not establish readiness. No author ID or relationship can
+bypass this barrier. Later boots reuse content under its storage
+contract.
 
-Workspace preparation failure **MUST** prevent dependent install <!-- tck: SPEC-v3 §12/workspace-failure -->
-commands from running. Progress UI, clone retry policy, and recovery of
+Workspace preparation **MUST** use the runtime's own access. <!-- tck: SPEC-v3 §12/workspace-access -->
+Kit install credentials, SSH grants, and network grants do not cover
+cloning. A runtime-owned helper inside the sandbox is still part of
+this Attach.
+
+Workspace preparation failure **MUST** prevent Install and Start <!-- tck: SPEC-v3 §12/workspace-failure -->
+from beginning. Progress UI, clone retry policy, and recovery of
 interrupted installation are separate concerns.
 
-For an ordinary Stop after successful startup, the runtime **MUST** <!-- tck: SPEC-v3 §12/reverse-stop -->
-end Running before Start programs, then end those programs in reverse
-entry and effect order. Install effects have already ended.
+Stop **MUST** walk back from wherever the boot reached, ending what <!-- tck: SPEC-v3 §12/reverse-stop -->
+is still in effect in Running, then Start, then Install, then Prepare.
+An effect that never began has nothing to end. Install grants already
+withdrawn at Install completion are not withdrawn a second time.
+A Stop during Install withdraws grants that remain in effect.
 
-The complete Stop sequence **MUST** reverse Start, then Prepare, <!-- tck: SPEC-v3 §12/host-stop-order -->
-reversing each phase's steps and each step's entry and effect order.
+Within each reached phase, Stop **MUST** reverse the steps, and within <!-- tck: SPEC-v3 §12/host-stop-order -->
+each step reverse its entry order and each entry's effect order.
+An entry's effects end after those of entries that followed it.
 
 Program termination **MUST** have a documented bounded wait, after <!-- tck: SPEC-v3 §12/stop-timeout -->
 which the runtime terminates remaining processes according to their
 contracts.
 
 Supporting attachments **MUST** remain available until the effects <!-- tck: SPEC-v3 §12/stop-resources-last -->
-that precede their reversal have ended. Placed content is removed only
-where its contract says so. Storage retention follows the storage
-contract. Abnormal termination, interrupted startup, and dynamic session
-or device lifetimes are outside this ordinary Stop rule.
+that precede their reversal have ended. Ending does not undo a command's
+completed work. Placed content is removed only where its contract says
+so. Storage retention follows the storage contract. Boots ending without
+Stop, crash recovery, and dynamic session or device lifetimes are
+outside this reversal rule.
 
 Each supported exact-version contract **MUST** define its effects' <!-- tck: SPEC-v3 §12/execution-contracts -->
-phase, step, completion and failure conditions, ending behavior, and
-ordering defaults. An explicitly declarative contract can have no
-independently scheduled effects. Unknown execution semantics make a type
-unsupported at selection. Missing metadata for an already selected type
-is a planning error. Trusted host registrations extend the reference
-planner without replacing built-in contracts. The planner performs no
-registry, filesystem, process, or sandbox operations.
+phase, step, completion and failure conditions, and ending behavior.
+Phase and step participation are fixed for the type. Config decides what
+an effect does, which may be nothing, and never where it participates.
+A contract names no other capability and states no ordering defaults.
+An explicitly declarative type can have no independently scheduled
+effects. Unknown execution semantics make a type unsupported at
+selection. Missing semantics for an already selected type refuse the
+composition.
 
-The built-in placement table is part of those contracts. The pages
-supply their detailed grants, readiness conditions, and persistence rules.
+**Reference implementation note.** Trusted host registrations extend the
+Go planner without replacing built-in exact-version contracts. Planning
+performs no registry, filesystem, process, or sandbox operations.
+
+The built-in placement table states type participation. An undeclared
+grant phase, absent command or file list, and a manually started engine
+produce no effect at their type's turn. The pages supply detailed grants,
+readiness conditions, and persistence rules.
 
 | Capability | Effects |
 |---|---|
@@ -1657,11 +1710,11 @@ supply their detailed grants, readiness conditions, and persistence rules.
 | docker-auth@1, kit-registry@1, open-url@1 | Prepare Attach and Place |
 | git-identity@1 | Prepare Place |
 | network-policy@1, network-policy@2 | Install Attach and Start Attach |
-| credential@1, ssh-agent@1 | Attach and Place in each declared Install or Start phase |
+| credential@1, ssh-agent@1 | Install Attach and Place; Start Attach and Place |
 | port@1 | Start Attach |
 | agent-skill@1, agent-context@1, agent-context@2 | Start Place |
 | lifecycle@1 | Install Execute commands, Start Place files, Start Execute commands |
-| dockerd@1 | Prepare Attach elevation/storage; Start Execute engine when automatic |
+| dockerd@1 | Prepare Attach elevation/storage; Start Execute engine |
 | sbx@1 | Runtime-owned environment inputs, with precedence from its contract |
 | agent-sessions@1, agent-interactive-sessions@1, acp@1, long-running@1 | Declarative configuration, no separate boot effect |
 

@@ -271,14 +271,14 @@ func WithCapabilitySelector(selector spec.SelectCapability) ResolveOption {
 func WithExecutionContracts(contracts map[string]spec.ExecutionContract) ResolveOption {
 	contracts = maps.Clone(contracts)
 	for name, contract := range contracts {
-		contract.Defaults = slices.Clone(contract.Defaults)
+		contract.Participation = slices.Clone(contract.Participation)
 		contracts[name] = contract
 	}
 	return func(o *resolveOptions) { o.executionContracts = contracts }
 }
 
 // WithWorkspaceAssigned includes the mandatory initial workspace-readiness
-// action after install access is established and before install commands.
+// action in Prepare Attach, using runtime-owned access before Install begins.
 func WithWorkspaceAssigned(assigned bool) ResolveOption {
 	return func(o *resolveOptions) { o.workspaceAssigned = assigned }
 }

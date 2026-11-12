@@ -789,7 +789,6 @@ provides: [com.example/ordering]
 capabilities:
   - type: com.docker.sandbox/lifecycle@1
     id: setup
-    before: [com.docker.sandbox/dockerd@1]
     config:
       startup: [{command: echo configure}]
   - type: com.docker.sandbox/dockerd@1
@@ -850,7 +849,7 @@ capabilities:
 		}
 	}
 	require.Equal(t, []string{"sh -c echo configure", "engine", "sh -c echo middle", "docker info"}, actions)
-	require.NotEmpty(t, resolved.Warnings, "the explicit override of Docker's default is reported")
+	require.Empty(t, resolved.Warnings, "declaration order and explicit relationships require no default overrides")
 	lifecycles, err := spec.LifecyclesOf(resolved.Descriptor.Capabilities)
 	require.NoError(t, err)
 	require.Len(t, lifecycles, 3)

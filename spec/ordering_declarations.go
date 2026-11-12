@@ -101,8 +101,12 @@ func (s *CapabilityScope) UnmarshalYAML(unmarshal func(any) error) error {
 	if err := unmarshal(&fields); err != nil {
 		return err
 	}
-	if value, stated := fields["provides"]; stated {
-		return stringSequenceYAML(value, "capability scope provides")
+	for _, field := range []string{"provides", "requires", "integrates"} {
+		if value, stated := fields[field]; stated {
+			if err := stringSequenceYAML(value, "capability scope "+field); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -118,8 +122,12 @@ func (s *CapabilityScope) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	if value, stated := fields["provides"]; stated {
-		return stringSequenceJSON(value, "capability scope provides")
+	for _, field := range []string{"provides", "requires", "integrates"} {
+		if value, stated := fields[field]; stated {
+			if err := stringSequenceJSON(value, "capability scope "+field); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -170,6 +178,16 @@ func validateOrderingDeclarations(d *Descriptor) error {
 		}
 	}
 	for i, scope := range d.CapabilityScopes {
+		for _, dependency := range []struct {
+			name   string
+			values []string
+		}{{"requires", scope.Requires}, {"integrates", scope.Integrates}} {
+			for j, raw := range dependency.values {
+				if _, err := ParseRequire(raw); err != nil {
+					errs.add(fieldErrorf(fmt.Sprintf("capabilityScopes[%d].%s[%d]", i, dependency.name, j), "%v", err))
+				}
+			}
+		}
 		seen := map[string]bool{}
 		for j, name := range scope.Provides {
 			at := fmt.Sprintf("capabilityScopes[%d].provides[%d]", i, j)
@@ -230,7 +248,6 @@ func validateOrderingDeclarations(d *Descriptor) error {
 			add(member, fmt.Sprintf("%s.group.capabilities[%d]", at, j))
 		}
 	}
-	edges := make([][]int, len(entries))
 	for i, entry := range entries {
 		for _, relation := range []struct {
 			name   string
@@ -255,38 +272,12 @@ func validateOrderingDeclarations(d *Descriptor) error {
 					errs.add(fieldErrorf(at, "explicit ordering self-reference %q", raw))
 					continue
 				}
-				from := i
-				if relation.name == "after" {
-					from, to = to, from
-				}
-				edges[from] = append(edges[from], to)
 			}
 		}
 	}
-	state := make([]uint8, len(entries))
-	var visit func(int) bool
-	visit = func(i int) bool {
-		if state[i] == 1 {
-			errs.add(fieldErrorf(entries[i].path, "cycle in local ordering relationships"))
-			return false
-		}
-		if state[i] == 2 {
-			return true
-		}
-		state[i] = 1
-		for _, to := range edges[i] {
-			if !visit(to) {
-				return false
-			}
-		}
-		state[i] = 2
-		return true
-	}
-	for i := range entries {
-		if !visit(i) {
-			break
-		}
-	}
+	// A cycle matters only where its entries share a phase and step. Authoring
+	// validation does not know third-party contracts or the eventual selection;
+	// runtime composition checks cycles after both are known.
 	return errs.err()
 }
 
@@ -308,6 +299,8 @@ func publicationScopes(d *Descriptor) ([]CapabilityScope, error) {
 	bound := map[string]bool{}
 	for i, scope := range d.CapabilityScopes {
 		scopes[i].Provides = slices.Clone(scope.Provides)
+		scopes[i].Requires = slices.Clone(scope.Requires)
+		scopes[i].Integrates = slices.Clone(scope.Integrates)
 		for _, name := range scope.Provides {
 			bound[name] = true
 		}
@@ -324,6 +317,21 @@ func publicationScopes(d *Descriptor) ([]CapabilityScope, error) {
 			scopes[i].Provides = append(scopes[i].Provides, p.Name)
 		}
 		bound[p.Name] = true
+	}
+	// Aggregate external dependencies apply to the artifact as a whole. Keep
+	// them alongside original scope dependencies so nesting cannot erase an
+	// ordering constraint that was visible before publication.
+	for i := range scopes {
+		for _, raw := range d.Requires {
+			if !slices.Contains(scopes[i].Requires, raw) {
+				scopes[i].Requires = append(scopes[i].Requires, raw)
+			}
+		}
+		for _, raw := range d.Integrates {
+			if !slices.Contains(scopes[i].Integrates, raw) {
+				scopes[i].Integrates = append(scopes[i].Integrates, raw)
+			}
+		}
 	}
 	return scopes, nil
 }

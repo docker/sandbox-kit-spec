@@ -39,6 +39,7 @@ func TestAssembleReturnsExecutablePlan(t *testing.T) {
 		},
 	})
 	contracts := map[string]spec.ExecutionContract{"com.example/service@1": {
+		Participation: []spec.ExecutionBoundary{{Phase: spec.PhaseStart, Step: spec.StepExecute}},
 		Effects: func(spec.Capability) ([]spec.PlannedEffect, error) {
 			return []spec.PlannedEffect{{Phase: spec.PhaseStart, Step: spec.StepExecute,
 				Action: "serve", Kind: spec.EffectProgram, End: true}}, nil
@@ -49,11 +50,14 @@ func TestAssembleReturnsExecutablePlan(t *testing.T) {
 		CapabilitySelector: spec.Supported(spec.CapabilityLifecycle, "com.example/service@1"),
 	})
 	require.NoError(t, err)
-	var install, startup, stop []string
+	var prepare, install, startup, stop []string
 	for _, phase := range result.Resolved.Plan.Phases {
 		for _, step := range phase.Steps {
 			for _, action := range step.Actions {
 				switch phase.Phase {
+				case spec.PhasePrepare:
+					prepare = append(prepare, action.Action)
+					require.Equal(t, spec.StepAttach, action.Step)
 				case spec.PhaseInstall:
 					install = append(install, action.Action)
 					require.Equal(t, spec.RepeatOnce, action.Repetition)
@@ -67,9 +71,10 @@ func TestAssembleReturnsExecutablePlan(t *testing.T) {
 	for _, action := range result.Resolved.Plan.Stop {
 		stop = append(stop, action.Action)
 	}
-	require.Equal(t, []string{"workspace-ready", "install"}, install)
+	require.Equal(t, []string{"workspace-ready"}, prepare)
+	require.Equal(t, []string{"install"}, install)
 	require.Equal(t, []string{"serve", "startup"}, startup)
-	require.Equal(t, []string{"workload", "serve"}, stop)
+	require.Equal(t, []string{"workload", "startup", "serve", "install", "workspace-ready"}, stop)
 	require.Equal(t, "capabilities[0]", result.Resolved.Selections[0].Selection.Selected[0].Path)
 	require.Equal(t, "hook", result.Resolved.Kits[0].Descriptor.Capabilities[0].ID)
 }

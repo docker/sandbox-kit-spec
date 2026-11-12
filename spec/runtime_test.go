@@ -80,86 +80,67 @@ func runtimeTestActionLabels(actions []ExecutionAction) []string {
 
 func TestRuntimeLifecycleOrderAndFixedBarriers(t *testing.T) {
 	setup := runtimeTestHook(t, "setup", true, true)
-	setup.Before = []string{CapabilityDockerd}
 	setup.Config["files"] = []File{{Path: "/home/agent/config", Content: "ready"}}
 	engine := Capability{Type: CapabilityDockerd, ID: "engine"}
 	after := runtimeTestHook(t, "after", true, true)
-	d := runtimeTestDescriptor(after, engine, setup)
+	d := runtimeTestDescriptor(setup, engine, after)
 	result := runtimeTestCompose(t, d, RuntimeOptions{WorkspaceAssigned: true})
 	require.Equal(t, []string{"setup", "engine", "after"}, runtimeTestEntryIDs(result.Plan))
-	require.Equal(t, []string{"workspace-ready", "setup/install", "after/install"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseInstall, StepExecute)))
+	require.Equal(t, []string{"workspace-ready"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhasePrepare, StepAttach))[1:])
+	require.Equal(t, []string{"setup/install", "after/install"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseInstall, StepExecute)))
 	require.Equal(t, []string{"setup/files"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepPlace)))
 	require.Equal(t, []string{"setup/startup", "engine/engine", "after/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 	require.Equal(t, []string{"workload"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseRunning, StepExecute)))
-	require.Len(t, result.Warnings, 1)
-	require.Contains(t, result.Warnings[0], "overrides")
-	require.Equal(t, []string{"after", "engine", "setup"}, []string{d.Capabilities[0].ID, d.Capabilities[1].ID, d.Capabilities[2].ID})
-	require.Equal(t, "contributions[0].capabilities[2]", result.Plan.Entries[0].ID)
-	require.Equal(t, SelectionTarget{Reference: "test-kit:1", Path: "capabilities[2]"}, result.Plan.Entries[0].Origins[0].Target)
-	require.Len(t, result.Descriptor.Capabilities, 3)
+	require.Empty(t, result.Warnings)
+	require.Equal(t, "contributions[0].capabilities[0]/effective[0]", result.Plan.Entries[0].ID)
+	require.Equal(t, SelectionTarget{Reference: "test-kit:1", Path: "capabilities[0]"}, result.Plan.Entries[0].Origins[0].Target)
 	for _, capability := range result.Descriptor.Capabilities {
 		require.Empty(t, capability.ID)
 		require.Empty(t, capability.Before)
 	}
 }
 
-func TestRuntimeDefaultOnlyMatchesActiveEffects(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		autoStart bool
-		startup   bool
-		want      []string
-	}{
-		{"startup", true, true, []string{"engine", "hook"}},
-		{"install only", true, false, []string{"hook", "engine"}},
-		{"manual engine", false, true, []string{"hook", "engine"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			hook := runtimeTestHook(t, "hook", true, tc.startup)
-			engine := runtimeTestCapability(t, CapabilityDockerd, "engine", Dockerd{AutoStart: &tc.autoStart})
-			result := runtimeTestCompose(t, runtimeTestDescriptor(hook, engine), RuntimeOptions{})
-			require.Equal(t, tc.want, runtimeTestEntryIDs(result.Plan))
-			require.Empty(t, result.Warnings)
-		})
+func TestRuntimeTypeParticipationIsIndependentOfConfig(t *testing.T) {
+	for _, startup := range []bool{false, true} {
+		hook := runtimeTestHook(t, "hook", true, startup)
+		engine := Capability{Type: CapabilityDockerd, ID: "engine"}
+		hook.After = []string{CapabilityDockerd}
+		consumer := runtimeTestHook(t, "consumer", true, true)
+		result := runtimeTestCompose(t, runtimeTestDescriptor(hook, consumer, engine), RuntimeOptions{})
+		// The engine is not an Install node. Its edge must not move the hook's
+		// installation behind the consumer that uses the installed tools.
+		require.Equal(t, []string{"hook/install", "consumer/install"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseInstall, StepExecute)))
+		want := []string{"consumer/startup", "engine/engine"}
+		if startup {
+			want = append(want, "hook/startup")
+		}
+		require.Equal(t, want, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 	}
 }
 
-func TestRuntimeWrittenAndIndirectDefaultCyclesRefuse(t *testing.T) {
-	for _, indirect := range []bool{false, true} {
-		t.Run(fmt.Sprintf("default=%t", indirect), func(t *testing.T) {
-			first := runtimeTestHook(t, "first", false, true)
-			first.Before = []string{"#bridge"}
-			bridge := Capability{Type: "com.example/bridge@1", ID: "bridge", Before: []string{"#last"}}
-			last := runtimeTestHook(t, "last", false, true)
-			last.Before = []string{"#first"}
-			if indirect {
-				last = Capability{Type: CapabilityDockerd, ID: "last"}
-			}
-			called := 0
-			result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: runtimeTestDescriptor(first, bridge, last)}}, RuntimeOptions{
-				Select: func(context.Context, SelectionTarget, Descriptor, Capability) CapabilityDecision {
-					called++
-					return CapabilityDecision{Accepted: true}
-				},
-				Contracts: map[string]ExecutionContract{"com.example/bridge@1": {}},
-			})
+func TestRuntimeWrittenCyclesRequireSharedParticipation(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		first := runtimeTestHook(t, "first", false, true)
+		first.Before = []string{"#bridge"}
+		bridge := Capability{Type: "com.example/bridge@1", ID: "bridge", Before: []string{"#last"}}
+		last := runtimeTestHook(t, "last", false, true)
+		last.Before = []string{"#first"}
+		contract := ExecutionContract{}
+		if shared {
+			contract.Participation = []ExecutionBoundary{{PhaseStart, StepExecute}}
+		}
+		result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: runtimeTestDescriptor(first, bridge, last)}}, RuntimeOptions{Select: Supported(CapabilityLifecycle, bridge.Type), Contracts: map[string]ExecutionContract{bridge.Type: contract}})
+		if shared {
 			require.Nil(t, result)
 			require.ErrorContains(t, err, "cycle")
-			var failure *RuntimeCompositionError
-			require.ErrorAs(t, err, &failure)
-			if indirect {
-				require.Equal(t, 3, called)
-				require.Len(t, failure.Selections, 1)
-				require.ErrorContains(t, err, "default")
-				require.ErrorContains(t, err, "#first")
-			} else {
-				require.Zero(t, called)
-			}
-		})
+			continue
+		}
+		require.NoError(t, err)
+		require.Equal(t, []string{"last/startup", "first/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 	}
 }
 
-func TestRuntimeRetainsSkippedGroupEdgesAndTargets(t *testing.T) {
+func TestRuntimeSkippedGroupKeepsTargetsWithoutOrdering(t *testing.T) {
 	first := runtimeTestHook(t, "first", true, true)
 	first.Before = []string{"#bridge"}
 	bridge := Capability{Type: "com.example/unavailable@1", ID: "bridge", Before: []string{"#last"}}
@@ -173,9 +154,8 @@ func TestRuntimeRetainsSkippedGroupEdgesAndTargets(t *testing.T) {
 				middle.Optional = true
 			}
 			result := runtimeTestCompose(t, runtimeTestDescriptor(last, middle, first), RuntimeOptions{})
-			require.Equal(t, []string{"first", "bridge", "last"}, runtimeTestEntryIDs(result.Plan))
-			require.False(t, result.Plan.Entries[1].Selected)
-			require.Equal(t, []string{"first/startup", "last/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
+			require.Equal(t, []string{"last", "first"}, runtimeTestEntryIDs(result.Plan))
+			require.Equal(t, []string{"last/startup", "first/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 			require.Len(t, result.Selections[0].Selection.Skipped, 1)
 			require.Len(t, result.Descriptor.Capabilities, 2)
 		})
@@ -189,7 +169,7 @@ func TestRuntimeStableEligibleEntryOrder(t *testing.T) {
 	third := runtimeTestHook(t, "third", true, true)
 	fourth := runtimeTestHook(t, "fourth", true, true)
 	result := runtimeTestCompose(t, runtimeTestDescriptor(first, second, third, fourth), RuntimeOptions{})
-	require.Equal(t, []string{"second", "third", "first", "fourth"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"first", "second", "third", "fourth"}, runtimeTestEntryIDs(result.Plan))
 	for _, phase := range []ExecutionPhase{PhaseInstall, PhaseStart} {
 		actions := runtimeTestActions(result.Plan, phase, StepExecute)
 		var ids []string
@@ -239,7 +219,7 @@ func TestRuntimeTargetsAndAbsentWarnings(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, result.Warnings, tc.warnings)
 			if tc.warnings == 0 {
-				require.Equal(t, []string{"engine", "hook"}, runtimeTestEntryIDs(result.Plan))
+				require.Equal(t, []string{"hook", engine.ID}, runtimeTestEntryIDs(result.Plan))
 			}
 		})
 	}
@@ -276,15 +256,10 @@ func TestRuntimeSingletonAliasesAndPostMergeSelfReference(t *testing.T) {
 			second.Kind = KindMixin
 			second.Provides = []string{"com.example/other"}
 			result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: first}, {Descriptor: second}}, RuntimeOptions{Select: Supported(KnownCapabilities()...)})
-			if self {
-				require.Nil(t, result)
-				require.ErrorContains(t, err, "self-reference after reconciliation")
-				return
-			}
 			require.NoError(t, err)
-			require.Equal(t, []string{"engine-a", "hook"}, runtimeTestEntryIDs(result.Plan))
-			require.Len(t, result.Plan.Entries[0].Origins, 2)
-			require.Equal(t, "engine-b", result.Plan.Entries[0].Origins[1].ID)
+			require.Equal(t, []string{"hook", "engine-a"}, runtimeTestEntryIDs(result.Plan))
+			require.Len(t, result.Plan.Entries[1].Origins, 2)
+			require.Equal(t, "engine-b", result.Plan.Entries[1].Origins[1].ID)
 			require.Len(t, runtimeTestActions(result.Plan, PhaseStart, StepExecute), 1)
 		})
 	}
@@ -300,8 +275,8 @@ func TestRuntimeTypeTargetUsesOriginalVersion(t *testing.T) {
 	second.Kind = KindMixin
 	result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: first}, {Descriptor: second}}, RuntimeOptions{Select: Supported(KnownCapabilities()...)})
 	require.NoError(t, err)
-	require.Equal(t, []string{"hook", "old"}, runtimeTestEntryIDs(result.Plan))
-	require.Len(t, result.Plan.Entries[1].Origins, 2)
+	require.Equal(t, []string{"old", "hook"}, runtimeTestEntryIDs(result.Plan))
+	require.Len(t, result.Plan.Entries[0].Origins, 2)
 	require.Equal(t, CapabilityNetworkPolicyV2, runtimeTestActions(result.Plan, PhaseStart, StepAttach)[0].Capability.Type)
 	require.Empty(t, result.Warnings)
 }
@@ -344,12 +319,15 @@ func TestRuntimeContractsRefuseUnknownOverrideAndInvalidEffects(t *testing.T) {
 		{"invalid step", map[string]ExecutionContract{custom: {Effects: func(Capability) ([]PlannedEffect, error) {
 			return []PlannedEffect{{Phase: PhasePrepare, Step: StepAttach, Action: "daemon", Kind: EffectProgram}}, nil
 		}}}, "does not belong"},
-		{"duplicate action", map[string]ExecutionContract{custom: {Effects: func(Capability) ([]PlannedEffect, error) {
+		{"duplicate action", map[string]ExecutionContract{custom: {Participation: []ExecutionBoundary{{PhaseStart, StepExecute}}, Effects: func(Capability) ([]PlannedEffect, error) {
 			effect := PlannedEffect{Phase: PhaseStart, Step: StepExecute, Action: "run", Kind: EffectProgram}
 			return []PlannedEffect{effect, effect}, nil
 		}}}, "repeats effect"},
 		{"contract failure", map[string]ExecutionContract{custom: {Effects: func(Capability) ([]PlannedEffect, error) { return nil, errors.New("contract failed") }}}, "contract failed"},
-		{"invalid default", map[string]ExecutionContract{custom: {Defaults: []OrderingDefault{{Phase: PhaseStart, Step: StepExecute}}}}, "exactly one"},
+		{"invalid participation", map[string]ExecutionContract{custom: {Participation: []ExecutionBoundary{{Phase: PhaseStart, Step: "invalid"}}}}, "invalid or duplicate participation"},
+		{"missing participation", map[string]ExecutionContract{custom: {Effects: func(Capability) ([]PlannedEffect, error) {
+			return []PlannedEffect{{Phase: PhaseStart, Step: StepExecute, Action: "run", Kind: EffectCommand}}, nil
+		}}}, "outside fixed participation"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: runtimeTestDescriptor(Capability{Type: custom})}}, RuntimeOptions{Select: selected, Contracts: tc.contracts})
@@ -388,7 +366,7 @@ func TestRuntimeCallbacksCannotMutatePlanningInputs(t *testing.T) {
 		}}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"custom", "hook"}, runtimeTestEntryIDs(result.Plan))
+	require.Equal(t, []string{"hook", "custom"}, runtimeTestEntryIDs(result.Plan))
 	after, err := json.Marshal(d)
 	require.NoError(t, err)
 	require.JSONEq(t, string(before), string(after))
@@ -468,4 +446,100 @@ func TestRuntimeSelectedLifecycleConflictsAcrossGroups(t *testing.T) {
 			require.Len(t, result.Descriptor.Capabilities, 1)
 		})
 	}
+}
+
+// These cases exercise the normal constraints, rather than just stable sorting.
+// In particular, an inserted entry may move itself across a dependency but must
+// never make the provider's untouched setup and launch swap places.
+func TestRuntimeWrittenEdgesMoveOnlyTheirWriter(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		before, after []string
+		want          []string
+		refuse        bool
+	}{
+		{"before setup", []string{"base#setup"}, nil, []string{"inserted/startup", "setup/startup", "launch/startup", "requirer/startup"}, false},
+		{"between", []string{"base#launch"}, []string{"base#setup"}, []string{"setup/startup", "inserted/startup", "launch/startup", "requirer/startup"}, false},
+		{"contradiction", []string{"base#setup"}, []string{"base#launch"}, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := runtimeTestDescriptor(runtimeTestHook(t, "setup", true, true), runtimeTestHook(t, "launch", true, true))
+			base.Kind = KindMixin
+			base.Provides = []string{"base@1"}
+			inserted := runtimeTestHook(t, "inserted", true, true)
+			inserted.Before = tc.before
+			inserted.After = tc.after
+			mixin := runtimeTestDescriptor(inserted, runtimeTestHook(t, "requirer", true, true))
+			mixin.Requires = []string{"base"}
+			result, err := ComposeRuntime(t.Context(), []Contribution{{Reference: "base", Descriptor: base}, {Reference: "mixin", Descriptor: mixin}}, RuntimeOptions{Select: Supported(KnownCapabilities()...)})
+			if tc.refuse {
+				require.Nil(t, result)
+				require.ErrorContains(t, err, "cycle")
+				require.ErrorContains(t, err, "#setup")
+				require.ErrorContains(t, err, "#launch")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
+		})
+	}
+}
+
+func TestRuntimeTransitiveDependenciesFollowMovedProvider(t *testing.T) {
+	toolHook := runtimeTestHook(t, "tool", true, false)
+	toolHook.After = []string{"extra"}
+	tool := runtimeTestDescriptor(toolHook)
+	tool.Kind = KindMixin
+	tool.Provides = []string{"tool@1"}
+	app := runtimeTestDescriptor(runtimeTestHook(t, "app", true, false))
+	app.Requires = []string{"tool"}
+	extra := runtimeTestDescriptor(runtimeTestHook(t, "extra", true, false))
+	extra.Kind = KindMixin
+	extra.Provides = []string{"extra@1"}
+	for _, inputs := range [][]Contribution{
+		{{Reference: "tool", Descriptor: tool}, {Reference: "app", Descriptor: app}, {Reference: "extra", Descriptor: extra}},
+		{{Reference: "extra", Descriptor: extra}, {Reference: "tool", Descriptor: tool}, {Reference: "app", Descriptor: app}},
+	} {
+		result, err := ComposeRuntime(t.Context(), inputs, RuntimeOptions{Select: Supported(KnownCapabilities()...)})
+		require.NoError(t, err)
+		require.Equal(t, []string{"extra/install", "tool/install", "app/install"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseInstall, StepExecute)))
+	}
+}
+
+func TestRuntimeEmptyLifecycleStillParticipates(t *testing.T) {
+	first := runtimeTestHook(t, "first", true, true)
+	first.After = []string{"#config"}
+	second := runtimeTestHook(t, "second", true, false)
+	config := runtimeTestHook(t, "config", false, true)
+	result := runtimeTestCompose(t, runtimeTestDescriptor(first, second, config), RuntimeOptions{})
+	require.Equal(t, []string{"second/install", "first/install"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseInstall, StepExecute)))
+	require.Equal(t, []string{"config/startup", "first/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
+}
+
+func TestRuntimeQualifiedOwnIDIsNotAReconciliationAlias(t *testing.T) {
+	hook := runtimeTestHook(t, "setup", false, true)
+	hook.Before = []string{"kit#setup"}
+	d := runtimeTestDescriptor(hook)
+	d.Provides = []string{"kit@1"}
+	result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: d}}, RuntimeOptions{Select: Supported(KnownCapabilities()...)})
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "self-reference")
+}
+
+func TestRuntimeWrittenDisplacementFollowsOtherBeforeEdges(t *testing.T) {
+	base := runtimeTestDescriptor(Capability{Type: CapabilityDockerd, ID: "engine"}, runtimeTestHook(t, "observe", false, true))
+	base.Kind, base.Provides = KindMixin, []string{"base@1"}
+	proxy := runtimeTestHook(t, "proxy", false, true)
+	proxy.Before = []string{CapabilityDockerd}
+	first := runtimeTestDescriptor(proxy)
+	first.Kind, first.Provides, first.Requires = KindMixin, []string{"proxy@1"}, []string{"base"}
+	auth := runtimeTestHook(t, "auth", false, true)
+	auth.Before = []string{"proxy"}
+	second := runtimeTestDescriptor(auth)
+	second.Requires = []string{"proxy"}
+	result, err := ComposeRuntime(t.Context(), []Contribution{{Descriptor: base}, {Descriptor: first}, {Descriptor: second}}, RuntimeOptions{Select: Supported(KnownCapabilities()...)})
+	require.NoError(t, err)
+	// Auth names only the proxy. Its displacement must also reach the engine
+	// through the proxy's before edge, without disturbing engine then observe.
+	require.Equal(t, []string{"auth/startup", "proxy/startup", "engine/engine", "observe/startup"}, runtimeTestActionLabels(runtimeTestActions(result.Plan, PhaseStart, StepExecute)))
 }

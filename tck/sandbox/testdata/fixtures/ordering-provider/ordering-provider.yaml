@@ -12,3 +12,11 @@ capabilities:
       user: '1000'
     startup:
     - command: printf 'provider,' >> /var/tmp/ordering-dependencies-startup
+- type: com.docker.sandbox/lifecycle@1
+  id: launch
+  config:
+    install:
+    - command: printf 'launch,' >> /var/tmp/ordering-dependencies-install
+      user: '1000'
+    startup:
+    - command: printf 'launch,' >> /var/tmp/ordering-dependencies-startup

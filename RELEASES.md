@@ -117,14 +117,19 @@ reconciles selected requests and preserves independent lifecycle entries.
 and execution uses the phase/step plan from `ComposeRuntime`.
 
 The same authorization applies the capability draft exception to changed
-observable behavior: lifecycle dependency order becomes an execution
-tie-break, Docker readiness before startup hooks becomes an overridable
-default, files are placed after Install and before Start Execute,
-workspace preparation precedes install commands, foreground hook failure
-stops phase progression, install grants end before Start, and ordinary
-Stop reverses startup effects. Existing capability versions remain in
-place during this draft. This does not assert that older runtime
-implementations provide these guarantees.
+observable behavior. Declaration and Kit dependency order are normal
+constraints for each phase and step; only a relationship written by an
+entry releases its own conflicting normal constraints. Docker readiness
+is awaited at the engine's declared Start Execute position, with no
+engine-before-hook default. Files are placed after Install and before
+Start Execute. Runtime-owned workspace preparation finishes in Prepare
+Attach using the runtime's own access, before Kit install grants begin.
+Foreground hook failure stops phase progression, install grants end
+before Start, and Stop reverses effects still in progress from any reached
+phase. Interrupted Install and crash recovery semantics remain separate.
+Existing capability versions remain in place during this draft. This
+does not assert that older runtime implementations provide these
+guarantees.
 
 ## Capability versions
 

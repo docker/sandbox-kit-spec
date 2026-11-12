@@ -81,8 +81,9 @@ A conforming runtime:
   refreshing host-side; `passthrough: true` is the explicit opt-out and a
   security downgrade a runtime MAY refuse.
 - **MUST** scope by phase: an install-only credential is injectable during <!-- tck: credential@1/phase-scoped -->
-  Install, including workspace preparation and install commands, and is
-  revoked before Start. Runtime credentials cover Start through Stop,
+  Install, including install commands, and is revoked before Start.
+  Runtime-owned workspace preparation uses the runtime's own access
+  before Install. Runtime credentials cover Start through Stop,
   including startup hooks, and are unavailable during Install. When both
   phases are listed, the credential is available in both with the same
   configuration.

@@ -536,9 +536,10 @@ It replaces the parts a v2 kit assembled by hand, so remove them with a
   and recreation, and validation refuses storage at or under that path beside
   `dockerd@1`. Its size arg goes with it.
 - a startup hook whose only job is starting `dockerd`: the runtime starts the
-  engine before startup hooks by default. Keep hooks that use the engine.
-  An explicit opposing relationship can put a preparation command first. A kit
-  whose hook must start the engine itself, with its own flags, keeps that hook
+  engine in Start Execute at its declared position. Declare it before
+  startup hooks that use the engine, or write a cross-Kit relationship.
+  A preparation command in the same Kit is declared before the engine.
+  A Kit whose hook starts the engine itself, with its own flags, keeps that hook
   and sets `config: {autoStart: false}`; the runtime still grants elevation
   and the store, and starts nothing. The hook then waits until
   `GET /_ping` on `/var/run/docker.sock` returns 200 and fixes the socket's

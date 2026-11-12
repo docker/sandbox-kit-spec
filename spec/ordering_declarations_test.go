@@ -131,7 +131,7 @@ func TestOrderingValidationAcrossGroups(t *testing.T) {
     capabilities:
       - id: last
         type: com.example/last@1
-        after: ["#first"]`, "cycle"},
+        after: ["#first"]`, ""},
 		{"literal id", `- id: '${{ kit.args.name }}'
   type: com.example/feature@1`, "literal"},
 		{"malformed target", `- type: com.example/feature@1

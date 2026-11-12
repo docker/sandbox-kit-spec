@@ -60,7 +60,7 @@ def load_plan(kits, rejected, overrides, workspace):
 
 
 def new_state(plan, workspace):
-    return {'plan': plan, 'workspace': workspace, 'once': [], 'boots': 0, 'processes': []}
+    return {'plan': plan, 'workspace': workspace, 'installed': False, 'active': [], 'boots': 0, 'processes': []}
 
 
 def wait_for(predicate, message):
@@ -86,15 +86,29 @@ def running(pid):
     return bool(status) and not status.startswith('Z')
 
 
+def action_identity(action):
+    return '/'.join(action[key] for key in ('entryId', 'fragmentId', 'phase', 'step', 'action'))
+
+
+def end_actions(data, actions):
+    for action in actions:
+        identity = action_identity(action)
+        if identity not in data.get('active', []):
+            continue
+        matches = [process for process in data['processes'] if process.get('action') == identity]
+        for process in reversed(matches):
+            terminate(process['pid'])
+            data['processes'].remove(process)
+        data['active'].remove(identity)
+
+
 def stop(data):
     actions = list(data['plan'].get('stop') or [])
     if broken == 'ordering-forward-stop':
         actions.reverse()
-    for action in actions:
-        matches = [p for p in data['processes'] if p['entry'] == action['entryId'] and p['fragment'] == action['fragmentId']]
-        for process in reversed(matches):
-            terminate(process['pid'])
-            data['processes'].remove(process)
+    # The plan describes all possible endings. Only effects reached by this
+    # boot remain active, and InstallEnd may already have withdrawn some.
+    end_actions(data, actions)
     for process in reversed(data['processes']):
         terminate(process['pid'])
     data['processes'] = []
@@ -120,7 +134,8 @@ def launch(argv, data, action, root, env):
     with (root / 'process.log').open('a') as log:
         process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                    env=env, start_new_session=True)
-    data['processes'].append({'entry': action['entryId'], 'fragment': action['fragmentId'], 'pid': process.pid})
+    data['processes'].append({'entry': action['entryId'], 'fragment': action['fragmentId'],
+                              'action': action_identity(action), 'pid': process.pid})
     return process
 
 
@@ -183,6 +198,15 @@ def boot(data, root):
         actions = [action for phase in ('prepare', 'install', 'start', 'running')
                    for step in ('attach', 'place', 'execute') for action in reversed(actions)
                    if (action['phase'], action['step']) == (phase, step)]
+    if broken == 'ordering-global-order':
+        # Reproduce projecting the Start order back into Install. A type
+        # absent from Install must not move the entries executing there.
+        startup_order = {action['entryId']: i for i, action in enumerate(actions)
+                         if action['phase'] == 'start' and action['step'] == 'execute'}
+        install = sorted((action for action in actions if action['phase'] == 'install'),
+                         key=lambda action: startup_order.get(action['entryId'], -1))
+        replacements = iter(install)
+        actions = [next(replacements) if action['phase'] == 'install' else action for action in actions]
     if broken == 'ordering-files-before-install':
         actions.sort(key=lambda action: action['action'] != 'files')
     if broken == 'ordering-files-after-execute':
@@ -194,19 +218,27 @@ def boot(data, root):
     if broken in ('ordering-workspace-late', 'ordering-workspace-failure-hooks'):
         actions.sort(key=lambda action: action['action'] == 'workspace-ready')
     seen, bindings, entries = set(), {}, {}
+    install_ended = False
+    endings = {action_identity(action) for action in (data['plan'].get('stop') or []) + (data['plan'].get('installEnd') or [])}
     for action in actions:
         name = action['action']
         phase = action['phase']
         capability = action.get('capability', {})
         typ = capability.get('type', '')
         config = capability.get('config', {})
-        identity = '/'.join((action['entryId'], action['fragmentId'], phase, name))
+        identity = action_identity(action)
+        if phase in ('start', 'running') and not install_ended:
+            end_actions(data, data['plan'].get('installEnd') or [])
+            data['installed'] = True
+            install_ended = True
         if broken == 'ordering-first-entry-only' and typ.endswith('/lifecycle@1'):
             entries.setdefault((typ, phase), action['entryId'])
             if entries[(typ, phase)] != action['entryId']:
                 continue
-        if action['repetition'] == 'once' and identity in data['once'] and broken != 'ordering-reinstalls':
+        if phase == 'install' and data['installed'] and broken != 'ordering-reinstalls':
             continue
+        if identity in endings and identity not in data['active']:
+            data['active'].append(identity)
         if name == 'workspace-ready':
             destination = pathlib.Path(remap('/home/agent/workspace', root))
             if not destination.exists():
@@ -235,7 +267,16 @@ def boot(data, root):
             elif name in ('install', 'startup'):
                 if name == 'startup' and data['boots'] and broken == 'ordering-startup-once':
                     continue
-                run_hooks(config.get(name, []), root, seen, bindings, data, action)
+                try:
+                    run_hooks(config.get(name, []), root, seen, bindings, data, action)
+                finally:
+                    # A completed foreground command has already ended. A
+                    # later failed command must retain any background program
+                    # begun earlier in this entry for the subsequent Stop.
+                    has_program = any(process.get('action') == identity and running(process['pid'])
+                                      for process in data['processes'])
+                    if not has_program and identity in data['active']:
+                        data['active'].remove(identity)
         elif typ.endswith('/dockerd@1') and name == 'engine':
             env = os.environ | {'KIT_TCK_PROBE_UID': str(os.getuid())}
             if broken == 'ordering-launch-without-readiness':
@@ -245,8 +286,6 @@ def boot(data, root):
                 wait_for(lambda: answered(pathlib.Path(remap('/var/run/docker.sock', root))) or process.poll() is not None, 'engine did not become ready')
                 if process.poll() is not None:
                     raise RuntimeError('engine exited before becoming ready')
-        if action['repetition'] == 'once' and identity not in data['once']:
-            data['once'].append(identity)
     data['boots'] += 1
 
 
@@ -298,9 +337,18 @@ def main():
         sys.stderr.buffer.write(result.stderr)
         sys.exit(result.returncode)
     elif verb == 'start':
-        boot(data, root)
+        try:
+            boot(data, root)
+        finally:
+            # Start can fail after launching a service. Save reached effects
+            # even on failure so another adapter invocation can unwind them.
+            (directory / 'state.json').write_text(json.dumps(data))
+        return
     elif verb in ('stop', 'rm'):
-        stop(data)
+        try:
+            stop(data)
+        finally:
+            (directory / 'state.json').write_text(json.dumps(data))
         shutil.rmtree(remap('/var/run', root), ignore_errors=True)
         if verb == 'rm':
             for path in root.rglob('*'):

@@ -450,8 +450,10 @@ original block after expansion, without coupling optional selection.
 A publisher remaps them per contribution occurrence and never derives
 them from diagnostic `source` metadata. Published declarations also carry
 `scope` indexes into `capabilityScopes` to preserve local IDs and original
-provided-name bindings. Preserve these fields when consuming a published
-set. Hand-authored Kits normally omit structural publication fields.
+provided-name bindings. The scope table also retains original `requires`
+and `integrates`, including internally satisfied dependencies, so normal
+execution constraints survive publication. Preserve these fields when
+consuming a published set. Hand-authored Kits normally omit structural publication fields.
 
 Selection lasts for one sandbox installation, including restarts.
 Recreation selects afresh. A failing selected hook is an execution
@@ -519,18 +521,29 @@ or a qualified ID such as `com.example/agent#setup`. Do not derive IDs
 from positions. Relationships never grant or select their targets.
 
 Prepare, Install, and Start each run Attach, then Place, then Execute.
+Each phase and step gets its own order among entries whose types take
+part there. Config can make an entry do nothing at its turn, but never
+changes participation. Declaration order and Kit dependency order are
+constraints. A written relationship can move only the entry that wrote
+it past conflicting normal constraints; other entries keep their order.
+Conflicting written relationships refuse composition. There are no
+capability ordering defaults.
+
 Files are Start Place work, so they precede services and startup commands
 but are unavailable during Install. A file and a startup command can stay
 in one lifecycle entry. Split entries when commands must run on opposite
-sides of another service. A root startup command can write daemon.json
-before Docker with `before: [com.docker.sandbox/dockerd@1]`. That explicit
-override removes the engine-readiness default for that entry only, so the
-command cannot itself depend on Docker. Lifecycle files still belong to
-the agent.
+sides of another service. Within a Kit, declare a root startup command
+that writes daemon.json, then dockerd, then startup commands that use
+Docker. Cross-Kit relationships can make those positions explicit.
+Lifecycle files still belong to the agent.
 
-Workspace cloning and required access finish before lifecycle install
-commands. Keep workspace dependency installation in an install hook when
-it should run once. Startup commands run every boot. An explicit edge
-cannot bypass workspace readiness, phase boundaries, or step boundaries.
-A skipped optional entry retains its written ordering edges but runs no
-effects. Ordinary Stop reverses the start order.
+Workspace cloning and required access finish in runtime-owned Prepare
+Attach, using the runtime's own access. Kit install credentials, SSH
+grants, and network grants do not cover cloning. Keep workspace
+dependency installation in an install hook when it should run once.
+Startup commands run every boot. A relationship cannot bypass workspace
+readiness, phase boundaries, or step boundaries. A skipped optional entry
+keeps its ID for target validation but orders nothing. Stop reverses
+what is still in effect from whichever phase the boot reached, including
+Install grants that have not already ended. Interrupted installation and
+crash recovery remain separate concerns.
