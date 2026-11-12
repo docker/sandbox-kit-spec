@@ -404,6 +404,30 @@ kits:
 		require.NoError(t, report.Err(), "the published set conforms:\n%s", report)
 	}
 
+	// A separately published set has already bound each platform's package
+	// aliases to its original scopes. Importing those sets must intersect
+	// the bindings as well as provides, without losing the empty scopes.
+	nestedRef := registry + "/sbx-kit-platform-nested"
+	for _, arch := range []string{"amd64", "arm64"} {
+		e.publish(dir, "platform-nested", nestedRef+":"+arch, setDescriptor, nil, "--platform=linux/"+arch)
+	}
+	e.run("docker", "buildx", "imagetools", "create", "--tag", nestedRef+":1.0.0", nestedRef+":amd64", nestedRef+":arm64")
+	outerDescriptor := strings.Replace(setDescriptor, baseRef+":1.0.0", nestedRef+":1.0.0", 1)
+	outerRef := registry + "/sbx-kit-platform-outer:1.0.0"
+	e.publish(dir, "platform-outer", outerRef, outerDescriptor, nil, "--platform=linux/amd64,linux/arm64")
+	artifacts, err = tckkit.FromRegistryAll(t.Context(), outerRef)
+	require.NoError(t, err)
+	require.Len(t, artifacts, 2)
+	for _, artifact := range artifacts {
+		d, err := spec.Decode([]byte(artifact.Annotations()[spec.AnnotationDescriptor]))
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{"e2e-platform@1.0.0", "deb/common@1.0"}, d.Provides)
+		require.Len(t, d.CapabilityScopes, 3, "nested publication preserves original empty scopes")
+		report, err := tckkit.Run(t.Context(), artifact)
+		require.NoError(t, err)
+		require.NoError(t, report.Err(), "the nested multi-platform set conforms:\n%s", report)
+	}
+
 	// The workload publisher already takes this same intersection when
 	// both platforms are available in one build.
 	e.publish(dir, "platform", baseRef+":together", descriptor, files, "--platform=linux/amd64,linux/arm64")

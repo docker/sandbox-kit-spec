@@ -186,6 +186,76 @@ func TestSetDerivedIntersectionUsesEveryPlatformAndEachKit(t *testing.T) {
 	}
 }
 
+func TestSetDerivedIntersectionPreservesPublishedScopes(t *testing.T) {
+	for _, tc := range []struct {
+		name, amd64, arm64 string
+	}{
+		{"platform-only package", "deb/amd64-only@1.0", "deb/arm64-only@1.0"},
+		{"different package versions", "deb/versioned@1.0", "deb/versioned@2.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			zero, one := uint32(0), uint32(1)
+			published := func(specific string) *spec.Descriptor {
+				p, err := spec.ParseProvide(specific)
+				require.NoError(t, err)
+				return &spec.Descriptor{
+					SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
+					Provides: []string{"com.example/agent@1.0", "deb/common@1.0", specific},
+					CapabilityScopes: []spec.CapabilityScope{
+						{Provides: []string{"com.example/agent", "deb/common"}},
+						{Provides: []string{p.Name}},
+					},
+					Capabilities: []spec.Capability{
+						{ID: "setup", Type: "com.example/action@1", Scope: &zero},
+						{ID: "setup", Type: "com.example/other@1", Scope: &one},
+					},
+				}
+			}
+			originals := []*spec.Descriptor{published(tc.amd64), published(tc.arm64)}
+			var before [][]byte
+			var kits [][]resolvedKit
+			for _, input := range originals {
+				raw, err := json.Marshal(input)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, input)
+				require.NoError(t, err, "the nested member starts as a valid published descriptor")
+				before = append(before, raw)
+				kits = append(kits, []resolvedKit{{reference: "nested", descriptor: input}})
+			}
+
+			intersectDerivedProvides(kits)
+			for i, platform := range kits {
+				d := platform[0].descriptor
+				raw, err := json.Marshal(d)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, d)
+				require.NoError(t, err, "intersection must leave scoped nested members publishable")
+				require.Equal(t, []string{"com.example/agent@1.0", "deb/common@1.0"}, d.Provides)
+				require.Len(t, d.CapabilityScopes, 2, "an emptied scope still owns its original declarations")
+				require.Equal(t, []string{"com.example/agent", "deb/common"}, d.CapabilityScopes[0].Provides)
+				require.Empty(t, d.CapabilityScopes[1].Provides)
+				require.Equal(t, one, *d.Capabilities[1].Scope)
+				original, err := json.Marshal(originals[i])
+				require.NoError(t, err)
+				require.JSONEq(t, string(before[i]), string(original), "intersection must not edit published source bindings")
+			}
+			require.NoError(t, sameDeclarations(kits[0][0].descriptor, kits[1][0].descriptor))
+
+			// Later processing of one platform must not alter the source or
+			// another platform through either level of the scope slices.
+			kits[0][0].descriptor.CapabilityScopes[0].Provides[0] = "com.example/changed"
+			kits[0][0].descriptor.CapabilityScopes[1].Provides = []string{"com.example/changed"}
+			require.Equal(t, "com.example/agent", kits[1][0].descriptor.CapabilityScopes[0].Provides[0])
+			require.Empty(t, kits[1][0].descriptor.CapabilityScopes[1].Provides)
+			for i, input := range originals {
+				raw, err := json.Marshal(input)
+				require.NoError(t, err)
+				require.JSONEq(t, string(before[i]), string(raw))
+			}
+		})
+	}
+}
+
 func TestSetDerivedIntersectionNormalizesWhitespace(t *testing.T) {
 	for _, whitespace := range []string{"leading", "trailing", "both"} {
 		t.Run(whitespace, func(t *testing.T) {

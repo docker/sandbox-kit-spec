@@ -171,9 +171,12 @@ func intersectDerivedProvides(kitsByPlatform [][]resolvedKit) {
 			}
 		}
 		var agreed []string
+		agreedNames := map[string]bool{}
 		for entry, count := range counts {
 			if count == len(kitsByPlatform) {
 				agreed = append(agreed, entry)
+				p, _ := spec.ParseProvide(entry) // counts contains only parsed derived entries.
+				agreedNames[p.Name] = true
 			}
 		}
 		sort.Strings(agreed)
@@ -189,6 +192,17 @@ func intersectDerivedProvides(kitsByPlatform [][]resolvedKit) {
 				}
 			}
 			d.Provides = append(d.Provides, agreed...)
+			// Nested sets bind package aliases to original Kit scopes.
+			// A dropped package cannot remain addressable through those
+			// bindings, but removing its now-empty scope would renumber
+			// declarations. Copy both slice levels before pruning so the
+			// published source and other platforms retain their bindings.
+			d.CapabilityScopes = slices.Clone(d.CapabilityScopes)
+			for j := range d.CapabilityScopes {
+				d.CapabilityScopes[j].Provides = slices.DeleteFunc(slices.Clone(d.CapabilityScopes[j].Provides), func(name string) bool {
+					return spec.IsDerivedProvide(name) && !agreedNames[name]
+				})
+			}
 			kits[i].descriptor = &d
 		}
 	}
