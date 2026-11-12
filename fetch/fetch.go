@@ -451,6 +451,12 @@ func mergeKits(ctx context.Context, kits []*Kit, args []map[string]string, parti
 		WorkspaceAssigned: options.workspaceAssigned,
 	})
 	if err != nil {
+		// Cancellation is an operation failure, not an expanded declaration
+		// diagnostic. Preserve its identity before redacting config-derived
+		// details, as Assemble does for its resolution step.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if errors.Is(err, spec.ErrDescriptorTooLarge) {
 			if hadEnvironment {
 				return nil, fmt.Errorf("compose capabilities after environment expansion: %w", spec.ErrDescriptorTooLarge)
