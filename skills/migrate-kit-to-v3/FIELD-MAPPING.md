@@ -444,6 +444,16 @@ into the Kit. Only HTTP/HTTPS navigation is granted, on the provider
 host rather than the CLI client. Browser traffic is not sandbox egress.
 Use `optional: true` if printing the URL is a sufficient fallback.
 
+### auto-restart@1
+
+For a service that needs to resume after host or runtime recovery, add a
+required `com.docker.sandbox/auto-restart@1` entry without `config`. A
+request from any Kit applies to the whole sandbox. Explicit stop remains
+effective across recovery. Declare `long-running@1` as well when the
+service must outlive client sessions. This does not request restart after
+an in-guest crash or replace a Compose restart policy. Use
+`optional: true` only when manual recovery is tolerable.
+
 ### long-running@1
 
 For a workload or mixin that must keep serving after the last client disconnects,

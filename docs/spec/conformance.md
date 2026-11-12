@@ -242,6 +242,16 @@ not a stopped state. The suite reads status before probing the background
 process, so an exec that implicitly starts a stopped sandbox cannot hide
 auto-stop, and reads it again after explicit stop.
 
+The adapter protocol has no host or runtime recovery operation. The suite
+therefore waives the `auto-restart@1` recovery checks, including explicit
+stop across recovery. A sandbox `stop` followed by `start` cannot establish
+unattended recovery or startup-hook execution on that recovery boot. The
+session-auto-stop independence check is also waived because the fake
+adapter has no ordinary session auto-stop policy and the protocol does
+not advertise that policy. These waivers record missing observations, not
+proof that a runtime supplies the capability. Required unclaimed requests
+are still judged by the generic preflight refusal probe.
+
 ### Host-shared directory observation
 
 For `com.docker.sandbox/host-port@1`, the suite starts temporary TCP and UDP

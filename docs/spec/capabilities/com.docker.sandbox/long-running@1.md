@@ -42,7 +42,9 @@ A runtime without session-based auto-stop already supplies the behavior,
 but still advertises the type before accepting it as required. Detached
 mode, a durable lease, or a service manager can implement the contract;
 the capability prescribes none of them. It does not request automatic
-restart after a failure or promise uninterrupted availability.
+restart after a failure or promise uninterrupted availability. To resume
+after host or runtime recovery, declare
+[auto-restart@1](auto-restart@1.md) as well.
 
 ## Composition
 

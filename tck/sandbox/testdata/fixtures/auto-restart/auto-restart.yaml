@@ -1,0 +1,7 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Automatic recovery requirement
+provides: ["kit-tck-auto-restart@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/auto-restart@1
