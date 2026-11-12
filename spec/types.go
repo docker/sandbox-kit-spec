@@ -367,7 +367,10 @@ func (c *Capability) UnmarshalYAML(unmarshal func(any) error) error {
 			return fmt.Errorf("capability %s must be a string", field)
 		}
 	}
-	if value, ok := keys["id"]; ok && value.Value == "" {
+	// An alias node's Value names the anchor, not the referenced string.
+	// Check the decoded ID so an explicitly empty alias cannot become an
+	// omitted ID when the descriptor is published with omitempty.
+	if _, stated := keys["id"]; stated && c.ID == "" {
 		return fmt.Errorf("capability id must not be empty")
 	}
 	for _, field := range []string{"before", "after"} {

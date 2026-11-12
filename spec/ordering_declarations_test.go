@@ -56,6 +56,50 @@ func TestOrderingFieldsStrictDecode(t *testing.T) {
 	}
 }
 
+func TestOrderingIDAliases(t *testing.T) {
+	for _, layout := range []struct {
+		name, entries string
+	}{
+		{"ordinary", "  - type: com.example/feature@1\n    id: *idValue\n"},
+		{"group member", "  - group:\n      capabilities:\n        - type: com.example/feature@1\n          id: *idValue\n"},
+	} {
+		for _, tc := range []struct {
+			name, value, decodeError, validationError string
+		}{
+			{"empty", `""`, "id must not be empty", ""},
+			{"valid", `"setup"`, "", ""},
+			{"invalid name", `"not an id"`, "", "id must be a literal unqualified capability name"},
+			{"non-string", "7", "id must be a string", ""},
+		} {
+			t.Run(layout.name+"/"+tc.name, func(t *testing.T) {
+				// The alias node carries its anchor's name, while the ID
+				// contract applies to the string the author referenced.
+				raw := []byte("schemaVersion: '3'\nkind: mixin\ndescription: &idValue " + tc.value + "\ncapabilities:\n" + layout.entries)
+				d, err := Decode(raw)
+				if tc.decodeError != "" {
+					require.ErrorContains(t, err, tc.decodeError)
+					return
+				}
+				require.NoError(t, err)
+				_, err = Validate(d)
+				if tc.validationError != "" {
+					require.ErrorContains(t, err, tc.validationError)
+					return
+				}
+				require.NoError(t, err)
+				entries := DeclaredCapabilities(d.Capabilities)
+				require.Len(t, entries, 1)
+				require.Equal(t, "setup", entries[0].ID)
+				published, err := json.Marshal(d)
+				require.NoError(t, err)
+				republished, err := Decode(published)
+				require.NoError(t, err)
+				require.Equal(t, "setup", DeclaredCapabilities(republished.Capabilities)[0].ID)
+			})
+		}
+	}
+}
+
 func TestOrderingValidationAcrossGroups(t *testing.T) {
 	for _, tc := range []struct {
 		name, entries, want string
