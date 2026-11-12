@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"container/heap"
 	"context"
 	"fmt"
 	"slices"
@@ -46,14 +45,18 @@ type runtimeProviderBinding struct {
 type runtimeDependencyGroup struct{ requirements []Require }
 type runtimeScopeDependencies struct{ local, aggregate *runtimeDependencyGroup }
 
-// runtimeEdge retains the normal or written constraint responsible for an edge.
+// runtimeRelation retains the written constraint responsible for an edge.
 // Writer and before preserve which endpoint authored a relationship, because
 // that endpoint alone may be released from its normal ordering constraints.
-type runtimeEdge struct {
-	from, to int
-	reason   string
-	writer   int
-	before   bool
+// One authored relationship is retained instead of expanding a type
+// or provider target into one heap object per matched declaration. The target is
+// resolved while validating or lowering a boundary, and its temporary matches
+// are discarded before processing the next relationship.
+type runtimeRelation struct {
+	writer int
+	before bool
+	target orderingTarget
+	reason string
 }
 
 // runtimeFragment is one reconciled request and its scheduled effects. Each
@@ -181,10 +184,13 @@ func (g *runtimeGraph) identity(index int) string {
 // resolve uses original types and scopes, before reconciliation changes either.
 // The bool distinguishes an absent provider/type from an existing empty scope.
 // Aggregate provider aliases may span scopes, but an ID target must remain unique.
-func (g *runtimeGraph) resolve(writer int, target orderingTarget) ([]int, bool, error) {
+func (g *runtimeGraph) resolve(ctx context.Context, writer int, target orderingTarget) ([]int, bool, error) {
 	var targets []int
 	if target.capabilityType != "" {
 		for i, node := range g.nodes {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
 			if node.capability.Type == target.capabilityType {
 				targets = append(targets, i)
 			}
@@ -204,7 +210,13 @@ func (g *runtimeGraph) resolve(writer int, target orderingTarget) ([]int, bool, 
 	}
 	for _, binding := range bindings {
 		for scope := binding.scopes.first; scope < binding.scopes.end; scope++ {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
 			for _, i := range g.scopes[scope] {
+				if err := ctx.Err(); err != nil {
+					return nil, false, err
+				}
 				if target.id == "" || g.nodes[i].capability.ID == target.id {
 					targets = append(targets, i)
 				}
@@ -296,10 +308,13 @@ func (g *runtimeGraph) scopePredecessors(ctx context.Context, scope int) (map[in
 // writtenEdges validates every declaration target before selection. Later the
 // planner maps these original endpoints to selected effective requests. An edge
 // collapsed by reconciliation has no effect, including an explicit ID edge.
-func (g *runtimeGraph) writtenEdges() ([]runtimeEdge, []string, error) {
-	var edges []runtimeEdge
+func (g *runtimeGraph) writtenEdges(ctx context.Context) ([]runtimeRelation, []string, error) {
+	var relations []runtimeRelation
 	var warnings []string
 	for i, node := range g.nodes {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		for _, relation := range []struct {
 			name    string
 			targets []string
@@ -309,7 +324,7 @@ func (g *runtimeGraph) writtenEdges() ([]runtimeEdge, []string, error) {
 				if err != nil {
 					return nil, nil, fmt.Errorf("%s: %w", g.label(i), err)
 				}
-				targets, present, err := g.resolve(i, target)
+				targets, present, err := g.resolve(ctx, i, target)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -317,22 +332,18 @@ func (g *runtimeGraph) writtenEdges() ([]runtimeEdge, []string, error) {
 					warnings = append(warnings, fmt.Sprintf("%s: %s target %q is absent", g.label(i), relation.name, raw))
 				}
 				for _, j := range targets {
-					if i == j {
-						if target.id != "" {
-							return nil, nil, fmt.Errorf("%s: %s %q is a self-reference", g.label(i), relation.name, raw)
-						}
-						continue
+					if err := ctx.Err(); err != nil {
+						return nil, nil, err
 					}
-					from, to := i, j
-					if relation.name == "after" {
-						from, to = to, from
+					if i == j && target.id != "" {
+						return nil, nil, fmt.Errorf("%s: %s %q is a self-reference", g.label(i), relation.name, raw)
 					}
-					edges = append(edges, runtimeEdge{from: from, to: to, writer: i, before: relation.name == "before", reason: fmt.Sprintf("%s %s %q", g.label(i), relation.name, raw)})
 				}
+				relations = append(relations, runtimeRelation{writer: i, before: relation.name == "before", target: target, reason: fmt.Sprintf("%s %s %q", g.label(i), relation.name, raw)})
 			}
 		}
 	}
-	return edges, warnings, nil
+	return relations, warnings, ctx.Err()
 }
 
 // fragments lowers effective requests without joining connected origin sets.
@@ -394,12 +405,8 @@ func (g *runtimeGraph) fragments(ctx context.Context, capabilities []Capability,
 // plan computes an independent constraint graph at each fixed boundary. Types
 // participate even when config lowers no work there; absent effects never let
 // a config edit reshuffle another entry. No partial schedule escapes a cycle.
-func (g *runtimeGraph) plan(ctx context.Context, capabilities []Capability, contracts map[string]ExecutionContract, workspace bool) (ExecutionPlan, []string, error) {
+func (g *runtimeGraph) plan(ctx context.Context, capabilities []Capability, contracts map[string]ExecutionContract, written []runtimeRelation, workspace bool) (ExecutionPlan, []string, error) {
 	fragments, err := g.fragments(ctx, capabilities, contracts)
-	if err != nil {
-		return ExecutionPlan{}, nil, err
-	}
-	written, _, err := g.writtenEdges()
 	if err != nil {
 		return ExecutionPlan{}, nil, err
 	}
@@ -423,26 +430,30 @@ func (g *runtimeGraph) plan(ctx context.Context, capabilities []Capability, cont
 // boundaryOrder implements the normative computation. Normal constraints are
 // complete pairwise Kit declaration/dependency constraints, not just adjacent
 // edges: moving one entry must not release the order of untouched neighbors.
-func (g *runtimeGraph) boundaryOrder(ctx context.Context, boundary ExecutionBoundary, fragments []runtimeFragment, written []runtimeEdge) ([]int, error) {
+func (g *runtimeGraph) boundaryOrder(ctx context.Context, boundary ExecutionBoundary, fragments []runtimeFragment, written []runtimeRelation) ([]int, error) {
 	var nodes []int
 	origins := make([][]int, len(g.nodes))
 	for i, fragment := range fragments {
 		if !slices.Contains(fragment.participation, boundary) {
 			continue
 		}
+		local := len(nodes)
 		nodes = append(nodes, i)
 		for _, origin := range fragment.capability.executionOrigins {
-			origins[origin] = append(origins[origin], i)
+			origins[origin] = append(origins[origin], local)
 		}
 	}
-	normal := map[[2]int]runtimeEdge{}
+	// Effective validation has already bounded the serialized selected descriptor.
+	// Store each possible constraint in one bit, rather than multiplying a small
+	// descriptor into millions of edge structs, map buckets and adjacency indexes.
+	constraints := newRuntimeBoundaryConstraints(len(nodes))
 	precedingScope := -1
 	var predecessors map[int]bool
-	for _, j := range nodes {
+	for j, fragment := range nodes {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		right := fragments[j].entry
+		right := fragments[fragment].entry
 		rs := g.nodes[right].scope
 		if rs != precedingScope {
 			var err error
@@ -452,210 +463,104 @@ func (g *runtimeGraph) boundaryOrder(ctx context.Context, boundary ExecutionBoun
 			}
 			precedingScope = rs
 		}
-		for _, i := range nodes {
+		for i, other := range nodes {
 			if i == j {
 				continue
 			}
-			left := fragments[i].entry
+			left := fragments[other].entry
 			ls := g.nodes[left].scope
 			if ls == rs && left < right || ls != rs && predecessors[ls] {
-				normal[[2]int{i, j}] = runtimeEdge{from: i, to: j, reason: "normal Kit declaration/dependency order"}
+				constraints.normal.set(i, j)
 			}
 		}
 	}
-	var explicit []runtimeEdge
-	for _, edge := range written {
-		for _, from := range origins[edge.from] {
-			for _, to := range origins[edge.to] {
-				if from == to {
+	for _, relation := range written {
+		if len(origins[relation.writer]) == 0 {
+			continue
+		}
+		targets, _, err := g.resolve(ctx, relation.writer, relation.target)
+		if err != nil {
+			return nil, err
+		}
+		for _, writer := range origins[relation.writer] {
+			for _, target := range targets {
+				if target == relation.writer {
 					continue
 				}
-				writer := from
-				if !edge.before {
-					writer = to
+				if err := ctx.Err(); err != nil {
+					return nil, err
 				}
-				explicit = append(explicit, runtimeEdge{from: from, to: to, writer: writer, before: edge.before, reason: edge.reason})
-			}
-		}
-	}
-	// Step 2 observes the initial normal relation. All removals are applied
-	// together so edge enumeration order cannot affect the resulting constraints.
-	removals := map[[2]int]bool{}
-	for _, edge := range explicit {
-		target := edge.to
-		if !edge.before {
-			target = edge.from
-		}
-		for _, other := range nodes {
-			if edge.before {
-				if _, ok := normal[[2]int{target, other}]; target == other || ok {
-					removals[[2]int{other, edge.writer}] = true
-				}
-			} else {
-				if _, ok := normal[[2]int{other, target}]; target == other || ok {
-					removals[[2]int{edge.writer, other}] = true
-				}
-			}
-		}
-	}
-	for key := range removals {
-		delete(normal, key)
-	}
-	// Step 3 expands displacement through remaining normal constraints and written
-	// edges of the same orientation. Each pass observes one snapshot and applies
-	// removals simultaneously. Written edges are never candidates for removal.
-	for {
-		removals = map[[2]int]bool{}
-		for _, edge := range explicit {
-			target := edge.to
-			if !edge.before {
-				target = edge.from
-			}
-			reached := map[int]bool{}
-			var walk func(int)
-			walk = func(node int) {
-				if node == edge.writer || reached[node] {
-					return
-				}
-				reached[node] = true
-				for _, next := range nodes {
-					key := [2]int{node, next}
-					if !edge.before {
-						key = [2]int{next, node}
-					}
-					if _, ok := normal[key]; ok {
-						walk(next)
-					}
-				}
-				for _, other := range explicit {
-					if other.before != edge.before {
+				for _, other := range origins[target] {
+					if writer == other {
 						continue
 					}
-					if edge.before && other.from == node {
-						walk(other.to)
+					if relation.before {
+						constraints.before.set(writer, other)
+					} else {
+						constraints.after.set(other, writer)
 					}
-					if !edge.before && other.to == node {
-						walk(other.from)
-					}
-				}
-			}
-			walk(target)
-			for other := range reached {
-				key := [2]int{other, edge.writer}
-				if !edge.before {
-					key = [2]int{edge.writer, other}
-				}
-				if _, ok := normal[key]; ok {
-					removals[key] = true
 				}
 			}
 		}
-		if len(removals) == 0 {
-			break
-		}
-		for key := range removals {
-			delete(normal, key)
-		}
 	}
-	edges := slices.Clone(explicit)
-	// Iterating nodes, rather than map keys, keeps cycle diagnostics deterministic.
-	for _, i := range nodes {
-		for _, j := range nodes {
-			if edge, ok := normal[[2]int{i, j}]; ok {
-				edges = append(edges, edge)
-			}
-		}
+	if err := constraints.displace(ctx); err != nil {
+		return nil, err
 	}
-	return g.order(edges, nodes, fragments)
-}
-
-// order uses Kahn's algorithm with a min-heap of eligible composition positions.
-// A FIFO queue would leave a newly eligible early declaration behind later
-// declarations, violating the specified dependency/declaration tie-break.
-func (g *runtimeGraph) order(edges []runtimeEdge, nodes []int, fragments []runtimeFragment) ([]int, error) {
-	indegree := make([]int, len(fragments))
-	outgoing := make([][]int, len(fragments))
-	for i, edge := range edges {
-		indegree[edge.to]++
-		outgoing[edge.from] = append(outgoing[edge.from], i)
+	ordered, cycle, err := constraints.order(ctx)
+	if err != nil {
+		return nil, err
 	}
-	var order []int
-	visited := make([]bool, len(fragments))
-	eligible := &runtimeEligible{}
-	for _, node := range nodes {
-		if indegree[node] == 0 {
-			heap.Push(eligible, node)
-		}
+	if len(cycle) != 0 {
+		return nil, g.cycleError(ctx, cycle, nodes, fragments, written)
 	}
-	for eligible.Len() > 0 {
-		next := heap.Pop(eligible).(int)
-		visited[next] = true
-		order = append(order, next)
-		for _, index := range outgoing[next] {
-			target := edges[index].to
-			indegree[target]--
-			if indegree[target] == 0 {
-				heap.Push(eligible, target)
-			}
-		}
+	for i, local := range ordered {
+		ordered[i] = nodes[local]
 	}
-	if len(order) != len(nodes) {
-		return nil, g.cycleError(edges, outgoing, nodes, visited, fragments)
-	}
-	return order, nil
+	return ordered, nil
 }
 
 // cycleError reports an actual cycle in the unscheduled remainder. Reporting
 // every blocked node would also blame entries merely downstream of the cycle.
-func (g *runtimeGraph) cycleError(edges []runtimeEdge, outgoing [][]int, nodes []int, completed []bool, fragments []runtimeFragment) error {
-	active := make([]bool, len(fragments))
-	visited := slices.Clone(completed)
-	var path, cycle []int
-	var visit func(int) bool
-	visit = func(node int) bool {
-		active[node] = true
-		visited[node] = true
-		for _, index := range outgoing[node] {
-			edge := edges[index]
-			path = append(path, index)
-			if active[edge.to] {
-				start := 0
-				for edges[path[start]].from != edge.to {
-					start++
+func (g *runtimeGraph) cycleError(ctx context.Context, cycle []int, nodes []int, fragments []runtimeFragment, written []runtimeRelation) error {
+	details := make([]string, 0, len(cycle)-1)
+	for i, from := range cycle[:len(cycle)-1] {
+		to := cycle[i+1]
+		left, right := fragments[nodes[from]], fragments[nodes[to]]
+		reason := "normal Kit declaration/dependency order"
+		// Reasons are reconstructed only for a real cycle. Carrying one reason
+		// string or relation index for every possible edge would undo the compact
+		// graph's memory bound. Written constraints take diagnostic precedence.
+		for _, relation := range written {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			writer, target := left, right
+			if !relation.before {
+				writer, target = right, left
+			}
+			if !slices.Contains(writer.capability.executionOrigins, relation.writer) {
+				continue
+			}
+			targets, _, err := g.resolve(ctx, relation.writer, relation.target)
+			if err != nil {
+				return err
+			}
+			matched := false
+			for _, original := range targets {
+				if original == relation.writer {
+					continue
 				}
-				cycle = slices.Clone(path[start:])
-				return true
+				if slices.Contains(target.capability.executionOrigins, original) {
+					matched = true
+					break
+				}
 			}
-			if !visited[edge.to] && visit(edge.to) {
-				return true
+			if matched {
+				reason = relation.reason
+				break
 			}
-			path = path[:len(path)-1]
 		}
-		active[node] = false
-		return false
-	}
-	for _, node := range nodes {
-		if !visited[node] && visit(node) {
-			break
-		}
-	}
-	details := make([]string, 0, len(cycle))
-	for _, index := range cycle {
-		edge := edges[index]
-		details = append(details, fmt.Sprintf("%s -> %s [%s]", g.label(fragments[edge.from].entry), g.label(fragments[edge.to].entry), edge.reason))
+		details = append(details, fmt.Sprintf("%s -> %s [%s]", g.label(left.entry), g.label(right.entry), reason))
 	}
 	return fmt.Errorf("execution ordering cycle: %s", strings.Join(details, "; "))
-}
-
-type runtimeEligible []int
-
-func (q runtimeEligible) Len() int           { return len(q) }
-func (q runtimeEligible) Less(i, j int) bool { return q[i] < q[j] }
-func (q runtimeEligible) Swap(i, j int)      { q[i], q[j] = q[j], q[i] }
-func (q *runtimeEligible) Push(value any)    { *q = append(*q, value.(int)) }
-func (q *runtimeEligible) Pop() any {
-	last := len(*q) - 1
-	value := (*q)[last]
-	*q = (*q)[:last]
-	return value
 }

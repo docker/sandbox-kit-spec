@@ -228,7 +228,7 @@ func ComposeRuntime(ctx context.Context, contributions []Contribution, opts Runt
 	if err != nil {
 		return fail(err)
 	}
-	_, advisories, err := graph.writtenEdges()
+	written, advisories, err := graph.writtenEdges(ctx)
 	if err != nil {
 		return fail(err)
 	}
@@ -277,7 +277,7 @@ func ComposeRuntime(ctx context.Context, contributions []Contribution, opts Runt
 			}
 		}
 	}
-	plan, advisories, err := graph.plan(ctx, effective.Capabilities, contracts, opts.WorkspaceAssigned)
+	plan, advisories, err := graph.plan(ctx, effective.Capabilities, contracts, written, opts.WorkspaceAssigned)
 	if err != nil {
 		return fail(err)
 	}
