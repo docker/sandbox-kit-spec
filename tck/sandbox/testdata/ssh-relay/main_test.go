@@ -20,7 +20,9 @@ func TestLoginKeyAlgorithms(t *testing.T) {
 	require.NoError(t, err)
 	edSigner, err := ssh.NewSignerFromKey(edKey)
 	require.NoError(t, err)
-	cert := &ssh.Certificate{Key: rsaPublic, CertType: ssh.UserCert}
+	// Signing requires an explicit principal. Match the login below so the
+	// certificate fixture represents the user whose algorithm is checked.
+	cert := &ssh.Certificate{Key: rsaPublic, CertType: ssh.UserCert, ValidPrincipals: []string{"git"}}
 	require.NoError(t, cert.SignCert(rand.Reader, edSigner))
 
 	for _, tc := range []struct {
