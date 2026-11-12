@@ -655,9 +655,13 @@ func preserveGroups(contributions []Contribution, opts MergeOptions) (*MergeResu
 		return nil, err
 	}
 	count := 0
+	// Scope metadata from every contribution survives in the same descriptor.
+	// Share its allocation budget so many individually small expansions cannot
+	// accumulate beyond the publication limit before the final size check.
+	scopeBudget := SizeErrorBytes
 	for contributionIndex, contribution := range contributions {
 		scopeOffset := uint32(len(result.Descriptor.CapabilityScopes))
-		scopes, err := publicationScopes(contribution.Descriptor)
+		scopes, err := publicationScopes(contribution.Descriptor, &scopeBudget)
 		if err != nil {
 			return nil, fmt.Errorf("merge: %s: %w", contribution.Reference, err)
 		}

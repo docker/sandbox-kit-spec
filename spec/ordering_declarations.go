@@ -294,10 +294,43 @@ func unionExecutionOrigins(groups ...[]int) []int {
 // this descriptor is nested in another set. An unbound aggregate name targets
 // all of this artifact's scopes. Binding it now prevents that alias from later
 // expanding to unrelated sibling Kits in the enclosing publication.
-func publicationScopes(d *Descriptor) ([]CapabilityScope, error) {
-	scopes := make([]CapabilityScope, max(len(d.CapabilityScopes), 1))
+func publicationScopes(d *Descriptor, remaining *int) ([]CapabilityScope, error) {
+	tooLarge := fmt.Errorf("merge: repeated scope metadata exceeds the %d byte budget: %w", SizeErrorBytes, ErrDescriptorTooLarge)
+	// Count a lower bound of the eventual JSON before copying repeated data.
+	// This budget is shared across contributions. Braces and encoded strings
+	// survive publication unchanged; the final descriptor check also accounts
+	// for field names, separators and all other descriptor metadata.
+	scopeCount := max(len(d.CapabilityScopes), 1)
+	if scopeCount > *remaining/2 {
+		return nil, tooLarge
+	}
+	*remaining -= 2 * scopeCount
+	charge := func(value string, copies int) error {
+		// Divide first so multiplication cannot overflow, and so a large input
+		// string is refused before its JSON-escaped copy is allocated.
+		if len(value) > *remaining/copies {
+			return tooLarge
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("merge: serialize scope metadata: %w", err)
+		}
+		if len(encoded) > *remaining/copies {
+			return tooLarge
+		}
+		*remaining -= len(encoded) * copies
+		return nil
+	}
+	scopes := make([]CapabilityScope, scopeCount)
 	bound := map[string]bool{}
 	for i, scope := range d.CapabilityScopes {
+		for _, values := range [][]string{scope.Provides, scope.Requires, scope.Integrates} {
+			for _, value := range values {
+				if err := charge(value, 1); err != nil {
+					return nil, err
+				}
+			}
+		}
 		scopes[i].Provides = slices.Clone(scope.Provides)
 		scopes[i].Requires = slices.Clone(scope.Requires)
 		scopes[i].Integrates = slices.Clone(scope.Integrates)
@@ -313,6 +346,11 @@ func publicationScopes(d *Descriptor) ([]CapabilityScope, error) {
 		if bound[p.Name] {
 			continue
 		}
+		// One alias can bind every original scope. Refuse that whole fan-out
+		// before the first append instead of discovering it after allocation.
+		if err := charge(p.Name, len(scopes)); err != nil {
+			return nil, err
+		}
 		for i := range scopes {
 			scopes[i].Provides = append(scopes[i].Provides, p.Name)
 		}
@@ -324,11 +362,17 @@ func publicationScopes(d *Descriptor) ([]CapabilityScope, error) {
 	for i := range scopes {
 		for _, raw := range d.Requires {
 			if !slices.Contains(scopes[i].Requires, raw) {
+				if err := charge(raw, 1); err != nil {
+					return nil, err
+				}
 				scopes[i].Requires = append(scopes[i].Requires, raw)
 			}
 		}
 		for _, raw := range d.Integrates {
 			if !slices.Contains(scopes[i].Integrates, raw) {
+				if err := charge(raw, 1); err != nil {
+					return nil, err
+				}
 				scopes[i].Integrates = append(scopes[i].Integrates, raw)
 			}
 		}
