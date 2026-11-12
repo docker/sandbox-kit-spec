@@ -17,6 +17,13 @@ func cloneExpandedDescriptor(d *spec.Descriptor) *spec.Descriptor {
 	out.Integrates = slices.Clone(d.Integrates)
 	out.Conflicts = slices.Clone(d.Conflicts)
 	out.Capabilities = cloneExpandedCapabilities(d.Capabilities)
+	// Returned Kit descriptors remain mutable, but their scope bindings must
+	// not rewrite the retained pre-selection evidence. Isolate both the
+	// scope table and each scope's provided names from those descriptors.
+	out.CapabilityScopes = slices.Clone(d.CapabilityScopes)
+	for i := range out.CapabilityScopes {
+		out.CapabilityScopes[i].Provides = slices.Clone(d.CapabilityScopes[i].Provides)
+	}
 	out.Args = maps.Clone(d.Args)
 	for name, arg := range out.Args {
 		if arg.Default != nil {

@@ -220,6 +220,52 @@ func TestExpandedDescriptorCaptureIsIsolated(t *testing.T) {
 	}
 }
 
+func TestExpandedDescriptorCaptureIsolatesCapabilityScopes(t *testing.T) {
+	for _, method := range []string{"Resolve", "ResolvePartial", "Assemble"} {
+		for _, mutation := range []struct {
+			name   string
+			change func([]spec.CapabilityScope, string)
+		}{
+			{"scope table", func(scopes []spec.CapabilityScope, value string) {
+				scopes[0] = spec.CapabilityScope{Provides: []string{value}}
+			}},
+			{"scope bindings", func(scopes []spec.CapabilityScope, value string) {
+				scopes[0].Provides[0] = value
+			}},
+		} {
+			t.Run(method+"/"+mutation.name, func(t *testing.T) {
+				zero := uint32(0)
+				d := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
+					Provides: []string{"com.example/ordinary@1"},
+					CapabilityScopes: []spec.CapabilityScope{
+						{Provides: []string{"com.example/ordinary"}}, {},
+					},
+					Capabilities: []spec.Capability{{Type: "com.example/ordinary@1", ID: "setup", Scope: &zero}},
+				}
+				result := resolveSelectionFixture(t, method, d, true, nil,
+					func(context.Context, spec.SelectionTarget, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+						return spec.CapabilityDecision{Accepted: true}
+					})
+				snapshot := result.Selections[0].ExpandedDescriptor
+				require.NotNil(t, snapshot)
+				effective := result.Kits[0].Descriptor
+				require.Equal(t, d.CapabilityScopes, snapshot.CapabilityScopes)
+				require.Equal(t, d.CapabilityScopes, effective.CapabilityScopes)
+
+				// Callers may edit either returned view. Neither replacing a
+				// scope nor editing one binding may rewrite the other view.
+				mutation.change(effective.CapabilityScopes, "com.example/effective")
+				require.Equal(t, "com.example/ordinary", snapshot.CapabilityScopes[0].Provides[0])
+				mutation.change(snapshot.CapabilityScopes, "com.example/snapshot")
+				require.Equal(t, "com.example/effective", effective.CapabilityScopes[0].Provides[0])
+				require.Len(t, snapshot.CapabilityScopes, 2, "empty original scopes retain their indexes")
+				require.Nil(t, snapshot.CapabilityScopes[1].Provides)
+				require.Nil(t, effective.CapabilityScopes[1].Provides)
+			})
+		}
+	}
+}
+
 func resolveSelectionFixture(t *testing.T, method string, d *spec.Descriptor, capture bool, environment map[string]string, selector spec.SelectCapability) *Resolved {
 	t.Helper()
 	if method == "ResolvePartial" {
