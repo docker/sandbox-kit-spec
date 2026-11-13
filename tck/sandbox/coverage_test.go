@@ -80,6 +80,9 @@ var covers = map[string][]string{
 
 	// The check requires a non-empty sentinel where the secret is absent.
 	"credential@1/secret-absent-in-sandbox": {"credential@1/sentinel-not-empty"},
+	"credential@2/secret-absent-in-sandbox": {"credential@1/secret-absent-in-sandbox", "credential@1/sentinel-not-empty"},
+	"credential@2/inject-only-no-env":       {"credential@1/inject-only-no-env"},
+	"credential@2/sentinel-phase-scoped":    {"credential@1/sentinel-phase-scoped"},
 
 	// The login check binds a session to a server whose host key the
 	// runtime was never given, validly signed: only matching bindings to
@@ -353,6 +356,18 @@ var waived = map[string]string{
 	"credential@1/oauth-token-endpoint-intercepted": "needs an OAuth fixture service the suite does not run yet",
 	"credential@1/phase-scoped":                     "sentinel-phase-scoped observes only named proxy-managed API-key environments; outbound injection, OAuth endpoints and files, and unproxied credentials need presentation-specific phase probes",
 	"credential@1/required-without-binding-fails":   "the contract has the adapter bind the fixture secret, so the unbound path never occurs in-suite",
+	"credential@2/native-profile-shape":             "grammar rule, judged by the spec package's native credential validation and schema tests",
+	"credential@2/inherited-obligations":            "generic @2 fixtures judge named and inject-only API-key environments and sentinel phases; host-store provenance, outbound injection, generic OAuth and unproxied credentials still need presentation-specific fixtures",
+	"credential@2/nonsecret-markers":                "kit-author obligation: syntax validation cannot establish a marker's provenance",
+	"credential@2/missing-binding-policy":           "the adapter binds the fixture credential and cannot request an absent or unusable binding; needs selected required and optional requests under both onMissing policies",
+	"credential@2/host-authoritative-identity":      "the adapter cannot seed multiple host OAuth accounts or exercise guest account-selector attacks; generic fixture credentials do not judge native identity authority",
+	"credential@2/native-secrets-outside":           "needs a controlled host OAuth binding and native credential-file probe; generic API-key sentinel checks do not judge OAuth token disclosure",
+	"credential@2/coherent-presentation":            "needs controlled host account switching and refresh snapshots; the adapter cannot seed native identity or inspect rendering time",
+	"credential@2/identity-allowlist":               "needs a host OAuth fixture with known claims, malformed claims, headers and signatures, plus a native credential-file probe",
+	"credential@2/native-refresh-request":           "needs a controlled OAuth token endpoint and host binding to observe grant and marker rejection and upstream credential selection",
+	"credential@2/native-resource-origins":          "needs a host native binding with independently authorized provider origins and controlled trusted, untrusted, redirect and TLS endpoints; generic network grants do not judge credential destination authority",
+	"credential@2/native-refresh-response":          "needs a controlled OAuth endpoint to inject extra fields, headers and expiry cases and inspect the reconstructed native response",
+	"credential@2/native-refresh-failure":           "needs controllable OAuth failures, binding revocation and expiry; the adapter exposes none of these inputs",
 
 	"ssh-agent@1/key-material-outside-sandbox": "non-observable: a key copied somewhere in the sandbox has no symptom a probe could search for; the relay filter check shows keys cannot be added or exported through the agent",
 	"ssh-agent@1/grant-names-scope":            "SHOULD; consent wording, not sandbox behavior",

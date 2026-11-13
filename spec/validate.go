@@ -682,7 +682,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 				errs.add(fieldErrorf(path, "capabilities[%d]: identical to capabilities[%d]", i, prev))
 			}
 			// The first copy owns its value and cross-entry errors.
-			if n.Type == CapabilityCredential {
+			if isCredentialType(n.Type) {
 				invalidCredentials[i] = true
 			}
 			continue
@@ -702,9 +702,9 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 					errs.add(fieldErrorf(path+".config.phase", "capabilities[%d]: ssh-agent for phase %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
-		case CapabilityCredential:
+		case CapabilityCredential, CapabilityCredentialV2:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
+				if prev, dup := declared.add(CapabilityCredential, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
 					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.parts[0], key.parts[1], prev))
 				}
 			}
@@ -935,7 +935,7 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 	}
 
 	switch n.Type {
-	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
+	case CapabilitySSHAgent, CapabilityCredential, CapabilityCredentialV2, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
 		CapabilityAgentContext, CapabilityAgentContextV2:
 		c.keys = entryKeys(n)
 	case CapabilityACP:
@@ -1016,8 +1016,13 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 			c.invalidNetwork = true
 			c.errs.add(err)
 		}
-	case CapabilityCredential:
-		_, err := validateCredentialNeed(path, i, n)
+	case CapabilityCredential, CapabilityCredentialV2:
+		var err error
+		if n.Type == CapabilityCredentialV2 {
+			err = validateCredentialV2Need(path, i, n)
+		} else {
+			_, err = validateCredentialNeed(path, i, n)
+		}
 		if err != nil {
 			c.errs.add(err)
 			c.invalidCredential = true
@@ -1558,12 +1563,16 @@ func validatePresenceRules(path string, i int, n Capability) error {
 		// empty command are judged now, whatever another field defers.
 		return validateInteractiveSessionsAuthored(path, i, n)
 	}
-	if n.Type == CapabilityCredential {
+	if isCredentialType(n.Type) {
 		phases, err := phasesOf(n)
 		if err != nil {
 			return fieldErrorf(path+".config.phase", "capabilities[%d]: %v", i, err)
 		}
-		return validatePhases(path, i, phases)
+		errs.add(validatePhases(path, i, phases))
+		if n.Type == CapabilityCredentialV2 {
+			errs.add(validateCredentialV2Presence(path, i, n))
+		}
+		return errs.err()
 	}
 	if n.Type == CapabilityNetworkPolicyV2 {
 		var p PhasedNetworkV2
@@ -1650,14 +1659,25 @@ func validateCredentialNeed(path string, i int, n Capability) (*Credential, erro
 		errs.add(configErrorf(path, i, err))
 		return nil, errs.err()
 	}
-	if c.Service == "" {
-		errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential service is required", i))
-	} else if !handleName.MatchString(c.Service) {
-		errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: invalid service name %q", i, c.Service))
+	var endpoint *TokenEndpoint
+	var file *CredentialFile
+	if c.OAuth != nil {
+		endpoint, file = c.OAuth.TokenEndpoint, c.OAuth.CredentialFile
 	}
-	errs.add(validatePhases(path, i, c.Phase))
-	if c.APIKey == nil && c.OAuth == nil {
-		errs.add(fieldErrorf(path+".config", "capabilities[%d] (%s): declare apiKey or oauth", i, c.Service))
+	errs.add(validateCredentialFields(path, i, n, c.Service, c.Phase, c.APIKey, c.OAuth != nil, endpoint, file))
+	return &c, errs.err()
+}
+
+func validateCredentialFields(path string, i int, n Capability, service string, phases Phases, apiKey *APIKey, hasOAuth bool, tokenEndpoint *TokenEndpoint, credentialFile *CredentialFile) error {
+	var errs ValidationErrors
+	if service == "" {
+		errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential service is required", i))
+	} else if !handleName.MatchString(service) {
+		errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: invalid service name %q", i, service))
+	}
+	errs.add(validatePhases(path, i, phases))
+	if apiKey == nil && !hasOAuth {
+		errs.add(fieldErrorf(path+".config", "capabilities[%d] (%s): declare apiKey or oauth", i, service))
 	}
 	// Present nulls decay through typed decoding — to nil pointers, empty
 	// strings, or nil maps — and would masquerade as omitted fields,
@@ -1667,28 +1687,28 @@ func validateCredentialNeed(path string, i int, n Capability) (*Credential, erro
 	// values the schema leaves open (the toml walk judges them
 	// separately).
 	for _, at := range nullConfigPaths("config", n.Config, "config.oauth.credentialFile.structure") {
-		errs.add(fieldErrorf(path+"."+at, "capabilities[%d] (%s): %s is null; omit the field or declare a value", i, c.Service, strings.TrimPrefix(at, "config.")))
+		errs.add(fieldErrorf(path+"."+at, "capabilities[%d] (%s): %s is null; omit the field or declare a value", i, service, strings.TrimPrefix(at, "config.")))
 	}
-	if c.APIKey != nil {
+	if apiKey != nil {
 		// An empty name with inject rules is the inject-only shape: the
 		// key exists solely as outbound rewrites, with no environment
 		// presence — not even a sentinel.
-		if c.APIKey.Name == "" && len(c.APIKey.Inject) == 0 {
-			errs.add(fieldErrorf(path+".config.apiKey", "capabilities[%d] (%s): apiKey needs a name, inject rules, or both", i, c.Service))
+		if apiKey.Name == "" && len(apiKey.Inject) == 0 {
+			errs.add(fieldErrorf(path+".config.apiKey", "capabilities[%d] (%s): apiKey needs a name, inject rules, or both", i, service))
 		}
-		if c.APIKey.Name != "" && !envVarName.MatchString(c.APIKey.Name) {
-			errs.add(fieldErrorf(path+".config.apiKey.name", "capabilities[%d] (%s): apiKey.name %q is not a valid env var name", i, c.Service, c.APIKey.Name))
+		if apiKey.Name != "" && !envVarName.MatchString(apiKey.Name) {
+			errs.add(fieldErrorf(path+".config.apiKey.name", "capabilities[%d] (%s): apiKey.name %q is not a valid env var name", i, service, apiKey.Name))
 		}
-		for j, inj := range c.APIKey.Inject {
+		for j, inj := range apiKey.Inject {
 			if inj.Domain == "" {
-				errs.add(fieldErrorf(fmt.Sprintf("%s.config.apiKey.inject[%d]", path, j), "capabilities[%d] (%s): inject[%d]: domain is required", i, c.Service, j))
+				errs.add(fieldErrorf(fmt.Sprintf("%s.config.apiKey.inject[%d]", path, j), "capabilities[%d] (%s): inject[%d]: domain is required", i, service, j))
 			}
 		}
 	}
-	if c.OAuth != nil && c.OAuth.TokenEndpoint != nil && c.OAuth.TokenEndpoint.Host == "" {
-		errs.add(fieldErrorf(path+".config.oauth.tokenEndpoint", "capabilities[%d] (%s): oauth.tokenEndpoint.host is required", i, c.Service))
+	if tokenEndpoint != nil && tokenEndpoint.Host == "" {
+		errs.add(fieldErrorf(path+".config.oauth.tokenEndpoint", "capabilities[%d] (%s): oauth.tokenEndpoint.host is required", i, service))
 	}
-	if c.OAuth != nil && c.OAuth.CredentialFile != nil {
+	if credentialFile != nil {
 		// An explicitly empty format decays to the same "" as an omitted
 		// one through typed decoding, but the published schema's enum
 		// rejects it — one grammar, so the raw shape is judged first.
@@ -1696,25 +1716,25 @@ func validateCredentialNeed(path string, i int, n Capability) (*Credential, erro
 		if oauth, ok := n.Config["oauth"].(map[string]any); ok {
 			if cf, ok := oauth["credentialFile"].(map[string]any); ok {
 				if v, present := cf["format"]; present && v == "" {
-					errs.add(fieldErrorf(path+".config.oauth.credentialFile.format", "capabilities[%d] (%s): credentialFile.format is empty; omit the field for json or name an encoding", i, c.Service))
+					errs.add(fieldErrorf(path+".config.oauth.credentialFile.format", "capabilities[%d] (%s): credentialFile.format is empty; omit the field for json or name an encoding", i, service))
 				}
 			}
 		}
-		switch c.OAuth.CredentialFile.Format {
+		switch credentialFile.Format {
 		case "", "json", "toml":
 		default:
-			errs.add(fieldErrorf(path+".config.oauth.credentialFile.format", "capabilities[%d] (%s): credentialFile.format %q is not json or toml", i, c.Service, c.OAuth.CredentialFile.Format))
+			errs.add(fieldErrorf(path+".config.oauth.credentialFile.format", "capabilities[%d] (%s): credentialFile.format %q is not json or toml", i, service, credentialFile.Format))
 		}
 		// An omitted structure is schema-legal (path alone is required),
 		// so there is nothing to walk; the null check is for values
 		// inside a structure that exists.
-		if c.OAuth.CredentialFile.Format == "toml" && c.OAuth.CredentialFile.Structure != nil {
-			for _, at := range nullConfigPaths("structure", c.OAuth.CredentialFile.Structure, "") {
-				errs.add(fieldErrorf(path+".config.oauth.credentialFile."+at, "capabilities[%d] (%s): %s is null, which TOML cannot represent", i, c.Service, at))
+		if credentialFile.Format == "toml" && credentialFile.Structure != nil {
+			for _, at := range nullConfigPaths("structure", credentialFile.Structure, "") {
+				errs.add(fieldErrorf(path+".config.oauth.credentialFile."+at, "capabilities[%d] (%s): %s is null, which TOML cannot represent", i, service, at))
 			}
 		}
 	}
-	return &c, errs.err()
+	return errs.err()
 }
 
 // nullConfigPaths finds nulls before typed decoding can make them look
@@ -1751,20 +1771,20 @@ func validateInjectWithinAllow(needs []Capability, invalidCredentials map[int]bo
 		return err
 	}
 	for i, n := range needs {
-		if n.Type != CapabilityCredential || invalidCredentials[i] {
+		if !isCredentialType(n.Type) || invalidCredentials[i] {
 			continue
 		}
-		var c Credential
-		if err := DecodeCapabilityConfig(n, &c); err != nil {
+		service, phases, apiKey, err := credentialBindingFields(n)
+		if err != nil {
 			errs.add(err)
 			continue
 		}
-		if c.APIKey == nil {
+		if apiKey == nil {
 			continue
 		}
-		for _, phase := range c.Phase {
+		for _, phase := range phases {
 			allow := phaseAllow(policy, phase)
-			for j, inj := range c.APIKey.Inject {
+			for j, inj := range apiKey.Inject {
 				// A bare "*" (or "**") allow entry grants every host, so any
 				// inject domain is covered. Narrower glob patterns are not
 				// expanded here: the exact-match rule keeps published inject
@@ -1772,7 +1792,7 @@ func validateInjectWithinAllow(needs []Capability, invalidCredentials map[int]bo
 				// reimplementing the enforcement matcher.
 				if !allow[stripPort(inj.Domain)] && !allow["*"] && !allow["**"] {
 					errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].config.apiKey.inject[%d].domain", i, j),
-						"capabilities[%d] (%s): inject domain %q is not in the network policy's %s allow list", i, c.Service, inj.Domain, phase))
+						"capabilities[%d] (%s): inject domain %q is not in the network policy's %s allow list", i, service, inj.Domain, phase))
 				}
 			}
 		}

@@ -380,6 +380,25 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/credential@2"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/credential@2.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/ssh-agent@1"
               }
             },

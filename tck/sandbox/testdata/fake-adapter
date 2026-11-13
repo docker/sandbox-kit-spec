@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/credential@2,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -439,6 +439,7 @@ create)
       # Before the *egress* arm, which would otherwise claim this name.
       *http-egress*) need="com.docker.sandbox/network-policy@2" ;;
       *egress*) need="com.docker.sandbox/network-policy@1" ;;
+      *credential*-v2) need="com.docker.sandbox/credential@2" ;;
       *credential*) need="com.docker.sandbox/credential@1" ;;
       *volume*) need="com.docker.sandbox/volume@1" ;;
       *resources*) need="com.docker.sandbox/resources@1" ;;
@@ -894,8 +895,9 @@ create)
   done
   for kit in "${kits[@]}"; do
     case "${kit##*/}" in
-    credential-phases-install | credential-phases-runtime | credential-phases-both)
+    credential-phases-install | credential-phases-runtime | credential-phases-both | credential-phases-install-v2 | credential-phases-runtime-v2 | credential-phases-both-v2)
       phase="${kit##*/}"
+      phase="${phase%-v2}"
       printf '%s' "$phase" >"$dir/credential-phases"
       install_value=sentinel-token
       if [ "$phase" = credential-phases-runtime ] && [ "$broken" != credential-runtime-at-install ]; then install_value=; fi
