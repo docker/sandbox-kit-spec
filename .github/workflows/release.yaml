@@ -7,12 +7,7 @@ on:
       - "v3.*"
 
 # Publishes kit-tck via GoReleaser and the BuildKit frontend image to Hub.
-# Two Hub credentials, for two purposes. Pulls before the push use the org's
-# read-only public bot: org variable DOCKERPUBLICBOT_USERNAME and org
-# secret DOCKERPUBLICBOT_READ_PAT, which grant no write. The push uses
-# Docker OIDC, with no long-lived PAT: set repo variables
-# DOCKERHUB_ORGANIZATION and DOCKERHUB_OIDC_CONNECTIONID, and create the
-# Hub repo docker/sandbox-kit before the first tag.
+# Docker Hub OIDC authenticates public-image pulls and frontend publication.
 permissions:
   contents: read
 
@@ -58,13 +53,13 @@ jobs:
           args: --config=../../.golangci.yml
 
       # The markdownlint image comes from Docker Hub, whose anonymous pull
-      # limit is shared by every job on a runner's IP. The read-only org
-      # bot lifts it; the OIDC login below replaces it for the push.
-      - name: Log in to Docker Hub (read-only)
+      # limit is shared by every job on a runner's IP.
+      - name: Log in to Docker Hub for public-image pulls
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        env:
+          DOCKERHUB_OIDC_CONNECTIONID: ${{ vars.DOCKERHUB_OIDC_CONNECTIONID }}
         with:
-          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          password: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
+          username: ${{ vars.DOCKERHUB_ORGANIZATION }}
 
       - name: Markdownlint
         run: task lint:md
@@ -80,7 +75,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Before QEMU setup: it pulls its binfmt image from Docker Hub.
+      # Refresh credentials before QEMU setup and frontend publication.
       - name: Login to Docker Hub
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         env:
