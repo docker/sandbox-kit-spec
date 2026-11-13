@@ -36,7 +36,10 @@ type runtimeScopeRange struct{ first, end int }
 
 type runtimeProviderBinding struct {
 	scopes *runtimeScopeRange
-	offer  Provide
+	// One provider can offer several versions of a name. Keep them together
+	// so matching any version preserves the dependency without duplicating
+	// scope targets or making a qualified entry ID appear ambiguous.
+	offers []Provide
 }
 
 // Aggregate requirements apply to every scope, but their parsed expressions
@@ -93,7 +96,7 @@ func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
 		// Published scopes bind names while the enclosing descriptor retains
 		// their versions. Dependencies match the offered version, never merely
 		// a present name, including the descriptor's version fallback.
-		offers := map[string]Provide{}
+		offers := map[string][]Provide{}
 		for _, raw := range d.Provides {
 			offer, err := ParseProvide(raw)
 			if err != nil {
@@ -102,7 +105,7 @@ func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
 			if offer.Version == "" {
 				offer.Version = d.Version
 			}
-			offers[offer.Name] = offer
+			offers[offer.Name] = append(offers[offer.Name], offer)
 		}
 		bound := map[string]bool{}
 		for i, scope := range d.CapabilityScopes {
@@ -113,7 +116,7 @@ func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
 			graph.dependencies[baseScope+i].local = local
 			scopeRange := &runtimeScopeRange{first: baseScope + i, end: baseScope + i + 1}
 			for _, name := range scope.Provides {
-				graph.providers[name] = append(graph.providers[name], runtimeProviderBinding{scopes: scopeRange, offer: offers[name]})
+				graph.providers[name] = append(graph.providers[name], runtimeProviderBinding{scopes: scopeRange, offers: offers[name]})
 				bound[name] = true
 			}
 		}
@@ -125,7 +128,7 @@ func newRuntimeGraph(contributions []Contribution) (*runtimeGraph, error) {
 				return nil, err
 			}
 			if !bound[offer.Name] {
-				graph.providers[offer.Name] = append(graph.providers[offer.Name], runtimeProviderBinding{scopes: aggregateRange, offer: offers[offer.Name]})
+				graph.providers[offer.Name] = append(graph.providers[offer.Name], runtimeProviderBinding{scopes: aggregateRange, offers: offers[offer.Name]})
 				bound[offer.Name] = true
 			}
 		}
@@ -285,7 +288,7 @@ func (g *runtimeGraph) scopePredecessors(ctx context.Context, scope int) (map[in
 					if err := ctx.Err(); err != nil {
 						return nil, err
 					}
-					if ranges[binding.scopes] || !Satisfies(binding.offer, required) {
+					if ranges[binding.scopes] || !slices.ContainsFunc(binding.offers, func(offer Provide) bool { return Satisfies(offer, required) }) {
 						continue
 					}
 					ranges[binding.scopes] = true
