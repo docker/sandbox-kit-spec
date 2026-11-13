@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/cross-app-access@1",
+  "description": "Lets the sandbox reach one resource application as the signed-in person: the runtime exchanges the person's enterprise sign-in for an identity assertion grant bound to the application's authorization server, redeems it there, and injects the access token into matching outbound requests outside the sandbox. Instance-shaped on name. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "issuer",
+    "inject"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "Identifies the grant among the sandbox's tokens and names it in the runtime's ledger."
+    },
+    "issuer": {
+      "type": "string",
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "pattern": "^https://[^\\s?#@]+$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "Issuer identifier of the resource application's authorization server: the audience of the identity assertion grant and where the runtime redeems it."
+    },
+    "resource": {
+      "type": "string",
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s#]+$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "Resource indicator the access token is bound to: an absolute URI without a fragment."
+    },
+    "scopes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "anyOf": [
+          {
+            "pattern": "^[\\x21\\x23-\\x5B\\x5D-\\x7E]{1,128}$"
+          },
+          {
+            "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+          }
+        ]
+      },
+      "description": "Scopes the access token may carry. The identity provider and the authorization server may grant fewer, never more."
+    },
+    "inject": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/inject"
+      },
+      "description": "Outbound domains the runtime presents the access token to. Every domain must appear in the network policy's runtime allow list (or be covered by a bare wildcard), and no other cross-app-access or workload-token entry may list it."
+    }
+  },
+  "definitions": {
+    "inject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string",
+          "description": "Header carrying the access token. Defaults to Authorization."
+        },
+        "format": {
+          "type": "string",
+          "description": "Renders the access token into the header value with exactly one %s. Defaults to \"Bearer %s\"."
+        },
+        "scheme": {
+          "not": {},
+          "description": "An access token is presented as a header; scheme does not apply."
+        },
+        "username": {
+          "not": {},
+          "description": "An access token is presented as a header; username does not apply."
+        }
+      }
+    }
+  }
+}

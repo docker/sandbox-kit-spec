@@ -75,7 +75,7 @@ func allCapabilityTypes() []string {
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityDockerd, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
-		CapabilityWorkloadIdentity, CapabilityGitPush, CapabilityWorkloadToken,
+		CapabilityWorkloadIdentity, CapabilityGitPush, CapabilityWorkloadToken, CapabilityCrossAppAccess,
 	}
 }
 
@@ -306,6 +306,16 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	assertAcceptsKitArg(t, at(t, workloadToken, "properties", "name"), "bearing")
 	assertAcceptsKitArg(t, at(t, workloadToken, "properties", "audience"), "bearing")
 	require.Equal(t, float64(1), at(t, workloadToken, "properties", "inject")["minItems"], "a token with nowhere to go is never presented")
+
+	crossApp := loadJSON(t, perTypeSchemaPath(CapabilityCrossAppAccess))
+	require.ElementsMatch(t, []any{"name", "issuer", "inject"}, crossApp["required"].([]any))
+	require.Equal(t, workloadTokenName.String(), literalPattern(t, at(t, crossApp, "properties", "name")))
+	require.Equal(t, crossAppAccessScope.String(), literalPattern(t, at(t, crossApp, "properties", "scopes", "items")))
+	for _, field := range []string{"name", "issuer", "resource"} {
+		assertAcceptsKitArg(t, at(t, crossApp, "properties", field), "bearing")
+	}
+	assertAcceptsKitArg(t, at(t, crossApp, "properties", "scopes", "items"), "bearing")
+	require.Equal(t, float64(1), at(t, crossApp, "properties", "inject")["minItems"], "an access token with nowhere to go is never presented")
 
 	gitPush := loadJSON(t, perTypeSchemaPath(CapabilityGitPush))
 	require.Equal(t, float64(1), gitPush["minProperties"], "a git-push stating nothing bounds nothing")

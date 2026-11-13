@@ -1,0 +1,88 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Cross-app todos
+description: >-
+  Lets the sandbox read a todo API as the person running it, using Cross
+  App Access. The host exchanges the person's enterprise sign-in for an
+  identity assertion grant bound to the API's authorization server,
+  redeems it there, and injects the access token into requests at the
+  network boundary; the agent never sees it. The identity provider's
+  administrator decides whether the agent may reach the API at all. The
+  defaults name the public Cross App Access playground at xaa.dev; point
+  the args at an application of your own to use it elsewhere.
+
+kind: mixin
+provides: ["cross-app-todos"]
+version: "1.0.0"
+
+args:
+  # The application's authorization server: the audience of the grant
+  # the identity provider issues and where the host redeems it.
+  issuer:
+    default: https://auth.resource.xaa.dev
+    pattern: '^https://[^\s?#@]{1,248}$'
+    description: Issuer of the application's authorization server
+  # What the access token is bound to. The identity provider's connection
+  # for the application names the same resource.
+  resource:
+    default: https://api.resource.xaa.dev
+    pattern: '^https://[^\s#]{1,248}$'
+    description: Resource indicator the access token is issued for
+  # The API's host, both where the token goes and what the network policy
+  # opens. One host: no other token may be presented there.
+  domain:
+    default: api.resource.xaa.dev
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: API host the sandbox calls as the person
+  scope:
+    default: todos.read
+    pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
+    description: Scope the access token is limited to
+
+capabilities:
+  # Every exchange is signed into this identity's ledger, so access taken
+  # in a person's name is attributable to one sandbox.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Record each exchange against this sandbox
+    config:
+      ledger: required
+
+  - type: com.docker.sandbox/cross-app-access@1
+    description: Call ${{ kit.args.domain }} as the signed-in person
+    config:
+      name: todos
+      issuer: ${{ kit.args.issuer }}
+      resource: ${{ kit.args.resource }}
+      scopes: ["${{ kit.args.scope }}"]
+      inject:
+        - domain: ${{ kit.args.domain }}
+
+  # Every inject domain must be reachable; the policy unions with the
+  # workload's own.
+  - type: com.docker.sandbox/network-policy@2
+    description: Reach the todo API
+    config:
+      runtime:
+        allow:
+          - hosts: ["${{ kit.args.domain }}"]
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Cross-app todos
+
+        Requests from this sandbox to `https://${{ kit.args.domain }}`
+        carry an access token issued for the person running this
+        sandbox, limited to `${{ kit.args.scope }}`. You do not hold the
+        token and cannot read it: send requests without an
+        `Authorization` header and the host adds one. For example,
+        `curl -s https://${{ kit.args.domain }}/api/todos/` lists the
+        person's todos. A 401 or 403 means the identity provider or the
+        API did not allow this access; report it rather than looking
+        for another credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context

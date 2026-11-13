@@ -406,6 +406,7 @@ create)
       *long-running*) need="com.docker.sandbox/long-running@1" ;;
       *workload-identity*) need="com.docker.sandbox/workload-identity@1" ;;
       *workload-token*) need="com.docker.sandbox/workload-token@1" ;;
+      *cross-app-access*) need="com.docker.sandbox/cross-app-access@1" ;;
       *git-push*) need="com.docker.sandbox/git-push@1" ;;
       */ssh-agent-optional) ;;
       */ssh-agent | */ssh-agent-install | */ssh-agent-bounded | */ssh-agent-dual) need="com.docker.sandbox/ssh-agent@1" ;;

@@ -1,0 +1,25 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Cross-app access
+description: Reaches one application as the signed-in person with an access token the sandbox never holds
+capabilities:
+  # Optional so a runtime claiming only one capability can compose this
+  # fixture; the grant's inject domain must be in the allow list.
+  - type: com.docker.sandbox/network-policy@1
+    optional: true
+    config:
+      runtime:
+        allow: [example.com]
+
+  - type: com.docker.sandbox/workload-identity@1
+    optional: true
+
+  - type: com.docker.sandbox/cross-app-access@1
+    config:
+      name: todos
+      issuer: https://auth.example.com
+      resource: https://example.com
+      scopes: [todos.read]
+      inject:
+        - domain: example.com

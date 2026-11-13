@@ -165,6 +165,11 @@ var instanceKeys = map[string]keyDefinition{
 	CapabilityWorkloadToken: keyOn([]string{"name"}, func(w WorkloadToken) ([]string, error) {
 		return []string{w.Name}, nil
 	}),
+	// One grant per name, as for workload tokens: two kits naming it must
+	// mean one resource application.
+	CapabilityCrossAppAccess: keyOn([]string{"name"}, func(x CrossAppAccess) ([]string, error) {
+		return []string{x.Name}, nil
+	}),
 	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
 	}).defaulting("transport"),

@@ -107,7 +107,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required", "workload-token@1/unavailable-refuses-required"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required", "workload-token@1/unavailable-refuses-required", "cross-app-access@1/unavailable-refuses-required"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -336,6 +336,23 @@ var waived = map[string]string{
 	"workload-token@1/absent-without-grant":     "needs an identity-minting adapter to show the difference; the fake adapter presents nothing either way",
 	"workload-token@1/shared-domain-named":      "needs an identity-minting adapter and an HTTPS backend fixture that decodes the token's audience; not exercised yet",
 	"workload-token@1/shared-domain-one-header": "needs an identity-minting adapter; the fake adapter admits every descriptor the grammar admits",
+	"cross-app-access@1/name-grammar":           "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/issuer-grammar":         "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/resource-grammar":       "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/scopes-grammar":         "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/inject-within-allow":    "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/domain-exclusive":       "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/fields-closed":          "grammar rule, judged by the spec package's validators and schema tests",
+	"cross-app-access@1/person-authorized":      "needs an adapter with an identity provider and an authorization server the suite controls; not exercised yet",
+	"cross-app-access@1/grant-bound":            "needs an adapter with an identity provider and an authorization server the suite controls; not exercised yet",
+	"cross-app-access@1/redeemed-at-issuer":     "needs an adapter with an identity provider and an authorization server the suite controls; not exercised yet",
+	"cross-app-access@1/injected-at-boundary":   "needs an adapter with an identity provider and an HTTPS backend fixture that records the header; not exercised yet",
+	"cross-app-access@1/never-in-sandbox":       "needs an adapter with an identity provider to show a token exists at all; the fake adapter presents none",
+	"cross-app-access@1/fresh-token":            "needs an adapter with an identity provider and a clock the suite controls; not exercised yet",
+	"cross-app-access@1/expired-refused":        "needs an adapter with an identity provider and a clock the suite controls; not exercised yet",
+	"cross-app-access@1/exchange-recorded":      "host-internal: the exchange is recorded in the runtime's ledger, which the adapter contract does not expose",
+	"cross-app-access@1/token-not-recorded":     "host-internal: the ledger's contents are not exposed by the adapter contract",
+	"cross-app-access@1/absent-without-grant":   "needs an adapter with an identity provider to show the difference; the fake adapter presents nothing either way",
 	"git-push@1/states-a-rule":                  "grammar rule, judged by the spec package's validators and schema tests",
 	"git-push@1/pattern-grammar":                "grammar rule, judged by the spec package's validators and schema tests",
 	"git-push@1/patterns-unique":                "grammar rule, judged by the spec package's validators and schema tests",

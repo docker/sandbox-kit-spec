@@ -66,6 +66,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityWorkloadIdentity:         reflect.TypeFor[WorkloadIdentity](),
 	CapabilityGitPush:                  reflect.TypeFor[GitPush](),
 	CapabilityWorkloadToken:            reflect.TypeFor[WorkloadToken](),
+	CapabilityCrossAppAccess:           reflect.TypeFor[CrossAppAccess](),
 }
 
 // freeFormConfigMaps lists, by type, the maps in a well-known config whose
@@ -646,6 +647,23 @@ func WorkloadTokensOf(needs []Capability) ([]WorkloadToken, error) {
 			return nil, err
 		}
 		out = append(out, w)
+	}
+	return out, nil
+}
+
+// CrossAppAccessesOf returns every cross-app-access request in
+// declaration order.
+func CrossAppAccessesOf(needs []Capability) ([]CrossAppAccess, error) {
+	var out []CrossAppAccess
+	for _, n := range needs {
+		if n.Type != CapabilityCrossAppAccess {
+			continue
+		}
+		var x CrossAppAccess
+		if err := DecodeCapabilityConfig(n, &x); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
 	}
 	return out, nil
 }

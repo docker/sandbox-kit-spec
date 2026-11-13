@@ -461,6 +461,15 @@ const (
 	// to WorkloadToken. Instance-shaped on name.
 	CapabilityWorkloadToken = "com.docker.sandbox/workload-token@1"
 
+	// CapabilityCrossAppAccess asks the runtime to act for the signed-in
+	// person at one resource application: the runtime exchanges the
+	// person's enterprise sign-in for an identity assertion grant bound
+	// to the application's authorization server, redeems it there, and
+	// injects the access token into matching outbound requests, never
+	// into the sandbox. Config decodes to CrossAppAccess. Instance-shaped
+	// on name.
+	CapabilityCrossAppAccess = "com.docker.sandbox/cross-app-access@1"
+
 	// CapabilityCredential is one service the workload authenticates to;
 	// config decodes to Credential. Instance-shaped, keyed by
 	// (service, phase).
@@ -808,6 +817,27 @@ type WorkloadToken struct {
 	Audience string `json:"audience" yaml:"audience"`
 	// Inject lists the outbound domains the runtime presents the token
 	// to. Header defaults to Authorization and Format to "Bearer %s".
+	Inject []Inject `json:"inject" yaml:"inject"`
+}
+
+// CrossAppAccess is CapabilityCrossAppAccess's config: one resource
+// application the sandbox reaches as the signed-in person, and the
+// outbound requests that carry the access token.
+type CrossAppAccess struct {
+	// Name identifies the grant among a sandbox's tokens and appears in
+	// the runtime's ledger record of each exchange.
+	Name string `json:"name" yaml:"name"`
+	// Issuer is the issuer identifier of the resource application's
+	// authorization server: the audience of the identity assertion grant
+	// and where the runtime redeems it.
+	Issuer string `json:"issuer" yaml:"issuer"`
+	// Resource is the resource indicator the access token is bound to.
+	Resource string `json:"resource,omitempty" yaml:"resource,omitempty"`
+	// Scopes bounds what the access token may do; the identity provider
+	// and the authorization server may grant fewer.
+	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	// Inject lists the outbound domains the runtime presents the access
+	// token to. Header defaults to Authorization and Format to "Bearer %s".
 	Inject []Inject `json:"inject" yaml:"inject"`
 }
 

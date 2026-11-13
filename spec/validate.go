@@ -718,6 +718,12 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 					errs.add(fieldErrorf(path+".config.name", "capabilities[%d]: workload token %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
+		case CapabilityCrossAppAccess:
+			for _, key := range c.keys {
+				if prev, dup := declared.add(n.Type, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
+					errs.add(fieldErrorf(path+".config.name", "capabilities[%d]: cross-app access %q already declared at capabilities[%d]", i, key.parts[0], prev))
+				}
+			}
 		case CapabilityVolume, CapabilityHostMount:
 			// host-mount@1 keys into volume@1's path space, so one path
 			// asked for by both is a conflict rather than a repeat.
@@ -851,6 +857,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 	}
 	errs.add(validateInjectWithinAllow(needs, invalidCredentials))
 	errs.add(validateWorkloadTokenInjectWithinAllow(needs, invalidCredentials))
+	errs.add(validateCrossAppAccessInject(needs, invalidCredentials))
 	return errs.err()
 }
 
@@ -941,7 +948,7 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 
 	switch n.Type {
 	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
-		CapabilityAgentContext, CapabilityAgentContextV2, CapabilityWorkloadToken:
+		CapabilityAgentContext, CapabilityAgentContextV2, CapabilityWorkloadToken, CapabilityCrossAppAccess:
 		c.keys = entryKeys(n)
 	case CapabilityACP:
 		c.keys, c.agent = entryKeys(n), n.Config["agent"]
@@ -1165,6 +1172,12 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		}
 	case CapabilityWorkloadToken:
 		if _, err := validateWorkloadTokenNeed(path, i, n); err != nil {
+			c.errs.add(err)
+			c.invalidCredential = true
+			return false
+		}
+	case CapabilityCrossAppAccess:
+		if _, err := validateCrossAppAccessNeed(path, i, n); err != nil {
 			c.errs.add(err)
 			c.invalidCredential = true
 			return false

@@ -194,6 +194,8 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityGitPush, s: "deny", config: map[string]any{"delete": ref, "refs": map[string]any{"exclude": []any{"refs/heads/main"}}}, field: "refs"},
 		{typ: CapabilityWorkloadToken, s: "https://api.example.com", config: map[string]any{"name": "backend", "audience": ref, "inject": []any{map[string]any{"domain": "api.example.com"}}}, field: "audience",
 			beside: "  - type: " + CapabilityNetworkPolicyV2 + "\n    config: {runtime: {allow: [{hosts: [api.example.com]}]}}\n"},
+		{typ: CapabilityCrossAppAccess, s: "https://auth.example.com", config: map[string]any{"name": "todos", "issuer": ref, "inject": []any{map[string]any{"domain": "api.example.com"}}}, field: "issuer",
+			beside: "  - type: " + CapabilityNetworkPolicyV2 + "\n    config: {runtime: {allow: [{hosts: [api.example.com]}]}}\n"},
 	}
 	var covered []string
 	for _, tt := range types {
