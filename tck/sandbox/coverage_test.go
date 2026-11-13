@@ -110,7 +110,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "auto-restart@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -143,6 +143,7 @@ var kitCovers = map[string][]string{
 		"agent-skill@1/name-valid",
 		"agent-skill@1/source-literal",
 		"long-running@1/no-config",
+		"auto-restart@1/no-config",
 		"open-url@1/no-config",
 		"dockerd@1/engine-store-owned",
 		"git-identity@1/no-config",
@@ -226,6 +227,12 @@ var waived = map[string]string{
 	"open-url@1/bounded-requests":        "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
 	"open-url@1/url-private":             "the adapter exposes no runtime audit or diagnostic log inventory",
 	"open-url@1/revoked":                 "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
+	// Stop/start drives a sandbox boot, not host or runtime recovery. The
+	// adapter protocol has no recovery operation, so it cannot judge whether
+	// automatic restart or an explicit stop survives that boundary.
+	"auto-restart@1/restarts-after-runtime-restart":               "no adapter operation simulates host or runtime recovery and observes an unattended restart with startup-hook evidence",
+	"auto-restart@1/explicit-stop-honored":                        "no adapter operation simulates host or runtime recovery after an explicit sandbox stop",
+	"auto-restart@1/without-long-running-still-session-autostops": "the fake adapter has no ordinary session auto-stop policy, and the protocol does not advertise which runtimes have one",
 
 	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
 	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",

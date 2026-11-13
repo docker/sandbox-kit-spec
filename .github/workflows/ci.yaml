@@ -33,6 +33,9 @@ jobs:
   lint:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       matrix:
         include:
@@ -68,15 +71,15 @@ jobs:
       #
       # That image comes from Docker Hub, whose anonymous pull limit is
       # shared by every job on a runner's IP and has failed this step.
-      # The read-only org bot lifts it. Fork and Dependabot pull requests
-      # get no Actions secrets, so they skip the login and pull anonymously
-      # rather than fail on an empty password.
-      - name: Log in to Docker Hub (read-only)
+      # OIDC grants public-image reads. Fork and Dependabot pull requests
+      # keep anonymous pulls.
+      - name: Log in to Docker Hub for public-image pulls
         if: matrix.module == '.' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'))
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        env:
+          DOCKERHUB_OIDC_CONNECTIONID: ${{ vars.DOCKERHUB_OIDC_CONNECTIONID }}
         with:
-          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          password: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
+          username: ${{ vars.DOCKERHUB_ORGANIZATION }}
       - if: matrix.module == '.'
         run: task lint:md
 

@@ -88,6 +88,7 @@ func builtinRuntimeContracts() map[string]ExecutionContract {
 		CapabilityAgentInteractiveSessions: {},
 		CapabilityACP:                      {},
 		CapabilityLongRunning:              {},
+		CapabilityAutoRestart:              {},
 	}
 }
 

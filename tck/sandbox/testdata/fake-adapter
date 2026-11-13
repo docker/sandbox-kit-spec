@@ -423,6 +423,7 @@ create)
       # contain a capability name (for example, git-identity).
       case "${kit##*/}" in
       acp) need="com.docker.sandbox/acp@1" ;;
+      auto-restart) need="com.docker.sandbox/auto-restart@1" ;;
       dockerd | dockerd-manual) need="com.docker.sandbox/dockerd@1" ;;
       docker-workload) ;;
       bundled-optional | bundled-existing) ;;

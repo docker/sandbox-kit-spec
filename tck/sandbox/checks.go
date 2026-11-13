@@ -14,6 +14,9 @@ import (
 
 // Capability types the checks are written against.
 const (
+	// The refusal probe needs this type even while recovery observations are
+	// waived. Knowing its schema does not claim runtime recovery support.
+	capAutoRestart     = spec.CapabilityAutoRestart
 	capLifecycle       = "com.docker.sandbox/lifecycle@1"
 	capNetworkPolicy   = "com.docker.sandbox/network-policy@1"
 	capNetworkPolicyV2 = "com.docker.sandbox/network-policy@2"
@@ -220,6 +223,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 			}{
 				{capability: capSbx, fixture: fixtureSbxWorkload, alone: true},
 				{capability: capLongRunning, fixture: fixtureLongRunning},
+				{capability: capAutoRestart, fixture: "auto-restart"},
 				{capability: capOpenURL, fixture: "open-url"},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},
 				{capability: capDockerAuth, fixture: "docker-auth"},

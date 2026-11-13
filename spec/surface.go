@@ -190,6 +190,8 @@ func SurfaceOf(d *Descriptor) Surface {
 		case CapabilityResources:
 			// Resource limits constrain the kit rather than grant it
 			// anything; they are not permission surface.
+		case CapabilityAutoRestart:
+			// Recovery changes lifetime without granting access across the boundary.
 		case CapabilityLongRunning:
 			// Session-independent lifetime grants no access across the boundary.
 		case CapabilityAgentSkill:

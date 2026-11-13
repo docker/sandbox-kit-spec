@@ -370,7 +370,7 @@ def summarize(ref, digest, man, scoped=None, unscoped=None):
         if short.startswith("credential@"):
             creds.append(_creds(cap, optional, group, values))
         elif short.split("@")[0] in ("ssh-agent", "host-port", "host-mount", "privileged", "dockerd",
-                                    "git-identity", "usb-device", "port", "resources", "long-running"):
+                                    "git-identity", "usb-device", "port", "resources", "long-running", "auto-restart"):
             grants.append({"type": short, "optional": optional, "group": group, "config": cap.get("config")})
     provides = [p for p in d.get("provides") or [] if not p.startswith(("deb/", "apk/", "rpm/"))]
     return {
