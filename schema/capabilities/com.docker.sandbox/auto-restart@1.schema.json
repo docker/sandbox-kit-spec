@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/auto-restart@1",
+  "description": "Automatic restart after host or runtime recovery takes no config. This schema rejects every config value, including empty and null values.",
+  "not": {}
+}

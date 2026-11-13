@@ -547,6 +547,10 @@ const (
 	// sessions. Workloads and mixins can request it; it takes no config.
 	CapabilityLongRunning = "com.docker.sandbox/long-running@1"
 
+	// CapabilityAutoRestart resumes a previously running sandbox after host or
+	// runtime recovery. Session lifetime remains a separate long-running request.
+	CapabilityAutoRestart = "com.docker.sandbox/auto-restart@1"
+
 	// CapabilityOpenURL permits HTTP/HTTPS navigation in the runtime host's
 	// default browser. It takes no config and grants no sandbox egress.
 	CapabilityOpenURL = "com.docker.sandbox/open-url@1"

@@ -492,6 +492,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
 	CapabilityLongRunning:              true,
+	CapabilityAutoRestart:              true,
 	CapabilityOpenURL:                  true,
 }
 
@@ -579,6 +580,7 @@ var configlessCapabilities = map[string]bool{
 	CapabilityKitRegistry: true,
 	CapabilitySbx:         true,
 	CapabilityLongRunning: true,
+	CapabilityAutoRestart: true,
 	CapabilityOpenURL:     true,
 }
 
