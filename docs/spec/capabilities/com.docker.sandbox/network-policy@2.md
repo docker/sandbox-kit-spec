@@ -19,7 +19,7 @@ which is what it means: every method and path on the hosts it allows.
 ```yaml
 - type: com.docker.sandbox/network-policy@2
   config:
-    install:                          # open only while install hooks run
+    install:                          # install commands
       allow:
         - registry.npmjs.org
     runtime:                          # the agent's steady state

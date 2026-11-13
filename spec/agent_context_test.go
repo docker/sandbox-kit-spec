@@ -56,12 +56,7 @@ func TestPublishedAgentContextBodySurvivesProfileSelection(t *testing.T) {
 					continue
 				}
 				wantDirectories = append(wantDirectories, directory)
-				if tt.optional[0] && tt.optional[1] {
-					wantBodies = append(wantBodies, published.ContextSources[i].Target)
-				}
-			}
-			if len(wantDirectories) > 0 && (!tt.optional[0] || !tt.optional[1]) {
-				wantBodies = []string{"/kit/merged.md"}
+				wantBodies = append(wantBodies, published.ContextSources[i].Target)
 			}
 			var directories, bodies []string
 			for _, profile := range profiles {
@@ -260,15 +255,19 @@ func TestDifferingExplicitProfilesAreEachMaterialized(t *testing.T) {
 
 			published, err := Merge(tt.contributions, MergeOptions{ContextPath: "/kit/merged.md"})
 			require.NoError(t, err)
-			staged, err := AgentContextsOf(published.Descriptor.Capabilities)
+			staged, err := AgentContextsOf(DeclaredCapabilities(published.Descriptor.Capabilities))
 			require.NoError(t, err)
-			require.Len(t, staged, 2)
-			require.Equal(t, "/kit/merged.md", staged[tt.wantBodyAt].ContentFile, "the merged body rides the first required profile")
-			require.Empty(t, staged[1-tt.wantBodyAt].ContentFile)
+			require.Len(t, staged, len(tt.contributions), "publication preserves each profile and body declaration")
+			for _, entry := range staged {
+				require.NotEmpty(t, entry.ContentFile, "each original body is staged independently")
+			}
+			effectivePublished, err := AgentContextsOf(selectPublished(t, published.Descriptor).Capabilities)
+			require.NoError(t, err)
+			require.Len(t, effectivePublished, 2)
 			require.Len(t, published.ContextSources, len(tt.contributions), "every body is staged once for every profile to index")
 			raw, err = json.Marshal(published.Descriptor)
 			require.NoError(t, err)
-			_, err = ValidateEffective(raw, published.Descriptor)
+			_, err = ValidatePublished(raw, published.Descriptor)
 			require.NoError(t, err, "a published set listing two agents must stay valid")
 		})
 	}

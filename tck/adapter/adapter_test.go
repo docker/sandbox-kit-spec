@@ -91,11 +91,11 @@ func TestWorkspaceAndProcessInputsAreTransportedLiterally(t *testing.T) {
 	argvFile := filepath.Join(dir, "argv")
 	a := New(path)
 	a.Env = []string{"ARGV_FILE=" + argvFile}
-	_, err := a.Create(t.Context(), []string{"workload"}, CreateOptions{WorkspaceMode: "none"})
+	_, err := a.Create(t.Context(), []string{"workload"}, CreateOptions{WorkspaceMode: "cloned", WorkspaceSource: "/tmp/source with $literal"})
 	require.NoError(t, err)
 	raw, err := os.ReadFile(argvFile)
 	require.NoError(t, err)
-	require.Equal(t, []string{"create", "workload", "--workspace-mode", "none"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
+	require.Equal(t, []string{"create", "workload", "--workspace-mode", "cloned", "--workspace-source", "/tmp/source with $literal"}, strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"))
 	value := "spaces $HOME $(touch forbidden)"
 	_, err = a.ExecWith(t.Context(), "sandbox-id", ExecOptions{Cwd: "/other cwd", Env: map[string]string{"IS_SANDBOX": value}}, "probe", "--env", "literal")
 	require.NoError(t, err)

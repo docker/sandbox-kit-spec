@@ -7,7 +7,7 @@ capability rather than grammar fields so a host that cannot execute them
 refuses the Kit by name at preflight instead of silently never running its
 setup.
 
-- **Shape**: singleton — at most one entry per descriptor.
+- **Shape**: sequence — each declaration remains a separate entry.
 - **Permission surface**: **no** — hooks and files run inside the sandbox
   on the entrypoint's trust plane; nothing crosses the boundary the gate
   guards. What hooks can *reach* is bounded by the other capabilities
@@ -80,10 +80,15 @@ A conforming runtime:
 - **MUST** run `install` hooks exactly once per sandbox, at create. <!-- tck: lifecycle@1/install-once -->
 - **MUST** finish `install` hooks before the workload's entrypoint first <!-- tck: lifecycle@1/install-before-entrypoint -->
   runs.
-- **MUST** run one composition's hooks in **dependency order** (a <!-- tck: lifecycle@1/hooks-dependency-order -->
-  provider's hooks before its requirers').
+- **MUST** run hooks in the entry order defined by <!-- tck: lifecycle@1/hooks-dependency-order -->
+  [§7.1.3](../../SPEC-v3.md#713-capability-execution-order), retaining
+  normal dependency and declaration order except where an entry's own
+  written relationship releases it. Each phase and step has its own
+  order. Preserve the command order inside each entry.
 - **MUST** hold the [network policy's](network-policy@1.md) install phase <!-- tck: lifecycle@1/install-network-scope-held -->
-  open while install hooks run and close it before the entrypoint starts.
+  open during Install hooks, and close it before Start begins.
+  Runtime-owned workspace preparation precedes Install and uses the
+  runtime's own access.
 - **MUST** end install-phase [credentials](credential@1.md) with the <!-- tck: lifecycle@1/install-credentials-end-with-phase -->
   install phase, exactly as the network scope ends.
 - **MUST** restrict a hook's environment to its declared `env` names plus <!-- tck: lifecycle@1/hook-env-restricted -->
@@ -98,8 +103,8 @@ A conforming runtime:
   restart, host reboot).
 - Hook authors MUST make `startup` hooks idempotent: every boot means <!-- tck: lifecycle@1/startup-idempotent-authors -->
   every boot.
-- **MUST** write `files` at start, each one belonging to the agent, and <!-- tck: lifecycle@1/files-written -->
-  writable by it where the entry declares no `mode`: a file entry
+- **MUST** write `files` in Start Place, after Install and before Start <!-- tck: lifecycle@1/files-written -->
+  Execute. Each file belongs to the agent and is writable by it where the entry declares no `mode`: a file entry
   carries no `user:`, and this capability grants no permission surface
   precisely because its writes stay on the entrypoint's trust plane. A
   declared `mode` is applied as the kit asked, to a file the agent owns
@@ -110,8 +115,8 @@ A conforming runtime:
   hook's job — what `install[].user` is for.
 - **MUST** honor each file's `overwrite` declaration: an existing file <!-- tck: lifecycle@1/files-overwrite-honored -->
   stays unless the entry says otherwise.
-- **MUST** write `files` before the entrypoint runs, so the agent never <!-- tck: lifecycle@1/files-before-entrypoint -->
-  observes the sandbox without them.
+- **MUST** complete those file writes before startup commands and the <!-- tck: lifecycle@1/files-before-entrypoint -->
+  entrypoint run, so the agent never observes the sandbox without them.
 - **MUST** expand `${{ kit.args.* }}` in commands and file contents with <!-- tck: lifecycle@1/args-expanded -->
   the create-phase arg values, leaving `$VAR` untouched for the shell.
 - **SHOULD** default execution users to root for install and the agent <!-- tck: lifecycle@1/default-users -->
@@ -123,6 +128,10 @@ A conforming runtime:
 - **MUST** refuse a Kit whose **required** lifecycle entry it cannot <!-- tck: lifecycle@1/required-unsatisfiable-refused -->
   execute (a host with no hook execution), rather than composing the Kit
   and silently skipping its setup.
+- **MUST** fail the current phase when a foreground hook exits nonzero, <!-- tck: lifecycle@1/hook-failure -->
+  without launching later hooks or the workload. Already applied effects
+  are not rolled back by this rule. A background command's completion
+  remains launch completion; later exit is not a startup-readiness signal.
 - **SHOULD** attribute a failing hook to its Kit in errors (which Kit, <!-- tck: lifecycle@1/failing-hook-attributed -->
   which hook index).
 
@@ -134,8 +143,20 @@ requesting `WORKSPACE_DIR` leaves it unset.
 
 ## Composition
 
-Install and startup lists concatenate in dependency order across the set;
-files likewise. Composition MUST reject duplicate file paths and multiple <!-- tck: lifecycle@1/shared-paths-avoided -->
-`interactive` declarations, including contributions from selected groups.
-Repeated hook commands remain separate hooks. Singleton arity applies per
-declaration block; selected contributions produce one effective entry.
+Composition MUST preserve each lifecycle entry and reject duplicate file <!-- tck: lifecycle@1/shared-paths-avoided -->
+paths and multiple `interactive` declarations across selected entries,
+including contributions from different groups. Repeated hook commands
+remain separate hooks, even when two entire entries are identical.
+Publication preserves those boundaries and their original ID scopes.
+
+`install` commands belong to Install Execute. `files` belong to Start
+Place, and `startup` commands to Start Execute. A single entry can place
+files before a service and run startup commands after that service.
+Commands on both sides of another Execute effect need separate entries.
+Every lifecycle entry participates in Install Execute, Start Place, and
+Start Execute. An absent command or file list does nothing at that turn;
+adding a command or file does not move another entry. The runtime
+completes initial workspace preparation in Prepare Attach before Install,
+using its own access under
+[§12](../../SPEC-v3.md#12-runtime-environment). Kit install grants do not
+cover cloning.

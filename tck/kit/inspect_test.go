@@ -110,3 +110,21 @@ func TestInspectOfSomethingThatIsNotAKitFails(t *testing.T) {
 	_, err := Inspect(context.Background(), a)
 	require.ErrorIs(t, err, ErrNotAKit)
 }
+
+func TestInspectHonorsSourceStemLabel(t *testing.T) {
+	for _, descriptor := range []string{conforming(t).annotations[spec.AnnotationDescriptor], "schemaVersion: \"future\"\nkind: mixin\n"} {
+		a := conforming(t)
+		a.annotations[spec.AnnotationDescriptor] = descriptor
+		a.config.Config.Labels = map[string]string{spec.LabelSourceStem: "own"}
+		a.files = map[string][]byte{
+			path.Join(StagedKitRoot, "base", stagedDescriptorName): []byte(descriptor),
+			path.Join(StagedKitRoot, "base", stagedRecipeName):     []byte("FROM inherited\n"),
+			path.Join(StagedKitRoot, "own", stagedDescriptorName):  []byte(descriptor),
+			path.Join(StagedKitRoot, "own", stagedRecipeName):      []byte("FROM own\n"),
+		}
+		in, err := Inspect(t.Context(), a)
+		require.NoError(t, err)
+		require.Equal(t, "own", in.Stem)
+		require.Equal(t, "FROM own\n", string(in.Recipe))
+	}
+}

@@ -130,7 +130,10 @@ func TestAgentSkillComposition(t *testing.T) {
 	require.NoError(t, err)
 	again, err := json.Marshal(republished.Descriptor)
 	require.NoError(t, err)
-	require.JSONEq(t, string(raw), string(again))
+	roundTrip, err := Decode(again)
+	require.NoError(t, err)
+	require.Equal(t, selectPublished(t, decoded), selectPublished(t, roundTrip))
+	require.Len(t, DeclaredCapabilities(roundTrip.Capabilities), 3, "publication retains each declaration")
 	// Same discovery name, different source: optionality and display labels do not resolve it.
 	inputs[1].Descriptor.Capabilities[0] = skillEntry("/b/review", "")
 	_, err = Compose(inputs)

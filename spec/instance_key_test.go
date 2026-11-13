@@ -112,7 +112,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityKitRegistry:              AritySingleton,
 		CapabilityAgentSessions:            AritySingleton,
 		CapabilityAgentInteractiveSessions: AritySingleton,
-		CapabilityLifecycle:                AritySingleton,
+		CapabilityLifecycle:                AritySequence,
 		CapabilitySbx:                      AritySingleton,
 		CapabilityLongRunning:              AritySingleton,
 		CapabilityAutoRestart:              AritySingleton,

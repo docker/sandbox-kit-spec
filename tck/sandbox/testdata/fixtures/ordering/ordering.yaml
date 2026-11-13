@@ -1,0 +1,64 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+capabilities:
+- type: com.docker.sandbox/lifecycle@1
+  id: last
+  after:
+  - '#second'
+  config:
+    install:
+    - command: test ! -e /var/tmp/ordering-file && printf 'C,' >> /var/tmp/ordering-install
+      user: '1000'
+    startup:
+    - command: test -f /var/tmp/ordering-file && printf 'C,' >> /var/tmp/ordering-startup
+    files:
+    - path: /var/tmp/ordering-file
+      content: file,
+- type: com.docker.sandbox/lifecycle@1
+  id: repeated
+  after:
+  - '#first'
+  config:
+    install:
+    - command: test ! -e /var/tmp/ordering-file && printf 'R,' >> /var/tmp/ordering-install
+      user: '1000'
+    startup:
+    - command: test -f /var/tmp/ordering-file && printf 'B1,' >> /var/tmp/ordering-startup
+- type: com.docker.sandbox/lifecycle@1
+  id: first
+  before:
+  - '#repeated'
+  config:
+    install:
+    - command: test ! -e /var/tmp/ordering-file && printf 'A,' >> /var/tmp/ordering-install
+      user: '1000'
+    startup:
+    - command: test -f /var/tmp/ordering-file && printf 'A1,' >> /var/tmp/ordering-startup
+    - command: test -f /var/tmp/ordering-file && printf 'A2,' >> /var/tmp/ordering-startup
+- type: com.docker.sandbox/lifecycle@1
+  id: second
+  after:
+  - '#repeated'
+  config:
+    install:
+    - command: test ! -e /var/tmp/ordering-file && printf 'R,' >> /var/tmp/ordering-install
+      user: '1000'
+    startup:
+    - command: test -f /var/tmp/ordering-file && printf 'B2,' >> /var/tmp/ordering-startup
+- group:
+    optional: true
+    capabilities:
+    - type: test.invalid/unavailable@1
+    - type: com.docker.sandbox/lifecycle@1
+      id: bridge
+      before:
+      - '#repeated'
+      after:
+      - '#second'
+      config:
+        files:
+        - path: /var/tmp/ordering-skipped
+          content: skipped
+        startup:
+        - command: printf skipped >> /var/tmp/ordering-startup

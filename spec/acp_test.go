@@ -158,10 +158,10 @@ func TestACPComposition(t *testing.T) {
 		require.Len(t, runtime.Capabilities, 2)
 		require.False(t, runtime.Capabilities[0].Optional)
 		require.Equal(t, "Claude ACP", runtime.Capabilities[0].Name)
-		published := mergeOK(t, inputs...).Descriptor
+		published := publishOK(t, inputs...).Descriptor
 		// Republish a set as a single contribution, then compose again.
-		republished := mergeOK(t, Contribution{Reference: "set", Descriptor: published}).Descriptor
-		endpoints, err := ACPsOf(republished.Capabilities)
+		republished := publishOK(t, Contribution{Reference: "set", Descriptor: published}).Descriptor
+		endpoints, err := ACPsOf(selectPublished(t, republished).Capabilities)
 		require.NoError(t, err)
 		require.Len(t, endpoints, 2)
 	}

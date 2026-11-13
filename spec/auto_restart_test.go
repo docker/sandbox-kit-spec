@@ -50,11 +50,11 @@ func TestAutoRestartValidation(t *testing.T) {
 func TestAutoRestartMergeAndSurface(t *testing.T) {
 	for _, kind := range []string{KindWorkload, KindMixin} {
 		base := &Descriptor{SchemaVersion: SchemaVersion, Kind: kind}
-		// A set's own declarations enter Merge without a kind; its
+		// A set's own declarations enter composition without a kind; its
 		// members supply the resolved kind that validation judges.
 		own := &Descriptor{SchemaVersion: SchemaVersion, Capabilities: []Capability{{Type: CapabilityAutoRestart}}}
 		base.Capabilities = []Capability{{Type: CapabilityAutoRestart, Optional: true}}
-		merged := mergeOK(t, Contribution{Reference: "base", Descriptor: base}, Contribution{Reference: "set", Descriptor: own}).Descriptor
+		merged := composeOK(t, Contribution{Reference: "base", Descriptor: base}, Contribution{Reference: "set", Descriptor: own}).Descriptor
 		_, err := Validate(merged)
 		require.NoError(t, err)
 		require.Len(t, merged.Capabilities, 1)
@@ -89,7 +89,7 @@ func TestAutoRestartMixinComposition(t *testing.T) {
 				SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: tc.mixin,
 			}}
 			for _, inputs := range [][]Contribution{{workload, mixin}, {mixin, workload}} {
-				merged := mergeOK(t, inputs...).Descriptor
+				merged := composeOK(t, inputs...).Descriptor
 				_, err := Validate(merged)
 				require.NoError(t, err)
 				require.Equal(t, KindWorkload, merged.Kind)
@@ -128,10 +128,35 @@ func TestAutoRestartAndLongRunningRemainIndependent(t *testing.T) {
 		{{Type: CapabilityAutoRestart}, {Type: CapabilityLongRunning}},
 	} {
 		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindWorkload, Capabilities: caps}
-		merged := mergeOK(t, Contribution{Reference: "service", Descriptor: d}).Descriptor
+		merged := composeOK(t, Contribution{Reference: "service", Descriptor: d}).Descriptor
 		_, err := Validate(merged)
 		require.NoError(t, err)
 		require.Equal(t, caps, merged.Capabilities, "composition does not invent or collapse lifetime requests")
 		require.Equal(t, SurfaceOf(&Descriptor{}), SurfaceOf(merged))
+	}
+}
+
+// Recovery is a sandbox lifetime policy. Keeping it in the descriptor must
+// not invent another boot action or make ordinary composition require a host
+// execution-contract registration for a built-in capability.
+func TestAutoRestartRuntimeComposition(t *testing.T) {
+	d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin,
+		Capabilities: []Capability{{Type: CapabilityAutoRestart}}}
+	result, err := ComposeRuntime(t.Context(), []Contribution{{Reference: "service", Descriptor: d}},
+		RuntimeOptions{Select: Supported(CapabilityAutoRestart)})
+	require.NoError(t, err)
+	require.Len(t, result.Descriptor.Capabilities, 1)
+	require.Equal(t, CapabilityAutoRestart, result.Descriptor.Capabilities[0].Type)
+	require.Len(t, result.Plan.Entries, 1)
+	for _, phase := range result.Plan.Phases {
+		for _, step := range phase.Steps {
+			for _, action := range step.Actions {
+				require.Nil(t, action.Capability, "recovery policy has no independently scheduled boot effect")
+			}
+		}
+	}
+	require.Empty(t, result.Plan.InstallEnd)
+	for _, action := range result.Plan.Stop {
+		require.Nil(t, action.Capability, "recovery policy has no independently scheduled cleanup effect")
 	}
 }

@@ -17,10 +17,10 @@ import (
 
 func resolved(reference, kind string, config ocispecs.ImageConfig) resolvedKit {
 	return resolvedKit{
-		reference:  reference,
-		descriptor: &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: kind},
-		config:     ocispecs.Image{Config: config},
-		stem:       reference,
+		reference:   reference,
+		descriptor:  &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: kind},
+		config:      ocispecs.Image{Config: config},
+		sourceStems: []string{reference},
 	}
 }
 
@@ -107,16 +107,16 @@ func mergedConfig(t *testing.T, kits []resolvedKit, kind string) ocispecs.Image 
 // describing one kit with another's declarations.
 func TestStemCollisions(t *testing.T) {
 	gh := resolved("reg.io/gh:1", spec.KindMixin, ocispecs.ImageConfig{})
-	gh.stem = "gh"
+	gh.sourceStems = []string{"gh"}
 	shell := resolved("reg.io/shell:1", spec.KindWorkload, ocispecs.ImageConfig{})
-	shell.stem = "shell"
+	shell.sourceStems = []string{"shell"}
 
 	require.NoError(t, checkStemCollision("team", []resolvedKit{gh, shell}))
 	require.ErrorContains(t, checkStemCollision("gh", []resolvedKit{gh, shell}),
 		"which is where this set would stage its own")
 
 	clash := resolved("reg.io/other-gh:1", spec.KindMixin, ocispecs.ImageConfig{})
-	clash.stem = "gh"
+	clash.sourceStems = []string{"gh"}
 	require.ErrorContains(t, checkKitCollisions([]resolvedKit{gh, clash}),
 		"both stage their sources at")
 }
@@ -183,6 +183,76 @@ func TestSetDerivedIntersectionUsesEveryPlatformAndEachKit(t *testing.T) {
 	for _, platform := range kits {
 		require.Equal(t, []string{"deb/common@1.0"}, platform[0].descriptor.Provides)
 		require.Equal(t, []string{"apk/other@1.0"}, platform[1].descriptor.Provides)
+	}
+}
+
+func TestSetDerivedIntersectionPreservesPublishedScopes(t *testing.T) {
+	for _, tc := range []struct {
+		name, amd64, arm64 string
+	}{
+		{"platform-only package", "deb/amd64-only@1.0", "deb/arm64-only@1.0"},
+		{"different package versions", "deb/versioned@1.0", "deb/versioned@2.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			zero, one := uint32(0), uint32(1)
+			published := func(specific string) *spec.Descriptor {
+				p, err := spec.ParseProvide(specific)
+				require.NoError(t, err)
+				return &spec.Descriptor{
+					SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
+					Provides: []string{"com.example/agent@1.0", "deb/common@1.0", specific},
+					CapabilityScopes: []spec.CapabilityScope{
+						{Provides: []string{"com.example/agent", "deb/common"}},
+						{Provides: []string{p.Name}},
+					},
+					Capabilities: []spec.Capability{
+						{ID: "setup", Type: "com.example/action@1", Scope: &zero},
+						{ID: "setup", Type: "com.example/other@1", Scope: &one},
+					},
+				}
+			}
+			originals := []*spec.Descriptor{published(tc.amd64), published(tc.arm64)}
+			var before [][]byte
+			var kits [][]resolvedKit
+			for _, input := range originals {
+				raw, err := json.Marshal(input)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, input)
+				require.NoError(t, err, "the nested member starts as a valid published descriptor")
+				before = append(before, raw)
+				kits = append(kits, []resolvedKit{{reference: "nested", descriptor: input}})
+			}
+
+			intersectDerivedProvides(kits)
+			for i, platform := range kits {
+				d := platform[0].descriptor
+				raw, err := json.Marshal(d)
+				require.NoError(t, err)
+				_, err = spec.ValidatePublished(raw, d)
+				require.NoError(t, err, "intersection must leave scoped nested members publishable")
+				require.Equal(t, []string{"com.example/agent@1.0", "deb/common@1.0"}, d.Provides)
+				require.Len(t, d.CapabilityScopes, 2, "an emptied scope still owns its original declarations")
+				require.Equal(t, []string{"com.example/agent", "deb/common"}, d.CapabilityScopes[0].Provides)
+				require.Empty(t, d.CapabilityScopes[1].Provides)
+				require.Equal(t, one, *d.Capabilities[1].Scope)
+				original, err := json.Marshal(originals[i])
+				require.NoError(t, err)
+				require.JSONEq(t, string(before[i]), string(original), "intersection must not edit published source bindings")
+			}
+			require.NoError(t, sameDeclarations(kits[0][0].descriptor, kits[1][0].descriptor))
+
+			// Later processing of one platform must not alter the source or
+			// another platform through either level of the scope slices.
+			kits[0][0].descriptor.CapabilityScopes[0].Provides[0] = "com.example/changed"
+			kits[0][0].descriptor.CapabilityScopes[1].Provides = []string{"com.example/changed"}
+			require.Equal(t, "com.example/agent", kits[1][0].descriptor.CapabilityScopes[0].Provides[0])
+			require.Empty(t, kits[1][0].descriptor.CapabilityScopes[1].Provides)
+			for i, input := range originals {
+				raw, err := json.Marshal(input)
+				require.NoError(t, err)
+				require.JSONEq(t, string(before[i]), string(raw))
+			}
+		})
 	}
 }
 
@@ -777,7 +847,7 @@ func TestSetReExportsVolumeRequests(t *testing.T) {
 	}
 }
 
-func TestSetReExportStillReconcilesConcreteStorage(t *testing.T) {
+func TestSetReExportPreservesConcreteStorage(t *testing.T) {
 	for _, tc := range []struct {
 		name, secondType string
 		secondConfig     map[string]any
@@ -828,13 +898,14 @@ func TestSetReExportStillReconcilesConcreteStorage(t *testing.T) {
 			_, err = publishedSetDescriptor(merged.Descriptor)
 			require.NoError(t, err)
 			members := spec.DeclaredCapabilities(merged.Descriptor.Capabilities)
-			require.Len(t, members, 3, "concrete requests collapse while both unresolved requests survive")
+			require.Len(t, members, 4, "publication preserves every original declaration")
 			require.Equal(t, "/dynamic", members[0].Config["path"])
 			require.Equal(t, "/cache", members[1].Config["path"])
 			require.Equal(t, "/dynamic", members[2].Config["path"])
-			require.Equal(t, "Shared cache", members[1].Name)
-			require.Nil(t, merged.Descriptor.Capabilities[1].Group, "concrete storage remains reconcilable by enclosing sets")
-			require.False(t, members[1].Optional, "the required contributor wins")
+			require.Equal(t, "Shared cache", members[3].Name)
+			require.NotNil(t, merged.Descriptor.Capabilities[1].Group, "selection remains independent until runtime")
+			require.True(t, merged.Descriptor.Capabilities[1].Group.Optional)
+			require.False(t, merged.Descriptor.Capabilities[3].Group.Optional)
 			require.Equal(t, &spec.CapabilitySource{Kit: "cache-kit-0", Path: "capabilities[1]"}, members[1].Source)
 			require.Equal(t, "${{ kit.args.shared_size }}", members[0].Config["size"])
 			require.Equal(t, "${{ kit.args.shared_size }}", members[2].Config["size"])
@@ -1003,7 +1074,10 @@ func TestSetReExportRetainsEveryConcreteStorageBlock(t *testing.T) {
 		merged.Descriptor.Args = args
 		raw, err := publishedSetDescriptor(merged.Descriptor)
 		require.NoError(t, err)
-		require.Len(t, merged.Descriptor.Capabilities[1].DeclarationBlocks, 2, "collapsed concrete request belongs to both original blocks")
+		require.Len(t, merged.Descriptor.Capabilities, 4)
+		require.Equal(t, merged.Descriptor.Capabilities[0].DeclarationBlocks, merged.Descriptor.Capabilities[1].DeclarationBlocks)
+		require.Equal(t, merged.Descriptor.Capabilities[2].DeclarationBlocks, merged.Descriptor.Capabilities[3].DeclarationBlocks)
+		require.NotEqual(t, merged.Descriptor.Capabilities[1].DeclarationBlocks, merged.Descriptor.Capabilities[3].DeclarationBlocks)
 		for _, collision := range []string{"first", "second"} {
 			values := map[string]string{"first": "/one", "second": "/two"}
 			values[collision] = "/cache/"
@@ -1026,7 +1100,7 @@ func TestSetReExportRetainsEveryConcreteStorageBlock(t *testing.T) {
 // one that repeats another kit's request reconciles with it under the
 // type's contract, and one that repeats a request in its own kit's block
 // is refused there. A reference beside a literal key does not defer the
-// key, so publication still reconciles that request.
+// key, so publication can still reject conflicting literal requests.
 func TestSetReExportKeepsReferenceKeysApart(t *testing.T) {
 	const value = "${{ kit.args.value }}"
 	port := func(transport, name string) spec.Capability {
@@ -1104,7 +1178,7 @@ func TestSetReExportKeepsReferenceKeysApart(t *testing.T) {
 						require.NotNil(t, c.Group, "depth %d: each request stays its own contribution", depth)
 					}
 				} else {
-					require.Len(t, merged.Descriptor.Capabilities, tc.composed, "a literal key still reconciles at publication")
+					require.Len(t, spec.DeclaredCapabilities(merged.Descriptor.Capabilities), len(slices.Concat(tc.kits...)), "literal requests retain their scopes until runtime")
 				}
 				expanded, err := spec.ExpandCreateArgs(raw, setArgs, map[string]string{"value": tc.value})
 				require.NoError(t, err)

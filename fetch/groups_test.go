@@ -245,6 +245,7 @@ func TestResolveSelectorReceivesOwningKit(t *testing.T) {
 			}
 			seen := map[string]string{}
 			result, err := method(ctx, requests, WithEnvironment(map[string]string{"HOME": "/home/agent"}, nil),
+				WithExecutionContracts(map[string]spec.ExecutionContract{"com.example/feature@1": {}}),
 				WithCapabilitySelector(func(callCtx context.Context, _ spec.SelectionTarget, kit spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
 					require.Same(t, ctx, callCtx)
 					require.Len(t, kit.Capabilities, 1, "descriptor belongs to this Kit, before composition")

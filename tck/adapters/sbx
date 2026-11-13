@@ -1043,6 +1043,11 @@ create)
 			esac
 			shift 2
 			;;
+		--workspace-source)
+			# Native clone-source binding is not exposed by this adapter.
+			echo "unsupported workspace mode: cloned" >&2
+			exit 2
+			;;
 		--arg)
 			# The contract's name=value is sbx's own --kit-arg spelling,
 			# which applies the value to every kit that declares the

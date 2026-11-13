@@ -136,6 +136,26 @@ def setting(entry, field, descriptor, overrides):
     return value, True
 
 
+def first_volume_member(descriptor):
+    lines = descriptor.splitlines()
+    for index, line in enumerate(lines):
+        if re.fullmatch(r'\s*(?:- )?type: com\.docker\.sandbox/volume@1', line):
+            start = index
+            if not line.lstrip().startswith('- '):
+                type_indent = len(line) - len(line.lstrip())
+                while start > 0:
+                    candidate = lines[start]
+                    if candidate.lstrip().startswith('- ') and len(candidate) - len(candidate.lstrip()) < type_indent:
+                        break
+                    start -= 1
+            indent = len(lines[start]) - len(lines[start].lstrip())
+            end = start + 1
+            while end < len(lines) and (not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent):
+                end += 1
+            return '\n'.join(lines[start:end])
+    raise ValueError('fixture has no volume member')
+
+
 def requests(kits, overrides):
     result = {}
     sources = {}
@@ -150,7 +170,7 @@ def requests(kits, overrides):
             refuse('required volume@1 is unclaimed')
         contributions += 1
         descriptor = (Path(kit) / (name + '.yaml')).read_text()
-        entry = descriptor.split('  - type: com.docker.sandbox/volume@1', 1)[1].split('  - type:', 1)[0]
+        entry = first_volume_member(descriptor)
         optional = any(line.strip() == 'optional: true' for line in entry.splitlines())
         path, _ = setting(entry, 'path', descriptor, overrides)
         if broken != 'volume-raw-paths':

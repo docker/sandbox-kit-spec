@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -106,18 +107,17 @@ func Run(ctx context.Context, a Artifact) (report.Report, error) {
 	return rep, nil
 }
 
-// ownStem picks the staged root holding THIS kit's sources.
-//
-// One root is the ordinary case and needs no judgment. Several mean the
-// artifact carries other kits' sources too — a kit built FROM a kit, or
-// a merged set, whose layers include the staged sources of every kit it
-// merged — and
-// then the kit's own root is the one whose staged descriptor is the
-// descriptor the annotation carries. That is the same identity the
-// staged-sources check goes on to assert, so a kit with no matching root
-// reports an empty stem and fails there rather than being judged against
-// a root belonging to something else.
+// ownStem honors the published label before matching legacy staged sources.
+// A set carries its members' descriptors too, so choosing an arbitrary root can
+// judge the wrong Kit. The label identifies the artifact's own root; the later
+// staged-sources check verifies that its bytes agree with the annotation.
+// Without a label, match the annotation itself for legacy multi-root artifacts.
+// No match leaves an empty stem and makes that check fail rather than silently
+// accepting another Kit's staged descriptor.
 func ownStem(ctx context.Context, a Artifact, d *spec.Descriptor, stems []string) string {
+	if stem, present, err := sourceStemLabel(ctx, a); err != nil || present {
+		return stem
+	}
 	if len(stems) == 1 {
 		return stems[0]
 	}
@@ -135,6 +135,21 @@ func ownStem(ctx context.Context, a Artifact, d *spec.Descriptor, stems []string
 		}
 	}
 	return ""
+}
+
+func sourceStemLabel(ctx context.Context, a Artifact) (string, bool, error) {
+	cfg, err := a.Config(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("read image config: %w", err)
+	}
+	stem, present := cfg.Config.Labels[spec.LabelSourceStem]
+	if !present {
+		return "", false, nil
+	}
+	if stem == "" || stem == "." || stem == ".." || strings.ContainsAny(stem, `/\`) || strings.IndexFunc(stem, unicode.IsControl) >= 0 || spec.ContainsArgRef(stem) || spec.ContainsEnvRef(stem) {
+		return "", true, fmt.Errorf("image label %s must name a literal safe basename, got %q", spec.LabelSourceStem, stem)
+	}
+	return stem, true, nil
 }
 
 func fail(format string, args ...any) []report.Finding {
@@ -465,6 +480,9 @@ var checks = []check{
 		name:        "staged-sources",
 		requirement: "SPEC-v3 §10",
 		run: func(ctx context.Context, s *state) []report.Finding {
+			if _, _, err := sourceStemLabel(ctx, s.artifact); err != nil {
+				return fail("%v", err)
+			}
 			if s.stem == "" {
 				return fail("no kit sources staged under %s; every kit is self-describing", StagedKitRoot)
 			}

@@ -1609,3 +1609,42 @@ func TestListedKitValidationFindingsNameItsSource(t *testing.T) {
 	require.Contains(t, finding.Detail, ref+" (published descriptor):3:10: iconUrl:")
 	require.Contains(t, finding.Detail, "\n3 | iconUrl: http://example.com\n  |          ^")
 }
+
+func TestStagedSourceStemLabel(t *testing.T) {
+	for _, tc := range []struct {
+		name, label, selected string
+		wantFailure           bool
+	}{
+		{name: "own descriptor", label: stem, selected: "same"},
+		{name: "second matching root", label: "other", selected: "same"},
+		{name: "spaces and unicode", label: "other kit-λ", selected: "same"},
+		{name: "missing", label: "missing", wantFailure: true},
+		{name: "different descriptor", label: "other", selected: "different", wantFailure: true},
+		{name: "empty", wantFailure: true},
+		{name: "dot", label: ".", wantFailure: true},
+		{name: "dot dot", label: "..", wantFailure: true},
+		{name: "slash", label: "parent/demo", selected: "same", wantFailure: true},
+		{name: "backslash", label: `parent\demo`, selected: "same", wantFailure: true},
+		{name: "control", label: "demo\n", selected: "same", wantFailure: true},
+		{name: "argument", label: "${{ kit.args.name }}", selected: "same", wantFailure: true},
+		{name: "environment", label: "${{ kit.env.HOME }}", selected: "same", wantFailure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := conforming(t)
+			a.config.Config.Labels = map[string]string{spec.LabelSourceStem: tc.label}
+			switch tc.selected {
+			case "same":
+				a.files[path.Join(StagedKitRoot, tc.label, stagedDescriptorName)] = a.files[path.Join(StagedKitRoot, stem, stagedDescriptorName)]
+			case "different":
+				a.files[path.Join(StagedKitRoot, tc.label, stagedDescriptorName)] = []byte("schemaVersion: \"3\"\nkind: workload\n")
+			}
+			got := findings(t, a)
+			if tc.wantFailure {
+				require.Contains(t, got, "staged-sources")
+				require.Equal(t, report.Fail, got["staged-sources"].Severity)
+				return
+			}
+			require.NotContains(t, got, "staged-sources")
+		})
+	}
+}

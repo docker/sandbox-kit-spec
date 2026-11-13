@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,7 +19,7 @@ import (
 func TestFixturesAreValidKits(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join("testdata", "fixtures", "*", "*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, matches, 128, "every fixture directory needs its descriptor")
+	require.Len(t, matches, 144, "every fixture directory needs its descriptor")
 
 	for _, path := range matches {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -95,9 +96,13 @@ func TestVolumeFixturesValidateAfterArgumentExpansion(t *testing.T) {
 			require.NoError(t, err)
 			expanded, err := spec.ExpandCreateArgs(raw, d.Args, values)
 			require.NoError(t, err)
-			effective, err := spec.Decode(expanded)
+			declaration, err := spec.Decode(expanded)
 			require.NoError(t, err)
-			_, err = spec.ValidateEffective(expanded, effective)
+			_, err = spec.ComposeRuntime(t.Context(), []spec.Contribution{{Reference: path, Descriptor: declaration}}, spec.RuntimeOptions{
+				Select: func(context.Context, spec.SelectionTarget, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+					return spec.CapabilityDecision{Accepted: true}
+				},
+			})
 			require.NoError(t, err)
 		})
 	}
@@ -150,10 +155,10 @@ func TestPublishedVolumeFixtureMatchesPublisher(t *testing.T) {
 	got, err := json.Marshal(fixture)
 	require.NoError(t, err)
 	require.JSONEq(t, string(want), string(got))
-	require.Len(t, fixture.Capabilities, 2)
+	require.Len(t, fixture.Capabilities, 4, "publication retains both contributors for selection")
 }
 
-func TestMatchingTmpfsFixturesMerge(t *testing.T) {
+func TestMatchingTmpfsFixturesCompose(t *testing.T) {
 	var contributions []spec.Contribution
 	for _, name := range []string{"volume-state-tmpfs", "volume-state-tmpfs-other"} {
 		raw, err := os.ReadFile(filepath.Join(FixtureDir, name, name+".yaml"))
@@ -175,12 +180,18 @@ func TestMatchingTmpfsFixturesMerge(t *testing.T) {
 		"matching tmpfs fixtures must exercise distinct path spellings")
 	published, err := spec.Merge(contributions, spec.MergeOptions{})
 	require.NoError(t, err)
-	volumes, err := spec.VolumesOf(published.Descriptor.Capabilities)
+	composition, err := spec.ComposeRuntime(t.Context(), []spec.Contribution{{Reference: "published", Descriptor: published.Descriptor}}, spec.RuntimeOptions{
+		Select: func(context.Context, spec.SelectionTarget, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+			return spec.CapabilityDecision{Accepted: true}
+		},
+	})
+	require.NoError(t, err)
+	volumes, err := spec.VolumesOf(composition.Descriptor.Capabilities)
 	require.NoError(t, err)
 	require.Equal(t, []spec.Volume{
 		{Path: volumePath, Size: "1g", Mode: "0700", Tmpfs: true},
 		{Path: volumeOtherPath, Size: "1g", Mode: "0700", Tmpfs: true},
-	}, volumes, "the publisher collapses both matching tmpfs destinations")
+	}, volumes, "runtime composition reconciles both matching tmpfs destinations")
 }
 
 func TestInlineContextFixtureDependencyOrder(t *testing.T) {
@@ -212,4 +223,28 @@ func TestInlineContextFixtureDependencyOrder(t *testing.T) {
 				"the order asserted by inlineContextSelection must follow dependencies regardless of reference spelling")
 		})
 	}
+}
+
+func TestOrderingPublicationFixtureMatchesPublisher(t *testing.T) {
+	var inputs []spec.Contribution
+	for _, name := range []string{"ordering-provider", "ordering-insert"} {
+		raw, err := os.ReadFile(filepath.Join(FixtureDir, name, name+".yaml"))
+		require.NoError(t, err)
+		d, err := spec.Decode(raw)
+		require.NoError(t, err)
+		inputs = append(inputs, spec.Contribution{Reference: "registry.example/" + name + ":1.0.0", Descriptor: d})
+	}
+	published, err := spec.Merge(inputs, spec.MergeOptions{})
+	require.NoError(t, err)
+	republished, err := spec.Merge([]spec.Contribution{{Reference: "registry.example/ordering-set:1.0.0", Descriptor: published.Descriptor}}, spec.MergeOptions{})
+	require.NoError(t, err)
+	raw, err := os.ReadFile(filepath.Join(FixtureDir, "ordering-published", "ordering-published.yaml"))
+	require.NoError(t, err)
+	fixture, err := spec.Decode(raw)
+	require.NoError(t, err)
+	want, err := json.Marshal(republished.Descriptor)
+	require.NoError(t, err)
+	got, err := json.Marshal(fixture)
+	require.NoError(t, err)
+	require.JSONEq(t, string(want), string(got))
 }

@@ -101,16 +101,13 @@ profile. Each entry is required when any ask naming its destination is;
 a body-only or legacy ask counts toward the first entry, so one agent's
 required profile does not make another agent's optional one required.
 
-A merged set's concatenated body rides the first required profile, or
-the sole profile when it is optional. Skipping an optional destination
-therefore cannot discard the body needed by a surviving profile. When
-several profiles are all optional, or when publication leaves a set's
-requests apart until create
-([SPEC-v3 §9.5](../../SPEC-v3.md#95-merging-a-set)), publication
-preserves the original declarations in capability groups and stages
-their bodies separately, as for other conditional declarations.
-Selection then retains each accepted profile's body, and the runtime
-indexes all selected bodies in every effective profile.
+Publication preserves the original profile and body declarations and
+stages their bodies separately, including unconditional declarations.
+Each request retains its own selection boundary and Kit scope under
+[SPEC-v3 §9.5](../../SPEC-v3.md#95-merging-a-set). Selection retains each
+accepted profile's body, and the runtime indexes all selected bodies in
+every effective profile. Publication does not concatenate bodies into a
+shared request before selection.
 
 The optional `directory` field preserves existing descriptors and their
 workspace-sibling default. Context bodies keep their staged paths; only

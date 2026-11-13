@@ -180,7 +180,7 @@ func TestVersionSelectionPublicationPreservesProvenanceAndNetworkUnion(t *testin
 	}
 }
 
-func TestExactVersionSelectionAfterPublishedNetworkUnion(t *testing.T) {
+func TestExactVersionSelectionSurvivesPublication(t *testing.T) {
 	for _, grouped := range []bool{false, true} {
 		t.Run(fmt.Sprintf("grouped=%t", grouped), func(t *testing.T) {
 			var inputs []Contribution
@@ -207,18 +207,11 @@ func TestExactVersionSelectionAfterPublishedNetworkUnion(t *testing.T) {
 				effective.Capabilities = selected.Capabilities
 				composed, err := Compose([]Contribution{{Reference: "published", Descriptor: &effective}})
 				require.NoError(t, err)
-				if !grouped && typ == CapabilityNetworkPolicy {
-					require.Empty(t, composed.Capabilities, "concrete publication emits @2, which @1 support cannot select")
-					continue
-				}
 				network, err := NetworkPolicyV2Of(composed.Capabilities)
 				require.NoError(t, err)
-				want := []string{"v1.example", "v2.example"}
-				if grouped {
-					want = []string{"v1.example"}
-					if typ == CapabilityNetworkPolicyV2 {
-						want = []string{"v2.example"}
-					}
+				want := []string{"v1.example"}
+				if typ == CapabilityNetworkPolicyV2 {
+					want = []string{"v2.example"}
 				}
 				var hosts []string
 				for _, grant := range network.Runtime.Allow {

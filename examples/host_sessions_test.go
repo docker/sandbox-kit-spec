@@ -160,10 +160,14 @@ func TestHostSessionsComposeAfterAgentSetup(t *testing.T) {
 				}
 				composed, err := spec.Compose(contributions)
 				require.NoError(t, err)
-				lifecycle, err := spec.LifecycleOf(composed.Capabilities)
+				lifecycles, err := spec.LifecyclesOf(composed.Capabilities)
 				require.NoError(t, err)
-				require.Greater(t, len(lifecycle.Install), 1)
-				last := lifecycle.Install[len(lifecycle.Install)-1]
+				var installs []spec.InstallHook
+				for _, lifecycle := range lifecycles {
+					installs = append(installs, lifecycle.Install...)
+				}
+				require.Greater(t, len(installs), 1)
+				last := installs[len(installs)-1]
 				require.Contains(t, last.Description, "host-shared directory")
 				if agent == "claude" {
 					for _, c := range composed.Capabilities {

@@ -1,0 +1,67 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+provides:
+- kit-tck-order-provider@1.0.0
+capabilities:
+- group:
+    capabilities:
+    - id: setup
+      scope: 0
+      source:
+        kit: registry.example/ordering-provider:1.0.0
+        path: capabilities[0]
+      type: com.docker.sandbox/lifecycle@1
+      config:
+        install:
+        - command: printf 'provider,' >> /var/tmp/ordering-dependencies-install
+          user: '1000'
+        startup:
+        - command: printf 'provider,' >> /var/tmp/ordering-dependencies-startup
+  declarationBlocks:
+  - 0:0
+  source:
+    kit: registry.example/ordering-provider:1.0.0
+    path: capabilities[0]
+- group:
+    capabilities:
+    - id: launch
+      scope: 0
+      source:
+        kit: registry.example/ordering-provider:1.0.0
+        path: capabilities[1]
+      type: com.docker.sandbox/lifecycle@1
+      config:
+        install:
+        - command: printf 'launch,' >> /var/tmp/ordering-dependencies-install
+          user: '1000'
+        startup:
+        - command: printf 'launch,' >> /var/tmp/ordering-dependencies-startup
+  declarationBlocks:
+  - 0:0
+  source:
+    kit: registry.example/ordering-provider:1.0.0
+    path: capabilities[1]
+- group:
+    capabilities:
+    - id: setup
+      before:
+      - kit-tck-order-provider#setup
+      scope: 1
+      source:
+        kit: registry.example/ordering-insert:1.0.0
+        path: capabilities[0]
+      type: com.docker.sandbox/lifecycle@1
+      config:
+        startup:
+        - command: printf 'insert,' >> /var/tmp/ordering-dependencies-startup
+  declarationBlocks:
+  - 0:1
+  source:
+    kit: registry.example/ordering-insert:1.0.0
+    path: capabilities[0]
+capabilityScopes:
+- provides:
+  - com.docker.kit/kit-tck-order-provider
+- requires:
+  - kit-tck-order-provider
