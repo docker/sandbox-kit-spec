@@ -172,6 +172,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityNetworkPolicy, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{ref + ".example.com"}}}, field: "runtime"},
 		{typ: CapabilityNetworkPolicyV2, s: "api", config: map[string]any{"runtime": map[string]any{"allow": []any{map[string]any{"hosts": []any{ref + ".example.com"}, "methods": []any{"GET"}}}}}, field: "runtime"},
 		{typ: CapabilityCredential, s: "GH_TOKEN", config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": ref}}, field: "service"},
+		{typ: CapabilityCredentialV2, s: "GH_TOKEN", config: map[string]any{"service": "github", "phase": "runtime", "apiKey": map[string]any{"name": ref}}, field: "service"},
 		{typ: CapabilitySSHAgent, s: "git", config: map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{ref}}, field: "sign"},
 		{typ: CapabilityVolume, s: "1G", config: map[string]any{"path": "/data", "size": ref}, field: "path"},
 		{typ: CapabilityHostMount, s: "0755", config: map[string]any{"path": "/data", "mode": ref}, field: "path"},

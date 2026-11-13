@@ -650,8 +650,9 @@ same grant, so a host given both would have to guess which bounds the
 other.
 
 **Instance-shaped types appear once per thing requested**, identified by
-their own key: `credential@1` on (service, phase), with each listed phase
-participating independently, `volume@1` and `host-mount@1` on a shared
+their own key: `credential@1` and `credential@2` on a shared
+(service, phase) key, with each listed phase participating independently,
+`volume@1` and `host-mount@1` on a shared
 cleaned storage path key,
 `agent-skills@1` on path, `acp@1` on normalized agent name,
 `agent-skill@1` on effective name, `port@1` on (container, transport),
@@ -912,6 +913,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/network-policy@2` | [network-policy@2](capabilities/com.docker.sandbox/network-policy@2.md) | singleton, exclusive with `@1` |
 | `com.docker.sandbox/docker-auth@1` | [docker-auth@1](capabilities/com.docker.sandbox/docker-auth@1.md) | whole-entry |
 | `com.docker.sandbox/credential@1` | [credential@1](capabilities/com.docker.sandbox/credential@1.md) | per (service, phase) |
+| `com.docker.sandbox/credential@2` | [credential@2](capabilities/com.docker.sandbox/credential@2.md) | per (service, phase); shared ownership key with `@1` |
 | `com.docker.sandbox/ssh-agent@1` | [ssh-agent@1](capabilities/com.docker.sandbox/ssh-agent@1.md) | per phase (one entry may name both) |
 | `com.docker.sandbox/volume@1` | [volume@1](capabilities/com.docker.sandbox/volume@1.md) | per path |
 | `com.docker.sandbox/host-mount@1` | [host-mount@1](capabilities/com.docker.sandbox/host-mount@1.md) | per path; shared storage key with volume@1 |
@@ -1171,7 +1173,7 @@ error. In that order they reconcile into one descriptor:
 | Display fields | The set's own: the artifact is a new thing with its own name, publisher, and documentation. |
 | Instance-shaped capabilities | Reconcile on the type's own key ([§7.1](#71-arity)) according to its versioned contract, as specified below and in its capability page. The key does not prescribe equality, merging, or compatibility with retained state. |
 | `volume@1` | Matching typed storage configurations at one cleaned path collapse; different sizes, modes, or backing kinds conflict. Block storage belongs to the owner scope, sandbox name, and path, independently of the declaring Kit, and survives sandbox deletion. |
-| `credential@1` | One owner per (service, phase); overlapping requests conflict even when identical. |
+| `credential@1`, `credential@2` | One owner per (service, phase), across both versions; overlapping requests conflict even when identical. The selected version, profile, and missing-binding policy are preserved. |
 | `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
 | `dockerd@1` | Presence is the union, and the merged `autoStart` is true when any of them says true or omits it, false only when all say false. It owns `/var/lib/docker`: a `volume@1` or `host-mount@1` at or under that cleaned path conflicts with it, whichever Kit declares either and whether or not the request is optional. |
 | `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |

@@ -446,6 +446,10 @@ const (
 	// (service, phase).
 	CapabilityCredential = "com.docker.sandbox/credential@1"
 
+	// CapabilityCredentialV2 separates missing bindings from capability support
+	// and adds explicit OAuth profiles; config decodes to CredentialV2.
+	CapabilityCredentialV2 = "com.docker.sandbox/credential@2"
+
 	// CapabilitySSHAgent exposes an SSH agent to one phase, relaying to a
 	// backing agent of the runtime's choosing; config decodes to SSHAgent.
 	// Instance-shaped, keyed by phase.

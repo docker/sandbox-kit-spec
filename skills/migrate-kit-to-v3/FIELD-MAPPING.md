@@ -325,6 +325,23 @@ unchanged. `phase` also accepts a non-empty list of distinct phases:
   matcher does not expand globs. Add the literal host beside the wildcard; it
   widens nothing.
 
+### credential@2
+
+An ordinary v2 credential migration stays on `credential@1` above.
+Native OpenAI ChatGPT identity is a separate adoption, not a consequence
+of preserving an existing refresh sentinel. Read the
+[`credential@2` contract](../../docs/spec/capabilities/com.docker.sandbox/credential@2.md)
+before opting in, and verify that the target runtime implements it.
+
+Keep a native request required to reject unsupported runtimes. To allow
+logged-out startup on a compatible runtime, use
+`onMissing: unauthenticated` instead of making the capability optional.
+With `oauth.profile: openai-chatgpt`, the new identity placeholders are
+`IDToken`, `AccountID`, and `LastRefresh`; they are not valid in `@1` or
+generic `@2`. Native identity disclosure is an additional permission,
+and `@1` and `@2` cannot own the same (service, phase). The contract does
+not define an in-place migration of an existing sandbox.
+
 ### lifecycle@1
 
 One entry holding `install:`, `startup:`, `files:` and `interactive:`. Commands,

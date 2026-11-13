@@ -47,6 +47,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityNetworkPolicy:            reflect.TypeFor[PhasedNetwork](),
 	CapabilityNetworkPolicyV2:          reflect.TypeFor[PhasedNetworkV2](),
 	CapabilityCredential:               reflect.TypeFor[Credential](),
+	CapabilityCredentialV2:             reflect.TypeFor[CredentialV2](),
 	CapabilitySSHAgent:                 reflect.TypeFor[SSHAgent](),
 	CapabilityVolume:                   reflect.TypeFor[Volume](),
 	CapabilityHostMount:                reflect.TypeFor[HostMount](),
@@ -71,7 +72,8 @@ var configTypes = map[string]reflect.Type{
 // variable names. A type this grammar does not know has an opaque config,
 // all of it free-form.
 var freeFormConfigMaps = map[string][]string{
-	CapabilityCredential: {"oauth.credentialFile.structure"},
+	CapabilityCredential:   {"oauth.credentialFile.structure"},
+	CapabilityCredentialV2: {"oauth.credentialFile.structure"},
 }
 
 // parameterizedConfigFields refuses a key of a parameterized entry that
@@ -407,7 +409,8 @@ type CredentialCapability struct {
 	Description string
 }
 
-// CredentialsOf returns every credential request, in declaration order.
+// CredentialsOf returns credential@1 requests in declaration order.
+// Version 2 requests require CredentialsV2Of so their profile is preserved.
 func CredentialsOf(needs []Capability) ([]CredentialCapability, error) {
 	var out []CredentialCapability
 	for _, n := range needs {

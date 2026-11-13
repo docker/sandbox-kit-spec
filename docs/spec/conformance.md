@@ -516,7 +516,12 @@ context mixin's. Two further compositions share half of a destination:
 keying profiles on one half of the destination collapses them.
 
 An adapter that cannot bind credentials **SHOULD NOT** claim
-`com.docker.sandbox/credential@1`, in which case its checks are skipped.
+`com.docker.sandbox/credential@1` or `com.docker.sandbox/credential@2`,
+in which case that version's checks are skipped. The generic API-key
+probes run separately for each claimed version. Passing them does not
+establish native ChatGPT identity or refresh conformance; those duties
+retain explicit waivers until the adapter can supply controlled host
+OAuth bindings and token endpoints.
 
 When `create` carries `--ssh-agent <socket>`, the adapter **MUST** make
 the SSH agent listening on that Unix socket the backing agent available

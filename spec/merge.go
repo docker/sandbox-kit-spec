@@ -461,22 +461,13 @@ func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSou
 			if n.Source != nil {
 				reference = fmt.Sprintf("%s (%s %s)", c.Reference, n.Source.Kit, n.Source.Path)
 			}
-			if n.Type == CapabilityCredential {
-				var credential Credential
-				if err := decodeForMerge(reference, n, &credential); err != nil {
-					return nil, nil, err
+			if isCredentialType(n.Type) {
+				entries, err := splitCredentialPhases(n)
+				if err != nil {
+					return nil, nil, explainMergeDecode(reference, n, err)
 				}
-				if len(credential.Phase) == 0 {
-					return nil, nil, fmt.Errorf("merge: %s: credential phase is empty", reference)
-				}
-				for _, phase := range credential.Phase {
-					one := credential
-					one.Phase = Phases{phase}
-					entry, err := CapabilityWithConfig(n, one)
-					if err != nil {
-						return nil, nil, err
-					}
-					if err := m.add(reference, *entry); err != nil {
+				for _, entry := range entries {
+					if err := m.add(reference, entry); err != nil {
 						return nil, nil, err
 					}
 				}
@@ -720,7 +711,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 	// collapsing two into one here would let a set publish what the
 	// resolver would have refused, and the merged kit would carry a
 	// credential with no telling which kit answers for it.
-	if n.Type == CapabilityCredential {
+	if isCredentialType(n.Type) {
 		return fmt.Errorf("merge: %s and %s both declare %s; one credential has one owner",
 			prev.reference, reference, describeCapability(n))
 	}

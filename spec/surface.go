@@ -72,9 +72,11 @@ type Surface struct {
 	USB              []string `json:"usb,omitempty"`
 	Privileged       bool     `json:"privileged,omitempty"`
 
-	// Services holds one entry per requested runtime-provided service:
-	// the type string, with a digest of the config when one is present,
-	// so a config change moves the surface the way any widening does.
+	// Services holds requested runtime-provided services. Most entries
+	// use the type and a config digest. A credential identity grant uses
+	// "<type> <service> <phase> <profile>" so adding disclosed metadata
+	// widens the surface, while marker and missing-binding policy changes
+	// do not.
 	// Optional requests are surfaced too — optional only changes what
 	// happens when the host cannot provide the service, not what is
 	// granted when it can.
@@ -110,17 +112,25 @@ func SurfaceOf(d *Descriptor) Surface {
 				s.NetworkRuntimeHTTPAllow = append(s.NetworkRuntimeHTTPAllow, entrySurface(r.Allow)...)
 				s.NetworkRuntimeHTTPDeny = append(s.NetworkRuntimeHTTPDeny, entrySurface(r.Deny)...)
 			}
-		case CapabilityCredential:
-			var c Credential
-			if err := DecodeCapabilityConfig(n, &c); err != nil {
+		case CapabilityCredential, CapabilityCredentialV2:
+			service, phases, _, err := credentialBindingFields(n)
+			if err != nil {
 				s.Services = append(s.Services, capabilitySurfaceEntry(n))
 				continue
 			}
-			for _, phase := range c.Phase {
+			for _, phase := range phases {
 				if phase == "install" {
-					s.CredentialsInstall = append(s.CredentialsInstall, c.Service)
+					s.CredentialsInstall = append(s.CredentialsInstall, service)
 				} else {
-					s.CredentialsRuntime = append(s.CredentialsRuntime, c.Service)
+					s.CredentialsRuntime = append(s.CredentialsRuntime, service)
+				}
+			}
+			if n.Type == CapabilityCredentialV2 {
+				var c CredentialV2
+				if err := DecodeCapabilityConfig(n, &c); err == nil && c.OAuth != nil && c.OAuth.Profile != "" {
+					for _, phase := range c.Phase {
+						s.Services = append(s.Services, fmt.Sprintf("%s %s %s %s", n.Type, c.Service, phase, c.OAuth.Profile))
+					}
 				}
 			}
 		case CapabilitySSHAgent:

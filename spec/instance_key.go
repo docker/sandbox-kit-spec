@@ -121,6 +121,9 @@ func keyAsWritten(c Capability) (InstanceKey, Arity, error) {
 	if c.Type == CapabilityHostMount {
 		space = CapabilityVolume
 	}
+	if c.Type == CapabilityCredentialV2 {
+		space = CapabilityCredential
+	}
 	return InstanceKey{Space: space, Parts: parts}, ArityInstance, nil
 }
 
@@ -132,6 +135,10 @@ var instanceKeys = map[string]keyDefinition{
 		return []string{NormalizeCapabilityName(a.Agent)}, nil
 	}),
 	CapabilityCredential: keyOn([]string{"service", "phase"}, func(c Credential) ([]string, error) {
+		phase, err := onlyPhase(c.Phase)
+		return []string{c.Service, phase}, err
+	}),
+	CapabilityCredentialV2: keyOn([]string{"service", "phase"}, func(c CredentialV2) ([]string, error) {
 		phase, err := onlyPhase(c.Phase)
 		return []string{c.Service, phase}, err
 	}),
