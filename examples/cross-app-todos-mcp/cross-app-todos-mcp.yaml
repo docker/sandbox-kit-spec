@@ -1,0 +1,97 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Cross-app todos over MCP
+description: >-
+  Lets the sandbox use a todo MCP server as the person running it, using
+  Cross App Access. The grant names the MCP server as its resource, so
+  the access token the host obtains is bound to that server and nothing
+  else. The host presents it on requests the sandbox sends to the
+  server, and a runtime that fronts registered MCP servers with a
+  gateway can present the same grant there in place of the server's own
+  OAuth flow; either way the agent never sees the token. The defaults
+  name the public Cross App Access playground at xaa.dev; point the args
+  at an MCP server of your own to use it elsewhere.
+
+kind: mixin
+provides: ["cross-app-todos-mcp"]
+version: "1.0.0"
+
+args:
+  # The MCP server's authorization server, as its protected-resource
+  # metadata names it: the audience of the grant the identity provider
+  # issues and where the host redeems it.
+  issuer:
+    default: https://auth.resource.xaa.dev
+    pattern: '^https://[^\s?#@]{1,248}$'
+    description: Issuer of the MCP server's authorization server
+  # The MCP endpoint itself. A server accepts only tokens issued for it,
+  # so the identity provider's connection names this URL too.
+  resource:
+    default: https://mcp.xaa.dev/mcp
+    pattern: '^https://[^\s#]{1,248}$'
+    description: MCP endpoint the access token is issued for
+  # The endpoint's host, both where the token goes and what the network
+  # policy opens. One host: no other token may be presented there.
+  domain:
+    default: mcp.xaa.dev
+    pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    description: Host of the MCP endpoint
+  # The playground separates reaching the server from reading through
+  # it: the first scope lists resources, the second reads them.
+  scope:
+    default: mcp.access
+    pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
+    description: Scope that admits the token to the MCP server
+  data_scope:
+    default: todos.read
+    pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
+    description: Scope that lets the server read the person's todos
+
+capabilities:
+  # Every exchange is signed into this identity's ledger, so access taken
+  # in a person's name is attributable to one sandbox.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Record each exchange against this sandbox
+    config:
+      ledger: required
+
+  - type: com.docker.sandbox/cross-app-access@1
+    description: Use the MCP server at ${{ kit.args.domain }} as the signed-in person
+    config:
+      name: todos-mcp
+      issuer: ${{ kit.args.issuer }}
+      resource: ${{ kit.args.resource }}
+      scopes: ["${{ kit.args.scope }}", "${{ kit.args.data_scope }}"]
+      inject:
+        - domain: ${{ kit.args.domain }}
+
+  # Every inject domain must be reachable; the policy unions with the
+  # workload's own.
+  - type: com.docker.sandbox/network-policy@2
+    description: Reach the todo MCP server
+    config:
+      runtime:
+        allow:
+          - hosts: ["${{ kit.args.domain }}"]
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Cross-app todos over MCP
+
+        The MCP server at `${{ kit.args.resource }}` serves this sandbox
+        as the person running it. Requests to it carry an access token
+        issued for that person, limited to `${{ kit.args.scope }}` and
+        `${{ kit.args.data_scope }}`. You do not hold the token and
+        cannot read it. If the sandbox's MCP gateway already lists the
+        server, use it there. Otherwise connect to the URL over
+        streamable HTTP without an `Authorization` header and without
+        starting an OAuth flow; the host adds the token. A 401 or 403
+        means the identity provider or the server did not allow this
+        access; report it rather than looking for another credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
