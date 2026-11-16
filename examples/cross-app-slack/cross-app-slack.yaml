@@ -1,0 +1,86 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Cross-app Slack
+description: >-
+  Lets the sandbox read Slack channels through Slack's MCP server as the
+  person running it, using Cross App Access, which Slack calls
+  enterprise-managed authorization. The host exchanges the person's
+  enterprise sign-in for an identity assertion grant bound to Slack's
+  authorization server, has it redeemed for a short-lived user token,
+  and presents that token on requests to the server; the agent never
+  sees it. The identity provider's administrator decides who may reach
+  Slack through the sandbox and with which scopes, so nobody is sent
+  through a consent screen. It needs a Slack organization that signs in
+  through that identity provider and has enabled enterprise-managed
+  authorization for the Slack app the runtime redeems grants as.
+
+kind: mixin
+provides: ["cross-app-slack"]
+version: "1.0.0"
+
+args:
+  # The Slack user scopes behind reading a public channel: one for the
+  # channel's details, one for its messages. The identity provider's
+  # connection and the Slack app must each allow what is asked for
+  # here; one they do not both allow refuses the grant.
+  info_scope:
+    default: channels:read
+    pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
+    description: Scope for basic information about public channels
+  history_scope:
+    default: channels:history
+    pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
+    description: Scope for messages in public channels
+
+capabilities:
+  # Every exchange is signed into this identity's ledger, so access taken
+  # in a person's name is attributable to one sandbox.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Record each exchange against this sandbox
+    config:
+      ledger: required
+
+  # No resource: Slack binds its tokens to the authorization server
+  # alone, and an identity provider connected to Slack refuses a grant
+  # request that names one.
+  - type: com.docker.sandbox/cross-app-access@1
+    description: Use the Slack MCP server as the signed-in person
+    config:
+      name: slack
+      issuer: https://mcp.slack.com
+      scopes: ["${{ kit.args.info_scope }}", "${{ kit.args.history_scope }}"]
+      inject:
+        - domain: mcp.slack.com
+
+  # Every inject domain must be reachable; the policy unions with the
+  # workload's own.
+  - type: com.docker.sandbox/network-policy@2
+    description: Reach the Slack MCP server
+    config:
+      runtime:
+        allow:
+          - hosts: ["mcp.slack.com"]
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Slack as the person running this sandbox
+
+        The Slack MCP server at `https://mcp.slack.com/mcp` serves this
+        sandbox as the person running it. Requests to it carry a
+        short-lived Slack user token issued for that person, limited to
+        `${{ kit.args.info_scope }}` and `${{ kit.args.history_scope }}`:
+        you can read public channels and their threads, and nothing
+        else. You do not hold the token and cannot read it. If the
+        sandbox's MCP gateway already lists the server, use it there.
+        Otherwise connect to the URL over streamable HTTP without an
+        `Authorization` header and without starting an OAuth flow; the
+        host adds the token. A 401 or 403 means the identity provider
+        or Slack did not allow this access; report it rather than
+        looking for another credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
