@@ -2,8 +2,9 @@
 schemaVersion: "3"
 displayName: Cross-app Slack
 description: >-
-  Lets the sandbox read Slack channels through Slack's MCP server as the
-  person running it, using Cross App Access, which Slack calls
+  Lets the sandbox search and read public Slack channels through Slack's
+  MCP server as the person running it, using Cross App Access, which
+  Slack calls
   enterprise-managed authorization. The host exchanges the person's
   enterprise sign-in for an identity assertion grant bound to Slack's
   authorization server, has it redeemed for a short-lived user token,
@@ -19,10 +20,12 @@ provides: ["cross-app-slack"]
 version: "1.0.0"
 
 args:
-  # The Slack user scopes behind reading a public channel: one for the
-  # channel's details, one for its messages. The identity provider's
-  # connection and the Slack app must each allow what is asked for
-  # here; one they do not both allow refuses the grant.
+  # The Slack user scopes behind finding and reading a public channel:
+  # one for the channel's details, one for its messages, one for
+  # searching them. Without the search scope the server offers only
+  # tools that take a channel ID. The identity provider's connection
+  # and the Slack app must each allow what is asked for here; one they
+  # do not both allow refuses the grant.
   info_scope:
     default: channels:read
     pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
@@ -31,6 +34,10 @@ args:
     default: channels:history
     pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
     description: Scope for messages in public channels
+  search_scope:
+    default: search:read.public
+    pattern: '^[\x21\x23-\x5B\x5D-\x7E]{1,128}$'
+    description: Scope for searching public channels and their messages
 
 capabilities:
   # Every exchange is signed into this identity's ledger, so access taken
@@ -48,7 +55,10 @@ capabilities:
     config:
       name: slack
       issuer: https://mcp.slack.com
-      scopes: ["${{ kit.args.info_scope }}", "${{ kit.args.history_scope }}"]
+      scopes:
+        - "${{ kit.args.info_scope }}"
+        - "${{ kit.args.history_scope }}"
+        - "${{ kit.args.search_scope }}"
       inject:
         - domain: mcp.slack.com
 
@@ -71,15 +81,17 @@ capabilities:
         The Slack MCP server at `https://mcp.slack.com/mcp` serves this
         sandbox as the person running it. Requests to it carry a
         short-lived Slack user token issued for that person, limited to
-        `${{ kit.args.info_scope }}` and `${{ kit.args.history_scope }}`:
-        you can read public channels and their threads, and nothing
-        else. You do not hold the token and cannot read it. If the
-        sandbox's MCP gateway already lists the server, use it there.
-        Otherwise connect to the URL over streamable HTTP without an
-        `Authorization` header and without starting an OAuth flow; the
-        host adds the token. A 401 or 403 means the identity provider
-        or Slack did not allow this access; report it rather than
-        looking for another credential.
+        `${{ kit.args.info_scope }}`, `${{ kit.args.history_scope }}`
+        and `${{ kit.args.search_scope }}`: you can search public
+        channels and their messages and read those channels and their
+        threads, and nothing else. Search for a channel by name to get
+        the ID the read tools take. You do not hold the token and cannot
+        read it. If the sandbox's MCP gateway already lists the server,
+        use it there. Otherwise connect to the URL over streamable HTTP
+        without an `Authorization` header and without starting an OAuth
+        flow; the host adds the token. A 401 or 403 means the identity
+        provider or Slack did not allow this access; report it rather
+        than looking for another credential.
 
   - type: com.docker.sandbox/agent-context@2
     optional: true
