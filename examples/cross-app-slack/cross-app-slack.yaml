@@ -62,6 +62,18 @@ capabilities:
       inject:
         - domain: mcp.slack.com
 
+  # The runtime connects to the server itself and offers its tools to
+  # the agent, so nobody registers Slack with the runtime first. A
+  # runtime that cannot leaves the agent to connect on its own, which
+  # the grant above already covers.
+  - type: com.docker.sandbox/mcp-registration@1
+    optional: true
+    description: Offer the Slack MCP server's tools to the agent
+    config:
+      name: slack
+      url: https://mcp.slack.com/mcp
+      access: slack
+
   # Every inject domain must be reachable; the policy unions with the
   # workload's own.
   - type: com.docker.sandbox/network-policy@2
@@ -86,12 +98,12 @@ capabilities:
         channels and their messages and read those channels and their
         threads, and nothing else. Search for a channel by name to get
         the ID the read tools take. You do not hold the token and cannot
-        read it. If the sandbox's MCP gateway already lists the server,
-        use it there. Otherwise connect to the URL over streamable HTTP
-        without an `Authorization` header and without starting an OAuth
-        flow; the host adds the token. A 401 or 403 means the identity
-        provider or Slack did not allow this access; report it rather
-        than looking for another credential.
+        read it. The sandbox's MCP gateway lists the server as `slack`;
+        use its tools there. If it is missing, connect to the URL over
+        streamable HTTP without an `Authorization` header and without
+        starting an OAuth flow; the host adds the token. A 401 or 403
+        means the identity provider or Slack did not allow this access;
+        report it rather than looking for another credential.
 
   - type: com.docker.sandbox/agent-context@2
     optional: true
