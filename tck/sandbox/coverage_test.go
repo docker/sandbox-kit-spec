@@ -107,7 +107,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required", "workload-token@1/unavailable-refuses-required", "cross-app-access@1/unavailable-refuses-required"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "workload-identity@1/unavailable-refuses-required", "git-push@1/unavailable-refuses-required", "workload-token@1/unavailable-refuses-required", "cross-app-access@1/unavailable-refuses-required", "mcp-registration@1/unavailable-refuses-required"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -353,6 +353,20 @@ var waived = map[string]string{
 	"cross-app-access@1/exchange-recorded":      "host-internal: the exchange is recorded in the runtime's ledger, which the adapter contract does not expose",
 	"cross-app-access@1/token-not-recorded":     "host-internal: the ledger's contents are not exposed by the adapter contract",
 	"cross-app-access@1/absent-without-grant":   "needs an adapter with an identity provider to show the difference; the fake adapter presents nothing either way",
+	"mcp-registration@1/name-grammar":           "grammar rule, judged by the spec package's validators and schema tests",
+	"mcp-registration@1/url-grammar":            "grammar rule, judged by the spec package's validators and schema tests",
+	"mcp-registration@1/url-within-allow":       "grammar rule, judged by the spec package's validators and schema tests",
+	"mcp-registration@1/access-declared":        "grammar rule, judged by the spec package's validators and schema tests",
+	"mcp-registration@1/access-serves-url":      "grammar rule, judged by the spec package's validators and schema tests",
+	"mcp-registration@1/fields-closed":          "grammar rule, judged by the spec package's validators and schema tests",
+	"mcp-registration@1/served":                 "needs an MCP server fixture and an adapter verb that lists the tools the agent is offered; not exercised yet",
+	"mcp-registration@1/connected-outside":      "needs an MCP server fixture that records where a connection came from; not exercised yet",
+	"mcp-registration@1/access-only":            "needs an adapter with an identity provider and an MCP server fixture that records the credential; not exercised yet",
+	"mcp-registration@1/no-token-not-connected": "needs an adapter with an identity provider that refuses a grant; not exercised yet",
+	"mcp-registration@1/anonymous":              "needs an MCP server fixture that records the credential and answers with an authorization challenge; not exercised yet",
+	"mcp-registration@1/policy-applies":         "host-internal: the runtime's tool policy is not exposed by the adapter contract",
+	"mcp-registration@1/absent-without-entry":   "needs an adapter verb that lists the tools the agent is offered; the fake adapter offers none either way",
+	"mcp-registration@1/removed-with-sandbox":   "host-internal: the runtime's registrations are not exposed by the adapter contract",
 	"git-push@1/states-a-rule":                  "grammar rule, judged by the spec package's validators and schema tests",
 	"git-push@1/pattern-grammar":                "grammar rule, judged by the spec package's validators and schema tests",
 	"git-push@1/patterns-unique":                "grammar rule, judged by the spec package's validators and schema tests",

@@ -121,6 +121,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityCredential:               ArityInstance,
 		CapabilityWorkloadToken:            ArityInstance,
 		CapabilityCrossAppAccess:           ArityInstance,
+		CapabilityMCPRegistration:          ArityInstance,
 		CapabilitySSHAgent:                 ArityInstance,
 		CapabilityVolume:                   ArityInstance,
 		CapabilityHostMount:                ArityInstance,
@@ -585,6 +586,8 @@ func TestLiteralInstanceKeysReadOnlyKeyFields(t *testing.T) {
 			[]string{"audience", "inject"}},
 		CapabilityCrossAppAccess: {map[string]any{"name": "todos", "issuer": "https://auth.example.com", "inject": []any{map[string]any{"domain": "api.example.com"}}},
 			[]string{"issuer", "inject"}},
+		CapabilityMCPRegistration: {map[string]any{"name": "todos", "url": "https://api.example.com/mcp", "access": "todos"},
+			[]string{"url", "access"}},
 	}
 	var keyed []string
 	for _, typ := range KnownCapabilities() {

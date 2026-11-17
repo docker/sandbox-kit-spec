@@ -67,6 +67,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityGitPush:                  reflect.TypeFor[GitPush](),
 	CapabilityWorkloadToken:            reflect.TypeFor[WorkloadToken](),
 	CapabilityCrossAppAccess:           reflect.TypeFor[CrossAppAccess](),
+	CapabilityMCPRegistration:          reflect.TypeFor[MCPRegistration](),
 }
 
 // freeFormConfigMaps lists, by type, the maps in a well-known config whose
@@ -664,6 +665,23 @@ func CrossAppAccessesOf(needs []Capability) ([]CrossAppAccess, error) {
 			return nil, err
 		}
 		out = append(out, x)
+	}
+	return out, nil
+}
+
+// MCPRegistrationsOf returns every mcp-registration request in
+// declaration order.
+func MCPRegistrationsOf(needs []Capability) ([]MCPRegistration, error) {
+	var out []MCPRegistration
+	for _, n := range needs {
+		if n.Type != CapabilityMCPRegistration {
+			continue
+		}
+		var m MCPRegistration
+		if err := DecodeCapabilityConfig(n, &m); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
 	}
 	return out, nil
 }

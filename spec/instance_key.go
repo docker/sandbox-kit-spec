@@ -170,6 +170,11 @@ var instanceKeys = map[string]keyDefinition{
 	CapabilityCrossAppAccess: keyOn([]string{"name"}, func(x CrossAppAccess) ([]string, error) {
 		return []string{x.Name}, nil
 	}),
+	// One server per name: the agent addresses a server's tools by it, so
+	// two kits naming it must mean one endpoint.
+	CapabilityMCPRegistration: keyOn([]string{"name"}, func(m MCPRegistration) ([]string, error) {
+		return []string{m.Name}, nil
+	}),
 	CapabilityPort: keyOn([]string{"container", "transport"}, func(p Port) ([]string, error) {
 		return []string{PortKey(p)}, nil
 	}).defaulting("transport"),

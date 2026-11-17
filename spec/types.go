@@ -470,6 +470,12 @@ const (
 	// on name.
 	CapabilityCrossAppAccess = "com.docker.sandbox/cross-app-access@1"
 
+	// CapabilityMCPRegistration registers one remote MCP server with the
+	// sandbox: the runtime connects to it outside the sandbox and offers
+	// its tools to the agent, with no registration on the host by the
+	// person. Config decodes to MCPRegistration. Instance-shaped on name.
+	CapabilityMCPRegistration = "com.docker.sandbox/mcp-registration@1"
+
 	// CapabilityCredential is one service the workload authenticates to;
 	// config decodes to Credential. Instance-shaped, keyed by
 	// (service, phase).
@@ -839,6 +845,20 @@ type CrossAppAccess struct {
 	// Inject lists the outbound domains the runtime presents the access
 	// token to. Header defaults to Authorization and Format to "Bearer %s".
 	Inject []Inject `json:"inject" yaml:"inject"`
+}
+
+// MCPRegistration is CapabilityMCPRegistration's config: one remote MCP
+// server the runtime serves to the agent, and the grant it reaches the
+// server with.
+type MCPRegistration struct {
+	// Name identifies the server among those the agent is offered.
+	Name string `json:"name" yaml:"name"`
+	// URL is the server's streamable HTTP endpoint.
+	URL string `json:"url" yaml:"url"`
+	// Access names the cross-app-access entry whose access token the
+	// runtime presents to the server. Empty reaches the server without a
+	// credential.
+	Access string `json:"access,omitempty" yaml:"access,omitempty"`
 }
 
 // GitPush is CapabilityGitPush's config. Every field bounds pushes

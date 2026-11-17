@@ -1,0 +1,18 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: MCP registration
+description: Offers the agent one remote MCP server the runtime connects to outside the sandbox
+capabilities:
+  # Optional so a runtime claiming only one capability can compose this
+  # fixture; the server's host must be in the allow list.
+  - type: com.docker.sandbox/network-policy@1
+    optional: true
+    config:
+      runtime:
+        allow: [example.com]
+
+  - type: com.docker.sandbox/mcp-registration@1
+    config:
+      name: docs
+      url: https://example.com/mcp

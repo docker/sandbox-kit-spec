@@ -224,6 +224,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capability: capGitPush, fixture: fixtureGitPush},
 				{capability: capWorkloadToken, fixture: fixtureWorkloadToken},
 				{capability: capCrossAppAccess, fixture: fixtureCrossAppAccess},
+				{capability: capMCPRegistration, fixture: fixtureMCPRegistration},
 				{capLifecycle, fixtureHooks, false},
 				{capNetworkPolicy, fixtureEgress, false},
 				{capNetworkPolicyV2, fixtureHTTPEgress, false},
@@ -934,6 +935,7 @@ const (
 	capGitPush                  = "com.docker.sandbox/git-push@1"
 	capWorkloadToken            = "com.docker.sandbox/workload-token@1"
 	capCrossAppAccess           = "com.docker.sandbox/cross-app-access@1"
+	capMCPRegistration          = "com.docker.sandbox/mcp-registration@1"
 )
 
 const (
@@ -949,6 +951,7 @@ const (
 	fixtureGitPush          = "git-push"
 	fixtureWorkloadToken    = "workload-token"
 	fixtureCrossAppAccess   = "cross-app-access"
+	fixtureMCPRegistration  = "mcp-registration"
 )
 
 // The skills checks all compose both mixins: one declaring read-only and

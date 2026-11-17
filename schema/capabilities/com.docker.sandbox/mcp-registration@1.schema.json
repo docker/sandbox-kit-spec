@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/mcp-registration@1",
+  "description": "Registers one remote MCP server with the sandbox: the runtime connects to it outside the sandbox and offers its tools to the agent, with no registration on the host by the person. Instance-shaped on name. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "url"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "Identifies the server among those the agent is offered."
+    },
+    "url": {
+      "type": "string",
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "pattern": "^https://[^\\s?#@]+$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "The server's streamable HTTP endpoint. Its host must appear in the network policy's runtime allow list (or be covered by a bare wildcard)."
+    },
+    "access": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ],
+      "description": "Name of the cross-app-access entry, declared beside this one, whose access token the runtime presents to the server. Absent reaches the server without a credential."
+    }
+  }
+}

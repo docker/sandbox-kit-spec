@@ -75,7 +75,7 @@ func allCapabilityTypes() []string {
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityDockerd, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
-		CapabilityWorkloadIdentity, CapabilityGitPush, CapabilityWorkloadToken, CapabilityCrossAppAccess,
+		CapabilityWorkloadIdentity, CapabilityGitPush, CapabilityWorkloadToken, CapabilityCrossAppAccess, CapabilityMCPRegistration,
 	}
 }
 
@@ -316,6 +316,15 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	}
 	assertAcceptsKitArg(t, at(t, crossApp, "properties", "scopes", "items"), "bearing")
 	require.Equal(t, float64(1), at(t, crossApp, "properties", "inject")["minItems"], "an access token with nowhere to go is never presented")
+
+	mcpRegistration := loadJSON(t, perTypeSchemaPath(CapabilityMCPRegistration))
+	require.ElementsMatch(t, []any{"name", "url"}, mcpRegistration["required"].([]any))
+	for _, field := range []string{"name", "access"} {
+		require.Equal(t, workloadTokenName.String(), literalPattern(t, at(t, mcpRegistration, "properties", field)))
+	}
+	for _, field := range []string{"name", "url", "access"} {
+		assertAcceptsKitArg(t, at(t, mcpRegistration, "properties", field), "bearing")
+	}
 
 	gitPush := loadJSON(t, perTypeSchemaPath(CapabilityGitPush))
 	require.Equal(t, float64(1), gitPush["minProperties"], "a git-push stating nothing bounds nothing")
