@@ -27,6 +27,19 @@ capabilities:
     config:
       ledger: required
 
+  # The runtime connects to the server itself and offers its tools to
+  # the agent, so nobody registers Slack with the runtime first. The
+  # connection is made as the person, with the token of the grant that
+  # `access` names. A runtime that cannot do this leaves the agent to
+  # connect on its own, which that grant already covers.
+  - type: com.docker.sandbox/mcp-registration@1
+    optional: true
+    description: Offer the Slack MCP server's tools to the agent
+    config:
+      name: slack
+      url: https://mcp.slack.com/mcp
+      access: slack
+
   # No resource: Slack binds its tokens to the authorization server
   # alone, and an identity provider connected to Slack refuses a grant
   # request that names one.
@@ -48,18 +61,6 @@ capabilities:
         - search:read.public
       inject:
         - domain: mcp.slack.com
-
-  # The runtime connects to the server itself and offers its tools to
-  # the agent, so nobody registers Slack with the runtime first. A
-  # runtime that cannot leaves the agent to connect on its own, which
-  # the grant above already covers.
-  - type: com.docker.sandbox/mcp-registration@1
-    optional: true
-    description: Offer the Slack MCP server's tools to the agent
-    config:
-      name: slack
-      url: https://mcp.slack.com/mcp
-      access: slack
 
   # Every inject domain must be reachable; the policy unions with the
   # workload's own.
