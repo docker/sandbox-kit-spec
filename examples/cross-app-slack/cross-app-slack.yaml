@@ -40,6 +40,15 @@ capabilities:
       url: https://mcp.slack.com/mcp
       access: slack
 
+  # The server's host, which is also the grant's inject domain, must be
+  # reachable; the policy unions with the workload's own.
+  - type: com.docker.sandbox/network-policy@2
+    description: Reach the Slack MCP server
+    config:
+      runtime:
+        allow:
+          - hosts: ["mcp.slack.com"]
+
   # No resource: Slack binds its tokens to the authorization server
   # alone, and an identity provider connected to Slack refuses a grant
   # request that names one.
@@ -61,15 +70,6 @@ capabilities:
         - search:read.public
       inject:
         - domain: mcp.slack.com
-
-  # Every inject domain must be reachable; the policy unions with the
-  # workload's own.
-  - type: com.docker.sandbox/network-policy@2
-    description: Reach the Slack MCP server
-    config:
-      runtime:
-        allow:
-          - hosts: ["mcp.slack.com"]
 
   # Offer both versions during the runtime rollout; select one.
   - type: com.docker.sandbox/agent-context@1
