@@ -262,8 +262,8 @@ for 14 days, including available diagnostics on failure. Correct a missing
 secret or evidence problem and rerun notes alone; the release job and its
 asset/image publication do not need rerunning.
 
-The workflow pins the public Linux `sbx` release and Claude template.
-Updating those pins is a separate compatibility decision. Local helper
-tests run with `python3 scripts/test-release-notes.py`. Full sandbox and
-Claude execution needs KVM and real credentials on a hosted runner; it
-cannot run inside a sandbox without nested virtualization.
+The workflow resolves the latest stable public Linux `sbx` release each
+time it runs; the Claude template remains pinned. Local helper tests run
+with `python3 scripts/test-release-notes.py`. Full sandbox and Claude
+execution needs KVM and real credentials on a hosted runner; it cannot
+run inside a sandbox without nested virtualization.

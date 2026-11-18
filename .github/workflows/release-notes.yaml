@@ -101,13 +101,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Install released sbx
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sudo chmod 666 /dev/kvm
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/docker/sbx-releases/releases/latest \
+            | jq -er .tag_name)
+          echo "Using latest stable sbx release: ${VERSION}"
           mkdir -p "$RUNNER_TEMP/sbx-package"
-          curl --fail --silent --show-error --location \
-            https://github.com/docker/sbx-releases/releases/download/v0.54.0/DockerSandboxes-linux.tar.gz \
+          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
             -o "$RUNNER_TEMP/sbx-package/sbx.tar.gz"
           tar xzf "$RUNNER_TEMP/sbx-package/sbx.tar.gz" -C "$RUNNER_TEMP/sbx-package"
           sudo PREFIX="$HOME/.docker/sbx" "$RUNNER_TEMP/sbx-package/docker-sbx/install.sh"
