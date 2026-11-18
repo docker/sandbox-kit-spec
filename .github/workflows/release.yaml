@@ -55,7 +55,7 @@ jobs:
       # The markdownlint image comes from Docker Hub, whose anonymous pull
       # limit is shared by every job on a runner's IP.
       - name: Log in to Docker Hub for public-image pulls
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         env:
           DOCKERHUB_OIDC_CONNECTIONID: ${{ vars.DOCKERHUB_OIDC_CONNECTIONID }}
         with:
@@ -77,7 +77,7 @@ jobs:
 
       # Refresh credentials before QEMU setup and frontend publication.
       - name: Login to Docker Hub
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         env:
           DOCKERHUB_OIDC_CONNECTIONID: ${{ vars.DOCKERHUB_OIDC_CONNECTIONID }}
           # Default is 300s; multi-arch QEMU builds often exceed that before push.
