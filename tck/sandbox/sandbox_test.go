@@ -316,6 +316,8 @@ var mutations = map[string][]string{
 	"host-port-ungranted-access":                               {"host-port@1/no-extra-access"},
 	"host-port-probes-admission":                               {"host-port@1/on-demand"},
 	"host-port-wrong-surface":                                  {"host-port@1/permission-surface"},
+	"context-v2-reference-unattributed":                        {"agent-context@2/delivery"},
+	"context-v2-reference-shared-file":                         {"agent-context@2/delivery"},
 	"context-v2-shared-progressive-file":                       {"agent-context@2/delivery"},
 	"context-v2-unattributed-index":                            {"agent-context@2/delivery"},
 	"context-v2-late-body-file":                                {"agent-context@2/delivery"},

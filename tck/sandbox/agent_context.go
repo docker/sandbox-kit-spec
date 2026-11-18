@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -130,47 +129,17 @@ func init() {
 	)
 }
 
-// Accept absolute paths and relative Markdown links without prescribing a
-// runtime's index layout or per-Kit filename. Runtime-authored indexes are
-// observed here as text, never evaluated as shell commands.
-var contextBodyLink = regexp.MustCompile("(?:/|\\./)[^\\s\x60\"'<>()\\[\\]]+")
-
-var (
-	contextMarkdownLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
-	contextCodeLink     = regexp.MustCompile("`([^`\\s]+/[^`\\s]+)`")
-)
-
 func indexedContextBody(profile, text, kit, want string, read func(string) (string, bool)) string {
-	sectionAttributed := false
-	for _, line := range strings.Split(text, "\n") {
-		// Accept both a named bullet/link and a Kit heading followed by
-		// its link, without mistaking a Kit-named path for attribution.
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
-			sectionAttributed = strings.Contains(line, kit)
-		}
-		candidates := contextBodyLink.FindAllString(line, -1)
-		for _, pattern := range []*regexp.Regexp{contextMarkdownLink, contextCodeLink} {
-			for _, link := range pattern.FindAllStringSubmatch(line, -1) {
-				if !strings.Contains(link[1], "://") {
-					candidates = append(candidates, link[1])
-				}
-			}
-		}
-		attribution := line
-		for _, candidate := range candidates {
-			attribution = strings.ReplaceAll(attribution, candidate, "")
-		}
-		if !sectionAttributed && !strings.Contains(attribution, kit) {
+	for _, link := range contextLinks(text) {
+		if !strings.Contains(link.attribution, kit) {
 			continue
 		}
-		for _, candidate := range candidates {
-			candidate = strings.TrimRight(candidate, ".,;:")
-			if !path.IsAbs(candidate) {
-				candidate = path.Join(path.Dir(profile), candidate)
-			}
-			if body, ok := read(candidate); ok && strings.Contains(body, want) {
-				return candidate
-			}
+		candidate := link.destination
+		if !path.IsAbs(candidate) {
+			candidate = path.Join(path.Dir(profile), candidate)
+		}
+		if body, ok := read(candidate); ok && strings.Contains(body, want) {
+			return candidate
 		}
 	}
 	return ""

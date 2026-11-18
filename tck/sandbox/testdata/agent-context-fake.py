@@ -80,19 +80,32 @@ if verb == "create":
         profiles = profiles[:1]
     if optional:
         profiles.append("/home/agent/.kit-tck/v2-optional/OPTIONAL.md")
-    if broken == "context-v2-shared-progressive-file" and progressive:
+    link_style = os.environ.get("KIT_TCK_FAKE_CONTEXT_LINK_STYLE", "plain")
+    if broken in ("context-v2-reference-unattributed", "context-v2-reference-shared-file"):
+        link_style = "reference"
+    if link_style != "plain":
+        progressive = {file.replace(".md", " guidance.md"): content for file, content in progressive.items()}
+    if broken in ("context-v2-shared-progressive-file", "context-v2-reference-shared-file") and progressive:
         progressive = {"/home/agent/.kit-context-v2/shared.md": "\n\n".join(progressive.values())}
     if broken != "context-v2-missing-index":
-        links = []
+        links, definitions = [], []
         for file in progressive:
-            if broken == "context-v2-shared-progressive-file":
-                links.extend(f"- **{kit}**: {file}" for kit in ("context-v2-tool", "context-v2-progressive"))
-            elif broken == "context-v2-unattributed-index":
-                links.append(f"- Kit guidance: {file}")
+            if broken in ("context-v2-shared-progressive-file", "context-v2-reference-shared-file"):
+                owners = ("context-v2-tool", "context-v2-progressive")
             else:
-                kit = "context-v2-tool" if file.endswith("/tool.md") else "context-v2-progressive"
-                links.append(f"- **{kit}**: {file}")
-        body += "\nKits:\n" + "\n".join(links)
+                owners = ("context-v2-tool" if Path(file).name.startswith("tool") else "context-v2-progressive",)
+            for kit in owners:
+                if broken == "context-v2-unattributed-index":
+                    links.append(f"- Kit guidance: {file}")
+                elif link_style == "angle":
+                    links.append(f"- [{kit}](<{file}>)")
+                elif link_style == "reference":
+                    label = "Read guidance" if broken == "context-v2-reference-unattributed" else kit
+                    links.append(f"- [{label}][{kit}]")
+                    definitions.append(f"[{kit}]: <{file}>")
+                else:
+                    links.append(f"- **{kit}**: {file}")
+        body += "\nKits:\n" + "\n".join(links) + "\n\n" + "\n".join(definitions)
     files = dict.fromkeys(profiles, body)
     if broken != "context-v2-no-body-file":
         files.update(progressive)
