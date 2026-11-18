@@ -171,8 +171,9 @@ type Request struct {
 }
 
 // Resolved is a runtime composition. Keep Kits alongside Descriptor so
-// capability handlers can inspect each contributor's declarations. @2 agent
-// guidance is complete in Descriptor and needs no contributor or layer reads.
+// capability handlers can inspect each contributor's declarations. @2 root
+// guidance is in Descriptor; progressive mixin bodies remain in Kits. Both
+// are descriptor content and need no layer reads.
 type Resolved struct {
 	// Selections records decisions in dependency order, alongside the published
 	// descriptors. Kits contains expanded, selected contributions.
@@ -180,7 +181,7 @@ type Resolved struct {
 
 	// Descriptor is the reconciled, selected declaration set. It does not retain
 	// per-Kit provenance; use Kits where a capability requires attribution.
-	// AgentContextsV2Of reads the complete inline guidance from this field.
+	// AgentContextsV2Of reads workload and inline mixin guidance from this field.
 	Descriptor *spec.Descriptor
 
 	// Kits are selected, unmerged contributions in dependency order, providers before
@@ -191,7 +192,8 @@ type Resolved struct {
 	// This is declaration order; image layers start with the workload.
 	// A Kit can contribute several selected lifecycle/context entries. Apply
 	// lifecycle from Descriptor. For @1 context use spec.AgentContextsOf on
-	// each Kit; @2 profiles and bodies are complete in the merged Descriptor.
+	// each Kit; for @2 use spec.AgentContextsV2Of on each Kit to surface
+	// progressive mixin bodies alongside the merged profiles' root content.
 	Kits []*resolve.Unit
 
 	// ContainerEnv contains resolved env: argument exports. Apply them as

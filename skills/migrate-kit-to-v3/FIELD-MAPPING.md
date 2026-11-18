@@ -393,9 +393,18 @@ that needs nothing from create time. Keep it a hook when:
 ### agent-context@2
 
 Put instruction text in `config.content`. There is no `contentFile` or
-build-only include form. Publication retains inline text and composition
-joins all selected bodies in dependency order in every effective profile.
-The runtime writes combined guidance directly into its managed section.
+build-only include form. Publication retains text and declaration boundaries.
+Mixin guidance defaults to progressive delivery: every discovery profile
+indexes a per-Kit file. Set `delivery: inline` to load that contribution
+directly in every profile. Workload guidance always stays in the root
+profiles. A published workload owns all its retained guidance; a published
+mixin set keeps each declaration's delivery. Composition joins root bodies
+in dependency order without pulling progressive mixin bodies inline.
+Use an ordinary create-phase `context_delivery` arg with
+`default: progressive` and `enum: [progressive, inline]` for an installer
+choice, referenced as `delivery: ${{ kit.args.context_delivery }}`.
+Explicit empty values are invalid; delivery does not route bodies between
+profiles.
 Kit arguments and final `kit.env` references expand normally; audit
 placeholders that were literal in an old staged body. Shell `$VAR` and
 `${VAR}` remain literal. Keep the serialized descriptor within 512 KiB

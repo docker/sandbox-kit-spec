@@ -135,8 +135,9 @@ func mergeForPublication(contributions []Contribution, opts MergeOptions) (*Merg
 // It shares Merge's conflict and reconciliation rules, without staging
 // content for publication. Retain the input contributions alongside the
 // returned descriptor: capability handlers need the individual declarations
-// wherever composition would otherwise erase their provenance. Inline @2
-// agent-context is complete in the returned effective profiles.
+// wherever composition would otherwise erase their provenance. Effective @2
+// profiles carry workload guidance and inline mixin bodies; progressive mixin
+// bodies remain in the input declarations for per-Kit runtime surfacing.
 // The caller resolves dependencies and validates inputs before calling;
 // Compose does not perform descriptor validation or registry IO.
 func Compose(contributions []Contribution) (*Descriptor, error) {
@@ -150,8 +151,8 @@ func Compose(contributions []Contribution) (*Descriptor, error) {
 		result.Descriptor.Capabilities[i].Source = nil
 		result.Descriptor.Capabilities[i].DeclarationBlocks = nil
 	}
-	// Unlike @1 profile stubs, @2 carries every body here, so this API
-	// itself enforces the bound even without a caller validation pass.
+	// Bound the repeated inline profile bodies as well as the source bodies
+	// checked during reconciliation, without a caller validation pass.
 	if HasCapability(result.Descriptor.Capabilities, CapabilityAgentContextV2) {
 		if _, err := checkMergedSize(result.Descriptor); err != nil {
 			return nil, err
@@ -508,6 +509,7 @@ func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSou
 			}
 			if n.Type == CapabilityAgentContext || n.Type == CapabilityAgentContextV2 {
 				m.context[len(m.context)-1].contribution = c.Reference
+				m.context[len(m.context)-1].workload = c.Descriptor.Kind == KindWorkload
 			}
 		}
 	}
@@ -600,6 +602,8 @@ type contextAsk struct {
 	name         string
 	context      *AgentContext
 	v2           bool
+	delivery     string
+	workload     bool
 	optional     bool
 }
 
@@ -648,7 +652,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		}
 		m.context = append(m.context, contextAsk{reference: reference, name: n.Name,
 			context:  &AgentContext{Directory: a.Directory, Filename: a.Filename, Content: a.Content},
-			optional: n.Optional, v2: true})
+			optional: n.Optional, v2: true, delivery: a.EffectiveDelivery()})
 		return nil
 
 	case CapabilityAgentContext:
@@ -1275,8 +1279,9 @@ func (m *capabilityMerge) mergedLifecycle() (*Capability, error) {
 // mergedContext folds the contributors' agent-context into the profiles a
 // sandbox materializes: one entry per distinct explicit destination, or
 // the legacy profile when no contribution states one. Every profile
-// receives every body: @1 collects staging sources, while @2 carries
-// the combined inline text in each effective profile.
+// receives every body at runtime: @1 collects staging sources, while @2
+// profiles carry workload and inline mixin text. Callers retain selected
+// inputs to surface progressive mixin bodies without losing Kit ownership.
 func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error) {
 	if len(m.context) == 0 {
 		return nil, nil, nil
@@ -1318,7 +1323,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 	}
 	legacy := AgentContext{}
 	filenameFrom := ""
-	var sources []ContextSource
+	var sources, inlineSources []ContextSource
 	for _, ask := range m.context {
 		at := 0
 		if ask.context.Directory != "" {
@@ -1342,17 +1347,29 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		case ask.context.ContentFile != "":
 			sources = append(sources, ContextSource{Reference: ask.contribution, Path: ask.context.ContentFile})
 		case ask.context.Content != "":
-			sources = append(sources, ContextSource{Reference: ask.contribution, Content: ask.context.Content})
+			source := ContextSource{Reference: ask.contribution, Content: ask.context.Content}
+			sources = append(sources, source)
+			if ask.workload || ask.delivery == AgentContextDeliveryInline {
+				inlineSources = append(inlineSources, source)
+			}
 		}
 		if !ask.optional {
 			optional[at] = false
 		}
 	}
 
+	if v2 {
+		// Retained guidance also needs a hard bound before materialization.
+		// Advisory warnings concern each serialized descriptor, not the sum
+		// of selected inputs retained alongside the effective profile.
+		if _, err := joinContextV2(sources, 1); err != nil {
+			return nil, nil, err
+		}
+	}
 	if len(profiles) == 0 {
-		if legacy.Filename == "" && len(sources) == 0 {
-			// Every contribution declared the type and stated nothing in
-			// it; the entry would ask for nothing.
+		if legacy.Filename == "" && (len(sources) == 0 || (v2 && len(inlineSources) == 0)) {
+			// No discovery destination or root body remains. Progressive
+			// mixin bodies stay in the retained inputs; do not invent a profile.
 			return nil, nil, nil
 		}
 		profiles = []AgentContext{legacy}
@@ -1361,7 +1378,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 	var content string
 	if v2 {
 		var err error
-		content, err = joinContextV2(sources, len(profiles))
+		content, err = joinContextV2(inlineSources, len(profiles))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1372,7 +1389,7 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 		var config any = &profiles[i]
 		if v2 {
 			typ = CapabilityAgentContextV2
-			config = &AgentContextV2{Directory: profiles[i].Directory, Filename: profiles[i].Filename, Content: content}
+			config = &AgentContextV2{Directory: profiles[i].Directory, Filename: profiles[i].Filename, Content: content, Delivery: AgentContextDeliveryInline}
 		}
 		c, err := capabilityFrom(typ, config)
 		if err != nil {

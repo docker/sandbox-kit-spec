@@ -4,6 +4,9 @@ kind: mixin
 provides: ["context-v2-tool@1.0.0"]
 requires: [context-v2-base]
 args:
+  context_delivery:
+    default: progressive
+    enum: [progressive, inline]
   build:
     default: built
     buildArg: BUILD
@@ -12,4 +15,5 @@ args:
 capabilities:
   - type: com.docker.sandbox/agent-context@2
     config:
+      delivery: ${{ kit.args.context_delivery }}
       content: 'tool-context-v2 ${{ kit.args.build }} ${{ kit.args.team }} ${{ kit.env.KIT_CONTEXT_TEAM }} $TEAM ${TEAM}'

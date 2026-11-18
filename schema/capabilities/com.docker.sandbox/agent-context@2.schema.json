@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/agent-context@2",
-  "description": "Inline guidance retained in every effective profile. Tool mixins may contribute content without a profile. Authored and published forms share the same representation.",
+  "description": "Descriptor guidance with progressive (default) or inline runtime delivery. Tool mixins may contribute content without a profile. Publication preserves declaration boundaries.",
   "type": "object",
   "additionalProperties": false,
   "minProperties": 1,
@@ -11,7 +11,7 @@
     },
     "content": {
       "type": "string",
-      "description": "Inline instruction body; composition joins selected bodies in dependency order."
+      "description": "Instruction body stored inline in the descriptor; effective profiles join workload and inline mixin bodies in dependency order."
     },
     "directory": {
       "type": "string",
@@ -28,6 +28,22 @@
       "not": {
         "pattern": "\\\\"
       }
+    },
+    "delivery": {
+      "type": "string",
+      "default": "progressive",
+      "description": "Mixin guidance delivery; workload guidance always appears in the root profile. Explicit empty values are invalid.",
+      "anyOf": [
+        {
+          "enum": [
+            "progressive",
+            "inline"
+          ]
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
     }
   },
   "dependencies": {

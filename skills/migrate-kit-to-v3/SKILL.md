@@ -483,8 +483,15 @@ and use short guidance pointing to it.
 
 Migrate all selected contributors together: mixing @1 and @2 is an
 explicit composition error, including inline @1 requests. Profile
-placement and existing user instruction preservation remain; @2 writes
-combined guidance directly rather than @1's progressive per-Kit index.
+placement and existing user instruction preservation remain. In @2,
+mixin guidance defaults to progressive per-Kit files indexed from every
+profile. Use `delivery: inline` for a contribution that belongs directly
+in every profile; this does not pull other Kits' progressive bodies
+inline. Workload guidance always remains in the root profiles. Expose an
+installer choice through an ordinary create-phase `context_delivery` arg
+with `default: progressive`, `enum: [progressive, inline]`, and
+`delivery: ${{ kit.args.context_delivery }}`. Explicit empty delivery is
+invalid. Published mixin sets retain each declaration's delivery.
 Runtime consumers must advertise @2 support. Serialized budgets apply
 after expansion and composition: warn above 64 KiB, fail above 512 KiB.
 @1 remains supported and is not deprecated by this migration.

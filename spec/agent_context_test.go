@@ -317,7 +317,11 @@ func TestExampleAgentMixinsComposeOnOneShell(t *testing.T) {
 				}
 			}
 			for i := range profiles {
+				if version == CapabilityAgentContextV2 {
+					require.Equal(t, AgentContextDeliveryInline, profiles[i].Delivery)
+				}
 				profiles[i].Content = ""
+				profiles[i].Delivery = ""
 			}
 			require.Equal(t, []AgentContextV2{
 				{Filename: "CLAUDE.md", Directory: "/home/agent/.claude"},

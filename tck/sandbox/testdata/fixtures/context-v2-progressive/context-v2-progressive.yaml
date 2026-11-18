@@ -1,0 +1,8 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+requires: [context-v2-profile]
+capabilities:
+  - type: com.docker.sandbox/agent-context@2
+    config:
+      content: omitted-delivery-context-v2

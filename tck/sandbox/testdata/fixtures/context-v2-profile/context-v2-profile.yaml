@@ -8,6 +8,7 @@ capabilities:
     config:
       filename: AGENTS.md
       directory: /home/agent/.kit-tck/v2
+      delivery: inline
       content: profile-context-v2
   - type: com.docker.sandbox/agent-context@2
     config:

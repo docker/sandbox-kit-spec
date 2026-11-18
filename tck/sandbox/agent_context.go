@@ -2,7 +2,10 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +28,7 @@ func inlineContextMaterialized(ctx context.Context, e *Env) []report.Finding {
 			want += "\n\nprofile-context-v2"
 			snapshots = []string{"/var/tmp/context-v2-at-launch-1", "/var/tmp/context-v2-at-launch-2"}
 		}
-		id, cleanup, err := e.sandboxWith(ctx, kits, adapter.CreateOptions{Args: map[string]string{"team": "platform"}, Env: map[string]string{"KIT_CONTEXT_TEAM": "runtime-team"}})
+		id, cleanup, err := e.sandboxWith(ctx, kits, adapter.CreateOptions{Args: map[string]string{"team": "platform", "context_delivery": "inline"}, Env: map[string]string{"KIT_CONTEXT_TEAM": "runtime-team"}})
 		if err != nil {
 			cleanup()
 			return []report.Finding{report.Failf("inline context create: %v", err)}
@@ -70,7 +73,7 @@ func waitInlineContextSnapshots(ctx context.Context, e *Env, id string) *report.
 
 func inlineContextSelection(ctx context.Context, e *Env) []report.Finding {
 	for _, reject := range []bool{false, true} {
-		opts := adapter.CreateOptions{}
+		opts := adapter.CreateOptions{Args: map[string]string{"context_delivery": "inline"}}
 		if reject {
 			opts.RejectCapabilities = []string{spec.CapabilityVolume}
 		}
@@ -119,8 +122,87 @@ func inlineContextMixed(ctx context.Context, e *Env) []report.Finding {
 
 func init() {
 	checks = append(checks,
+		check{requirement: "agent-context@2/delivery", capability: capAgentContextV2, run: contextDeliveryMaterialized},
 		check{requirement: "agent-context@2/materialized", capability: capAgentContextV2, run: inlineContextMaterialized},
 		check{requirement: "agent-context@2/selection-boundaries", capability: capAgentContextV2, needs: []string{spec.CapabilityVolume}, run: inlineContextSelection},
 		check{requirement: "agent-context@2/mixed-versions", capability: capAgentContextV2, needs: []string{capAgentContext}, run: inlineContextMixed},
 	)
+}
+
+func indexedContextBody(profile, text, kit, want string, read func(string) (string, bool)) string {
+	for _, link := range contextLinks(text) {
+		if !strings.Contains(link.attribution, kit) {
+			continue
+		}
+		candidate := link.destination
+		if !path.IsAbs(candidate) {
+			candidate = path.Join(path.Dir(profile), candidate)
+		}
+		if body, ok := read(candidate); ok && strings.Contains(body, want) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func contextDeliveryMaterialized(ctx context.Context, e *Env) []report.Finding {
+	for _, mode := range []string{"", spec.AgentContextDeliveryProgressive, spec.AgentContextDeliveryInline} {
+		opts := adapter.CreateOptions{}
+		if mode != "" {
+			opts.Args = map[string]string{"context_delivery": mode}
+		}
+		id, cleanup, err := e.sandboxWith(ctx, []string{"context-v2-workload", "context-v2-tool", "context-v2-profile", "context-v2-progressive"}, opts)
+		if err != nil {
+			cleanup()
+			return []report.Finding{report.Failf("context delivery %q create: %v", mode, err)}
+		}
+		if f := waitInlineContextSnapshots(ctx, e, id); f != nil {
+			cleanup()
+			return []report.Finding{*f}
+		}
+		raw, f := execOutput(ctx, e, id, "cat", "/var/tmp/context-v2-bodies-at-launch.json")
+		if f != nil {
+			cleanup()
+			return []report.Finding{*f}
+		}
+		var atLaunch map[string]map[string]string
+		if err := json.Unmarshal([]byte(raw), &atLaunch); err != nil {
+			cleanup()
+			return []report.Finding{report.Failf("invalid progressive launch evidence: %v", err)}
+		}
+		tool := "tool-context-v2 built default-team image $TEAM ${TEAM}"
+		for i, profile := range []string{"/home/agent/.kit-tck/v2/AGENTS.md", "/home/agent/.kit-tck/v2-other/OTHER.md"} {
+			for _, file := range []string{profile, "/var/tmp/context-v2-at-launch-" + strconv.Itoa(i+1)} {
+				body, f := execOutput(ctx, e, id, "cat", file)
+				if f != nil {
+					cleanup()
+					return []report.Finding{*f}
+				}
+				toolInline := mode == spec.AgentContextDeliveryInline
+				if !strings.Contains(body, "base-context-v2") || !strings.Contains(body, "profile-context-v2") || strings.Contains(body, "omitted-delivery-context-v2") || strings.Contains(body, tool) != toolInline {
+					cleanup()
+					return []report.Finding{report.Failf("%s violates delivery %q: %q", file, mode, body)}
+				}
+				read := func(candidate string) (string, bool) {
+					if file != profile {
+						text, ok := atLaunch[profile][candidate]
+						return text, ok
+					}
+					text, failure := execOutput(ctx, e, id, "cat", candidate)
+					return text, failure == nil
+				}
+				omittedFile := indexedContextBody(profile, body, "context-v2-progressive", "omitted-delivery-context-v2", read)
+				toolFile := ""
+				if !toolInline {
+					toolFile = indexedContextBody(profile, body, "context-v2-tool", tool, read)
+				}
+				if omittedFile == "" || (!toolInline && (toolFile == "" || toolFile == omittedFile)) {
+					cleanup()
+					return []report.Finding{report.Failf("%s does not attribute distinct, readable progressive Kit files for delivery %q", file, mode)}
+				}
+			}
+		}
+		cleanup()
+	}
+	return nil
 }
