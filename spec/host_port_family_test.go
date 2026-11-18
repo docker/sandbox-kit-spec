@@ -50,7 +50,7 @@ func TestHostPortFamilyComposition(t *testing.T) {
 				} else {
 					require.NoError(t, mergeErr)
 					require.NoError(t, composeErr)
-					require.Len(t, merged.Descriptor.Capabilities, 1)
+					require.Len(t, merged.Descriptor.Capabilities, 2, "publication preserves both declarations")
 					require.Len(t, composed.Capabilities, 1)
 				}
 			})

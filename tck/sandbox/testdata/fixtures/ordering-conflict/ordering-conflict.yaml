@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+capabilities:
+- type: com.docker.sandbox/lifecycle@1
+  config:
+    files:
+    - path: /var/tmp/ordering-refusal-config
+      content: conflict

@@ -46,7 +46,7 @@ func TestOpenURLMergeAndSurface(t *testing.T) {
 			Capabilities: []Capability{{Type: CapabilityOpenURL, Optional: optional}},
 		}}
 		for _, inputs := range [][]Contribution{{workload, mixin}, {mixin, workload}} {
-			merged := mergeOK(t, inputs...).Descriptor
+			merged := composeOK(t, inputs...).Descriptor
 			_, err := Validate(merged)
 			require.NoError(t, err)
 			require.Equal(t, []Capability{{Type: CapabilityOpenURL, Optional: optional}}, merged.Capabilities)

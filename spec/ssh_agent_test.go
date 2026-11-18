@@ -138,7 +138,7 @@ func TestSSHAgentBounded(t *testing.T) {
 
 func mergedSSHAgents(t *testing.T, inputs ...Contribution) map[string]Capability {
 	t.Helper()
-	merged := mergeOK(t, inputs...).Descriptor
+	merged := composeOK(t, inputs...).Descriptor
 	_, err := Validate(merged)
 	require.NoError(t, err)
 	out := map[string]Capability{}
@@ -281,7 +281,7 @@ func TestSSHAgentMultiPhaseMergeAndSurface(t *testing.T) {
 		require.NoError(t, DecodeCapabilityConfig(byPhase["runtime"], &runtime))
 		require.True(t, install.Bounded())
 		require.False(t, runtime.Bounded())
-		require.Equal(t, []string{"install sign git", "runtime"}, SurfaceOf(mergeOK(t, inputs...).Descriptor).SSHAgent)
+		require.Equal(t, []string{"install sign git", "runtime"}, SurfaceOf(composeOK(t, inputs...).Descriptor).SSHAgent)
 	}
 	require.Equal(t, []string{"install sign git", "runtime sign git"}, surfaceOf(t, both).SSHAgent)
 	raw, err := json.Marshal(SSHAgent{Phase: SSHAgentPhases{"runtime"}})

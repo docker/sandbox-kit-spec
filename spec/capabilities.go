@@ -614,9 +614,13 @@ func ResourcesOf(needs []Capability) (*Resources, error) {
 	return nil, nil
 }
 
-// LifecycleOf returns the lifecycle declaration's config, or nil when
-// none is declared.
-func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
+// LifecyclesOf returns every lifecycle entry in declaration order.
+// Entries remain separate because they can occupy different execution positions.
+func LifecyclesOf(capabilities []Capability) ([]Lifecycle, error) {
+	if HasGroups(capabilities) {
+		return nil, fmt.Errorf("lifecycles: select groups first")
+	}
+	var out []Lifecycle
 	for _, c := range capabilities {
 		if c.Type != CapabilityLifecycle {
 			continue
@@ -625,9 +629,25 @@ func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
 		if err := DecodeCapabilityConfig(c, &l); err != nil {
 			return nil, err
 		}
-		return &l, nil
+		out = append(out, l)
 	}
-	return nil, nil
+	return out, nil
+}
+
+// LifecycleOf returns the sole lifecycle config, or nil when none is declared.
+// Several entries require LifecyclesOf; returning the first would discard hooks.
+func LifecycleOf(capabilities []Capability) (*Lifecycle, error) {
+	entries, err := LifecyclesOf(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) > 1 {
+		return nil, fmt.Errorf("multiple lifecycle entries; use LifecyclesOf")
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	return &entries[0], nil
 }
 
 // AgentContextOf returns the first agent-context entry's config, or nil

@@ -7,6 +7,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestComposeReusedResultsFollowNewContributionOrder(t *testing.T) {
+	entry := func(name string) Contribution {
+		return Contribution{Reference: name, Descriptor: &Descriptor{
+			SchemaVersion: SchemaVersion, Kind: KindMixin,
+			Capabilities: []Capability{{Type: CapabilityLifecycle, Name: name,
+				Config: map[string]any{"startup": []any{map[string]any{"command": "echo " + name}}}}},
+		}}
+	}
+	for _, fromPlanner := range []bool{false, true} {
+		inputs := []Contribution{entry("A"), entry("B")}
+		var combined *Descriptor
+		if fromPlanner {
+			runtime, err := ComposeRuntime(t.Context(), inputs, RuntimeOptions{Select: Supported(CapabilityLifecycle)})
+			require.NoError(t, err)
+			combined = runtime.Descriptor
+		} else {
+			var err error
+			combined, err = Compose(inputs)
+			require.NoError(t, err)
+		}
+		result, err := Compose([]Contribution{entry("C"), {Reference: "AB", Descriptor: combined}})
+		require.NoError(t, err)
+		var names []string
+		for _, capability := range result.Capabilities {
+			names = append(names, capability.Name)
+		}
+		require.Equal(t, []string{"C", "A", "B"}, names, "planner=%t", fromPlanner)
+	}
+}
+
 func TestComposeAndPublishKeepDifferentContextRepresentations(t *testing.T) {
 	inputs := []Contribution{
 		contribute(t, "tool", `schemaVersion: "3"
@@ -38,19 +68,21 @@ capabilities:
 	require.False(t, runtime.Capabilities[0].Optional)
 
 	_, err = Merge(inputs, MergeOptions{})
-	require.ErrorContains(t, err, "2 agent-context bodies to stage but no ContextPath")
+	require.ErrorContains(t, err, "requires ContextPath")
 	published, err := Merge(inputs, MergeOptions{ContextPath: "/usr/share/sandbox/kit/set/context.md"})
 	require.NoError(t, err)
-	staged, err := AgentContextOf(published.Descriptor.Capabilities)
+	staged, err := AgentContextsOf(DeclaredCapabilities(published.Descriptor.Capabilities))
 	require.NoError(t, err)
-	require.Equal(t, "AGENTS.md", staged.Filename)
-	require.Equal(t, "/usr/share/sandbox/kit/set/context.md", staged.ContentFile)
+	require.Len(t, staged, 2)
+	require.Equal(t, "AGENTS.md", staged[1].Filename)
+	require.Equal(t, "/usr/share/sandbox/kit/set/context.md.parts/0.md", staged[0].ContentFile)
+	require.Equal(t, "/usr/share/sandbox/kit/set/context.md.parts/1.md", staged[1].ContentFile)
 	require.Equal(t, []ContextSource{
-		{Reference: "tool", Content: "Use the tool."},
-		{Reference: "agent", Path: "/usr/share/sandbox/kit/agent/context.md"},
+		{Reference: "tool", Content: "Use the tool.", Target: staged[0].ContentFile},
+		{Reference: "agent", Path: "/usr/share/sandbox/kit/agent/context.md", Target: staged[1].ContentFile},
 	}, published.ContextSources)
-	require.Equal(t, runtime.Capabilities[0].Name, published.Descriptor.Capabilities[0].Name)
-	require.False(t, published.Descriptor.Capabilities[0].Optional)
+	require.True(t, published.Descriptor.Capabilities[0].Group.Optional)
+	require.False(t, published.Descriptor.Capabilities[1].Group.Optional)
 
 	after, err := json.Marshal(inputs)
 	require.NoError(t, err)

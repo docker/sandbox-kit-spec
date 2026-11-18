@@ -1,0 +1,8 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: workload
+provides:
+- kit-tck-ordering-workload@1.0.0
+capabilities:
+- type: com.docker.sandbox/sbx@1
+  optional: true

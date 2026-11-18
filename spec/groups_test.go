@@ -69,24 +69,24 @@ func TestGroupGrammar(t *testing.T) {
 }
 
 func TestGroupValidationPathsAndBlocks(t *testing.T) {
-	d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{groupHook("base"), {Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{groupHook("selected"), {Type: CapabilityVolume, Config: map[string]any{"path": "relative"}}}}}}}
+	d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{{Type: CapabilityDockerd}, {Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{{Type: CapabilityDockerd}, {Type: CapabilityVolume, Config: map[string]any{"path": "relative"}}}}}}}
 	_, err := Validate(d)
 	require.ErrorContains(t, err, "capabilities[1].group.capabilities[1].config.path")
 	d.Capabilities[1].Group.Capabilities = d.Capabilities[1].Group.Capabilities[:1]
 	_, err = Validate(d)
 	require.NoError(t, err, "singleton arity is per declaration block")
-	d.Capabilities = append(d.Capabilities, groupHook("duplicate"))
+	d.Capabilities = append(d.Capabilities, Capability{Type: CapabilityDockerd})
 	_, err = Validate(d)
 	require.ErrorContains(t, err, "capabilities[2].type")
 	d.Capabilities = d.Capabilities[:2]
-	d.Capabilities[1].Group.Capabilities = append(d.Capabilities[1].Group.Capabilities, groupHook("duplicate"))
+	d.Capabilities[1].Group.Capabilities = append(d.Capabilities[1].Group.Capabilities, Capability{Type: CapabilityDockerd})
 	_, err = Validate(d)
 	require.ErrorContains(t, err, "capabilities[1].group.capabilities[1].type")
 }
 
 func TestDuplicateDiagnosticsRetainOriginalPaths(t *testing.T) {
 	for _, duplicate := range []Capability{
-		groupHook("same"),
+		{Type: CapabilityDockerd},
 		{Type: CapabilityVolume, Config: map[string]any{"path": "/cache"}},
 	} {
 		group := Capability{Group: &CapabilityGroup{Capabilities: []Capability{{Type: "com.example/feature@1"}}}}
@@ -216,12 +216,12 @@ func TestSelectedCompositionAndPublishedOrder(t *testing.T) {
 			effective.Capabilities = selection.Capabilities
 			fromSet, err := Compose([]Contribution{{Reference: "published", Descriptor: &effective}})
 			require.NoError(t, err)
-			want, err := LifecycleOf(merged.Capabilities)
+			want, err := LifecyclesOf(merged.Capabilities)
 			require.NoError(t, err)
-			got, err := LifecycleOf(fromSet.Capabilities)
+			got, err := LifecyclesOf(fromSet.Capabilities)
 			require.NoError(t, err)
 			require.Equal(t, want, got)
-			require.Len(t, got.Startup, 2+map[bool]int{true: 1}[accept], "identical hooks are not deduplicated")
+			require.Len(t, got, 2+map[bool]int{true: 1}[accept], "identical hooks are not deduplicated")
 		})
 	}
 }
@@ -239,7 +239,7 @@ func TestConcreteStorageMergePreservesGroupSelection(t *testing.T) {
 	}
 	merged, err := Merge(inputs, MergeOptions{})
 	require.NoError(t, err, "a conditional conflict waits for group selection")
-	require.Len(t, merged.Descriptor.Capabilities, 2, "only ungrouped matching storage collapses")
+	require.Len(t, merged.Descriptor.Capabilities, 3, "publication preserves matching storage declarations")
 	require.Len(t, merged.Descriptor.Capabilities[1].Group.Capabilities, 2, "the explicit group remains intact")
 	raw, err := json.Marshal(merged.Descriptor)
 	require.NoError(t, err)

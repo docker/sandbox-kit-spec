@@ -28,6 +28,9 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"SPEC-v3 §7.1.3/stable-order":                 {"SPEC-v3 §7.1.3/skipped-nodes", "SPEC-v3 §7.1.3/ordering-no-grant"},
+	"SPEC-v3 §7.1.3/target-resolution":            {"SPEC-v3 §7.1.3/published-scopes"},
+	"SPEC-v3 §12/phase-barriers":                  {"lifecycle@1/install-before-entrypoint", "lifecycle@1/files-before-entrypoint"},
 	"sbx@1/environment-hooks-internal":            {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
 	"sbx@1/environment-process-none":              {"sbx@1/environment-authoritative"},
 	"sbx@1/environment-provided":                  {"sbx@1/environment-authoritative", "sbx@1/identity-consistent", "sbx@1/workspace-at-workdir"},
@@ -124,12 +127,14 @@ var covers = map[string][]string{
 // section key would survive the deletion of the one check that actually
 // supplies the evidence.
 var kitCovers = map[string][]string{
+	"staged-sources":      {"SPEC-v3 §10/source-stem"},
 	"agent-skill-content": {"agent-skill@1/content-present"},
 	"oci-annotations":     {"SPEC-v3 §9.3/created-rfc3339"},
 	// ValidatePublished enforces §9.2 on every descriptor this check
 	// decodes, and refuses the authoring-only kind: set — a published
 	// set that was never merged describes layers it does not have.
 	"descriptor-valid": {
+		"SPEC-v3 §7.1.3/ordering-grammar",
 		"host-port@1/config-valid",
 		"docker-auth@1/config-valid",
 		"host-port@1/published-port-conflict",
@@ -206,19 +211,28 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"SPEC-v3 §12/workspace-access":       "workspace-ready observes content and access before Install, but the adapter has no trace of credentials, SSH access or network grants used by the runtime during cloning",
+	"SPEC-v3 §12/attach-before-place":    "volume mounted-before-hooks observes Attach before Execute, and step-barriers observes Place before Execute; the adapter exposes no observation between Attach and Place",
+	"SPEC-v3 §7.1.3/reconciled-bindings": "spec planner and publication tests judge first-declarer placement and reconciliation bindings; the runtime fixtures observe distinct lifecycle scopes, not every shared keyed request fragment",
+	"SPEC-v3 §12/within-step-order":      "lifecycle and service Execute order is observed, but order among host Attach operations and among Place operations needs an external operation trace; spec TestRuntimeLifecycleOrderAndFixedBarriers checks the emitted sequence",
+	"SPEC-v3 §12/host-stop-order":        "reverse-stop observes workload, lifecycle programs, and engine termination after a completed boot; the adapter cannot request Stop during Create, and host attachments across Start, active Install, and Prepare need a host teardown trace",
+	"SPEC-v3 §12/stop-timeout":           "the adapter exposes neither the runtime's declared termination bound nor its escalation record; reverse-stop observes cooperating programs only",
+	"SPEC-v3 §12/stop-resources-last":    "reverse-stop proves programs can still use the engine and placed content while terminating; complete host relay, storage, and device withdrawal requires an external inventory after stop",
+	"SPEC-v3 §12/install-grants-end":     "credential and SSH probes observe install-only sentinels and sockets absent from startup; withdrawal of outbound injection and OAuth presentations still needs phase-aware fixture services",
+	"SPEC-v3 §12/execution-contracts":    "type-fixed phase/step metadata is judged by spec planner contract tests; a guest cannot inspect the full contract inventory for types the runtime does not implement",
+	"open-url@1/guest-interface":         "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
+	"open-url@1/opener-result":           "the isolated probe checks successful HTTP/HTTPS requests and validation failures; transport and host opener failures, and shell interpretation, remain unobserved",
+	"open-url@1/url-validation":          "the runtime probe checks rejection through the guest helper; the adapter cannot send raw host-service requests to distinguish guest-only validation from host enforcement",
+	"open-url@1/fixed-opener":            "the adapter exposes no host process invocation trace or configurable opener to observe argument boundaries safely",
+	"open-url@1/bounded-requests":        "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
+	"open-url@1/url-private":             "the adapter exposes no runtime audit or diagnostic log inventory",
+	"open-url@1/revoked":                 "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
 	// Stop/start drives a sandbox boot, not host or runtime recovery. The
 	// adapter protocol has no recovery operation, so it cannot judge whether
 	// automatic restart or an explicit stop survives that boundary.
 	"auto-restart@1/restarts-after-runtime-restart":               "no adapter operation simulates host or runtime recovery and observes an unattended restart with startup-hook evidence",
 	"auto-restart@1/explicit-stop-honored":                        "no adapter operation simulates host or runtime recovery after an explicit sandbox stop",
 	"auto-restart@1/without-long-running-still-session-autostops": "the fake adapter has no ordinary session auto-stop policy, and the protocol does not advertise which runtimes have one",
-	"open-url@1/guest-interface":                                  "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
-	"open-url@1/opener-result":                                    "the isolated probe checks successful HTTP/HTTPS requests and validation failures; transport and host opener failures, and shell interpretation, remain unobserved",
-	"open-url@1/url-validation":                                   "the runtime probe checks rejection through the guest helper; the adapter cannot send raw host-service requests to distinguish guest-only validation from host enforcement",
-	"open-url@1/fixed-opener":                                     "the adapter exposes no host process invocation trace or configurable opener to observe argument boundaries safely",
-	"open-url@1/bounded-requests":                                 "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
-	"open-url@1/url-private":                                      "the adapter exposes no runtime audit or diagnostic log inventory",
-	"open-url@1/revoked":                                          "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
 
 	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
 	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",
@@ -237,10 +251,8 @@ var waived = map[string]string{
 	"acp@1/declaration-grants-nothing": "permission projection rule, judged by TestACPSurface",
 	"acp@1/composition":                "composition rule, judged by TestACPComposition, including sets and selected groups",
 
-	"git-identity@1/source-private":               "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
-	"SPEC-v3 §7.1.1/selection-before-application": "the adapter exposes only final files, records, and grants, not an effect trace during selection; effects applied before selection and then rolled back cannot be observed",
-	"SPEC-v3 §7.1.1/conflicts-before-application": "a refused create returns no sandbox ID and the adapter exposes no failed-create effect trace; the suite can observe conflict refusal but cannot inspect files or hooks applied before that refusal",
-	"SPEC-v3 §7.1.1/publishing":                   "publisher ordering, provenance, and separate conditional context staging are judged by spec group publication tests and frontend end-to-end tests; the runtime adapter cannot compare original build inputs with the published artifact",
+	"git-identity@1/source-private": "the adapter supplies an identity binding but exposes no mapping from its host source or translated backend to guest paths; effective Git probes cannot detect a readable copy at an arbitrary unconfigured path, and a bounded guest scan cannot prove its absence",
+	"SPEC-v3 §7.1.1/publishing":     "publisher ordering, provenance, and separate conditional context staging are judged by spec group publication tests and frontend end-to-end tests; the runtime adapter cannot compare original build inputs with the published artifact",
 	// SPEC-v3: composition is the resolver's contract, judged by the
 	// resolve package's own tests; the gate is host UX over surface
 	// diffs, judged by the spec package's tests; authoring rules are the
@@ -316,10 +328,7 @@ var waived = map[string]string{
 	"resources@1/workload-owns-declaration":  "kit-author obligation, not runtime behavior",
 	"agent-context@1/content-neutralized":    "SHOULD; neutralization has no reliable in-sandbox symptom",
 
-	"lifecycle@1/install-before-entrypoint": "needs an entrypoint that records what it observed at first run; no fixture yet",
-	"lifecycle@1/hooks-dependency-order":    "needs a two-kit ordered-hooks fixture; not exercised yet",
-	"lifecycle@1/files-overwrite-honored":   "needs a fixture whose image carries the target file; not exercised yet",
-	"lifecycle@1/files-before-entrypoint":   "needs an entrypoint that records what it observed at first run; no fixture yet",
+	"lifecycle@1/files-overwrite-honored": "needs a fixture whose image carries the target file; not exercised yet",
 
 	"kit-registry@1/content-must-not-assume-address": "the facade is reference-implementation infrastructure, not portable behavior",
 	"port@1/host-binding-default":                    "the adapter contract offers no host-side observation, so a published mapping cannot be seen",

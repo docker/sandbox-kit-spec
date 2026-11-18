@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/sandbox-kit-spec/v3/spec"
 	"github.com/opencontainers/go-digest"
@@ -45,10 +46,78 @@ func TestResolveEnvironmentDiagnosticsUseDecodedReferences(t *testing.T) {
 				if failure == "composition" {
 					require.ErrorContains(t, err, "compose capabilities after environment expansion")
 				} else {
-					require.ErrorContains(t, err, "merged descriptor is invalid after environment expansion")
+					require.ErrorContains(t, err, "compose capabilities after environment expansion")
+					require.ErrorIs(t, err, spec.ErrDescriptorTooLarge)
 				}
 			})
 		}
+	}
+}
+
+func TestResolveEnvironmentSelectionPreservesCancellation(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partial=%t", partial), func(t *testing.T) {
+			reg := newRegistry(t)
+			kind := spec.KindWorkload
+			if partial {
+				kind = spec.KindMixin
+			}
+			d := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: kind,
+				Capabilities: []spec.Capability{{Type: spec.CapabilityLifecycle, Config: map[string]any{
+					"files": []any{map[string]any{"path": "/config", "content": "${{ kit.env.SECRET }}"}},
+				}}},
+			}
+			reg.tag("kits/cancel-selection", "1.0.0", reg.image(t, kitJSON(t, d)))
+			client, err := New()
+			require.NoError(t, err)
+			resolve := client.Resolve
+			if partial {
+				resolve = client.ResolvePartial
+			}
+			for _, tc := range []struct {
+				name string
+				want error
+			}{
+				{"canceled", context.Canceled},
+				{"deadline", context.DeadlineExceeded},
+				{"rejected", nil},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+					defer cancel()
+					secret := "private-environment-value"
+					selected := false
+					result, err := resolve(ctx, reqs(reg.ref("kits/cancel-selection", "1.0.0")),
+						WithEnvironment(map[string]string{"SECRET": secret}, nil),
+						WithCapabilitySelector(func(ctx context.Context, _ spec.SelectionTarget, _ spec.Descriptor, c spec.Capability) spec.CapabilityDecision {
+							selected = true
+							lifecycle, err := spec.LifecycleOf([]spec.Capability{c})
+							require.NoError(t, err)
+							require.Equal(t, secret, lifecycle.Files[0].Content)
+							switch tc.want {
+							case context.Canceled:
+								cancel()
+							case context.DeadlineExceeded:
+								// Expire during selection, after fetching and expansion,
+								// so the error exercises composition's redaction boundary.
+								<-ctx.Done()
+							default:
+								return spec.CapabilityDecision{Message: "refused " + secret}
+							}
+							return spec.CapabilityDecision{Accepted: true}
+						}))
+					require.True(t, selected, "the selector must cause the cancellation or refusal")
+					require.Nil(t, result)
+					require.Error(t, err)
+					require.NotContains(t, err.Error(), secret)
+					if tc.want != nil {
+						require.ErrorIs(t, err, tc.want)
+					} else {
+						require.ErrorContains(t, err, "incompatible declarations")
+					}
+				})
+			}
+		})
 	}
 }
 

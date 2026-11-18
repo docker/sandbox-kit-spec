@@ -2,10 +2,80 @@
 schemaVersion: "3"
 kind: mixin
 capabilities:
-  - type: com.docker.sandbox/volume@1
-    name: Original storage
-    description: First contributor display metadata
-    source: {kit: registry.example/storage:latest, path: "capabilities[0]"}
-    config: {path: /var/tmp/kit-tck-volume, size: 1g, mode: "0700"}
-  - type: com.docker.sandbox/volume@1
-    config: {path: /var/tmp/kit-tck-volume-other, size: 1g, mode: "0700"}
+  - group:
+      name: Original storage
+      description: First contributor display metadata
+      capabilities:
+        - scope: 0
+          source:
+            kit: registry.example/storage:latest
+            path: capabilities[0]
+          type: com.docker.sandbox/volume@1
+          name: Original storage
+          config:
+            mode: "0700"
+            path: /var/tmp/kit-tck-volume
+            size: 1g
+          description: First contributor display metadata
+    declarationBlocks:
+      - "0:0"
+    source:
+      kit: registry.example/storage:latest
+      path: capabilities[0]
+  - group:
+      capabilities:
+        - scope: 0
+          source:
+            kit: volume-state
+            path: capabilities[1]
+          type: com.docker.sandbox/volume@1
+          config:
+            mode: "0700"
+            path: /var/tmp/kit-tck-volume-other
+            size: 1g
+    declarationBlocks:
+      - "0:0"
+    source:
+      kit: volume-state
+      path: capabilities[1]
+  - group:
+      name: Equivalent storage
+      description: Second contributor display metadata
+      optional: true
+      capabilities:
+        - scope: 1
+          source:
+            kit: registry.example/other-storage:latest
+            path: capabilities[1]
+          type: com.docker.sandbox/volume@1
+          name: Equivalent storage
+          config:
+            mode: "700"
+            path: /var/tmp/kit-tck-volume/
+            size: 1024m
+            tmpfs: false
+          description: Second contributor display metadata
+    declarationBlocks:
+      - "1:0"
+    source:
+      kit: registry.example/other-storage:latest
+      path: capabilities[1]
+  - group:
+      capabilities:
+        - scope: 1
+          source:
+            kit: volume-state-other
+            path: capabilities[1]
+          type: com.docker.sandbox/volume@1
+          config:
+            mode: "0700"
+            path: /var/tmp/kit-tck-volume-other
+            size: 1g
+    declarationBlocks:
+      - "1:0"
+    source:
+      kit: volume-state-other
+      path: capabilities[1]
+capabilityScopes:
+  - {}
+  - {}

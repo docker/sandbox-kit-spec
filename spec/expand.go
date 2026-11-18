@@ -204,6 +204,13 @@ func ExpandBuildArgs(raw []byte, decls map[string]Arg, values map[string]string)
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("expand build args: %w", err)
 	}
+	var structure any
+	if err := doc.Decode(&structure); err != nil {
+		return nil, err
+	}
+	if err := literalOrderingReferences(structure, nil); err != nil {
+		return nil, err
+	}
 	var expandErr error
 	originals := map[*yaml.Node]yaml.Node{}
 	var expand func(*yaml.Node, bool, bool)
@@ -482,6 +489,10 @@ func referenceKeys(v any, path keyPath, scope keyScope, free []keyPath) error {
 			}
 			var err error
 			switch {
+			case scope == inEntry && (key == "id" || key == "before" || key == "after" || key == "scope"):
+				if containsStructuralReference(v[key]) {
+					err = fieldErrorf(path.String(), "ordering and scope fields must be literal")
+				}
 			case scope == inEntry && key == "config":
 				err = configReferenceKeys(v[key], path, v["type"])
 			case scope == inEntry && key == "group":
@@ -703,3 +714,39 @@ var kitPlaceholderOpener = regexp.MustCompile(`\$\{\{\s*kit\.(args|env)\b`)
 // ContainsKitPlaceholder recognizes Kit template openers even when the name
 // or closing braces are malformed. Inserted values must remain literal.
 func ContainsKitPlaceholder(s string) bool { return kitPlaceholderOpener.MatchString(s) }
+
+func containsStructuralReference(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return ContainsKitPlaceholder(v)
+	case []any:
+		return slices.ContainsFunc(v, containsStructuralReference)
+	case []string:
+		return slices.ContainsFunc(v, func(s string) bool { return ContainsKitPlaceholder(s) })
+	}
+	return false
+}
+
+func literalOrderingReferences(value any, path keyPath) error {
+	doc, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	entries, _ := doc["capabilities"].([]any)
+	for i, value := range entries {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		at := append(slices.Clone(path), "capabilities", i)
+		for _, field := range []string{"id", "before", "after", "scope"} {
+			if containsStructuralReference(entry[field]) {
+				return fieldErrorf(append(at, field).String(), "ordering and scope fields must be literal")
+			}
+		}
+		if err := literalOrderingReferences(entry["group"], append(at, "group")); err != nil {
+			return err
+		}
+	}
+	return nil
+}

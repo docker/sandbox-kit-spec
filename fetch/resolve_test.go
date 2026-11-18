@@ -51,7 +51,8 @@ func TestResolveAlwaysValidatesMergedDescriptor(t *testing.T) {
 
 			result, err := resolve(t.Context(), requests)
 			require.Nil(t, result)
-			require.ErrorContains(t, err, "merged descriptor:1:1:")
+			require.ErrorContains(t, err, "compose capabilities:")
+			require.ErrorIs(t, err, spec.ErrDescriptorTooLarge)
 			require.ErrorContains(t, err, "over the 524288 byte budget")
 			var all spec.ValidationErrors
 			require.ErrorAs(t, err, &all)
@@ -119,9 +120,11 @@ func TestResolvePreservesExpandedInputsAndIdentity(t *testing.T) {
 		require.Equal(t, message, lifecycle.Files[0].Content)
 	}
 	require.Empty(t, result.Descriptor.Requires, "the merged view drops satisfied relations; individual Kits retain them")
-	lifecycle, err := spec.LifecycleOf(result.Descriptor.Capabilities)
+	lifecycles, err := spec.LifecyclesOf(result.Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Len(t, lifecycle.Files, 2)
+	require.Len(t, lifecycles, 2)
+	require.Len(t, lifecycles[0].Files, 1)
+	require.Len(t, lifecycles[1].Files, 1)
 	require.Equal(t, map[string]string{"MESSAGE_0": "custom workload", "MESSAGE_1": "default base"}, result.ContainerEnv)
 	after, err := json.Marshal(kits)
 	require.NoError(t, err)

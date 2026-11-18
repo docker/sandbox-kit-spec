@@ -214,6 +214,10 @@ Private kits or images on a non-public registry need a `registries:` entry
   so the agent would start without the project checkout. Offer
   `{path: ., clone: true}` when the user wants the agent on a private
   clone (the directory must be a git repository, not a worktree).
+  With the lifecycle ordering contract, the runtime completes the initial
+  workspace clone before Kit install commands. Use install hooks for
+  once-per-sandbox workspace setup and startup hooks for every-boot work.
+  This requires a runtime implementing the matching draft contract.
 - Add `env:` only for values the sandbox needs that no kit sets.
 - `sandboxOptions`: suggest `pullPolicy: always` when kits use tags without
   digests. Add `memory`/`cpus` only if the user asks or the project is

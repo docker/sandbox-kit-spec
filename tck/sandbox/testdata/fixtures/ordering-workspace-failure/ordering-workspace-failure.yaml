@@ -1,0 +1,17 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: '3'
+kind: mixin
+args:
+  host_port:
+    default: '18762'
+capabilities:
+- type: com.docker.sandbox/host-port@1
+  config:
+    host: ${{ kit.args.host_port }}
+    container: 18761
+- type: com.docker.sandbox/lifecycle@1
+  config:
+    install:
+    - command: curl --noproxy "*" --silent --show-error --fail --max-time 5 http://127.0.0.1:18761/ >
+        /var/tmp/ordering-refusal
+      user: '1000'

@@ -10,6 +10,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/client/llb"
@@ -368,6 +369,10 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 	}
 
 	for _, b := range builds {
+		b.config, err = withPublishedSourceStem(b.config, stem)
+		if err != nil {
+			return nil, err
+		}
 		ref, err := stageKitSources(ctx, c, b.ref, b.platform, stem, published, recipeBytes)
 		if err != nil {
 			return nil, err
@@ -952,6 +957,57 @@ func stageKitSources(ctx context.Context, c gwclient.Client, ref gwclient.Refere
 		return nil, err
 	}
 	return res.SingleRef()
+}
+
+func validSourceStem(stem string) bool {
+	return stem != "" && stem != "." && stem != ".." && !strings.ContainsAny(stem, "/\\") &&
+		strings.IndexFunc(stem, unicode.IsControl) < 0 && !spec.ContainsArgRef(stem) && !spec.ContainsEnvRef(stem)
+}
+
+// withPublishedSourceStem records which staged descriptor belongs to this
+// publication. A nested set also carries its members' descriptors, and BuildKit
+// consumers cannot use manifest annotations to distinguish them. Update only
+// the label through RawMessage maps so unknown image-config fields survive.
+func withPublishedSourceStem(raw []byte, stem string) ([]byte, error) {
+	if !validSourceStem(stem) {
+		return nil, fmt.Errorf("invalid staged source stem %q", stem)
+	}
+	var image map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &image); err != nil {
+		return nil, fmt.Errorf("read image config for staged sources: %w", err)
+	}
+	if image == nil {
+		return nil, fmt.Errorf("image config for staged sources must be an object")
+	}
+	config := make(map[string]json.RawMessage)
+	if value, ok := image["config"]; ok {
+		if err := json.Unmarshal(value, &config); err != nil {
+			return nil, fmt.Errorf("read container config for staged sources: %w", err)
+		}
+	}
+	if config == nil {
+		config = make(map[string]json.RawMessage)
+	}
+	labels := make(map[string]string)
+	if value, ok := config["Labels"]; ok {
+		if err := json.Unmarshal(value, &labels); err != nil {
+			return nil, fmt.Errorf("read image labels for staged sources: %w", err)
+		}
+	}
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[spec.LabelSourceStem] = stem
+	var err error
+	config["Labels"], err = json.Marshal(labels)
+	if err != nil {
+		return nil, err
+	}
+	image["config"], err = json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(image)
 }
 
 // stateToStageOn returns the state to add staged files to, and the

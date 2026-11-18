@@ -45,7 +45,7 @@ func TestHostPortCompositionAndSurface(t *testing.T) {
 		contributions := []Contribution{{Reference: "one", Descriptor: first}, {Reference: "two", Descriptor: equivalent}}
 		merged, err := Merge(contributions, MergeOptions{})
 		require.NoError(t, err)
-		require.Len(t, merged.Descriptor.Capabilities, 1)
+		require.Len(t, merged.Descriptor.Capabilities, 2, "publication preserves both declarations")
 		composed, err := Compose(contributions)
 		require.NoError(t, err)
 		require.Len(t, composed.Capabilities, 1)
@@ -208,7 +208,7 @@ func TestHostPortUDPComposition(t *testing.T) {
 			_, err = Validate(merged.Descriptor)
 			require.NoError(t, err)
 			if second == duplicate {
-				require.Len(t, merged.Descriptor.Capabilities, 1)
+				require.Len(t, merged.Descriptor.Capabilities, 2, "publication preserves both declarations")
 				require.Len(t, composed.Capabilities, 1)
 			} else {
 				require.Len(t, merged.Descriptor.Capabilities, 2)

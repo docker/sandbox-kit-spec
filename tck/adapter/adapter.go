@@ -77,6 +77,9 @@ type CreateOptions struct {
 	// workspace (internal, host, cloned, none). Empty uses the runtime default.
 	// Unsupported modes return ExitRefused without creating a sandbox.
 	WorkspaceMode string
+	// WorkspaceSource is a suite-owned local Git repository for cloned mode.
+	// The runtime clones it through its normal workspace preparation path.
+	WorkspaceSource string
 	// GitIdentityConfig transports a suite-owned test binding in Git config
 	// format, or "off" to withhold it. It does not prescribe runtime storage.
 	GitIdentityConfig string
@@ -130,6 +133,9 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 	}
 	if opts.WorkspaceMode != "" {
 		argv = append(argv, "--workspace-mode", opts.WorkspaceMode)
+	}
+	if opts.WorkspaceSource != "" {
+		argv = append(argv, "--workspace-source", opts.WorkspaceSource)
 	}
 	if opts.OpenURLIsolated {
 		argv = append(argv, "--open-url-isolated")

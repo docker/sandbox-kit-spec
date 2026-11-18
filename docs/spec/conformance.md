@@ -64,7 +64,7 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, `--docker-auth-config <absolute-path>`, `--open-url-isolated`, and `--open-url-budget <attempts>` each at most once | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--workspace-source <absolute-path>`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, `--docker-auth-config <absolute-path>`, `--open-url-isolated`, and `--open-url-budget <attempts>` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id>`, optional `--cwd <absolute-path>` and zero or more `--env name=value`, then `-- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
@@ -105,7 +105,34 @@ the assigned destination follows the workload's absolute image
 and injection paths, without synthesizing the variables in a wrapper or
 editing the probe output. The suite observes environment values, not the
 workspace mechanism; arranging the requested mechanism is the adapter's
-duty. Workspace preparation need not finish before the environment probe.
+duty. The lifecycle workspace checks also observe prepared contents and
+file access before installation begins.
+
+For the clone-readiness checks, `create --workspace-mode cloned
+--workspace-source <absolute-path>` supplies a suite-owned local Git
+repository. The suite commits a fresh marker under a nested directory
+and an executable file. The adapter **MUST** arrange a clone through the
+runtime's ordinary workspace preparation path. It must not copy the
+files into place after create, invoke install hooks itself, or rewrite
+their output. The source remains available until sandbox removal. A
+remote adapter may transport that repository before create, preserving
+its committed contents and executable bits. It must not substitute a
+shared user checkout.
+
+The install probe requests UID 1000. It reads the marker, runs the
+executable, and writes into the cloned workspace. After stop/start, the
+suite checks that installation ran once and its workspace state remains.
+A second case supplies a missing repository and verifies that no install
+hook reaches a suite-owned host endpoint. A successful clone reaches
+that endpoint first, so a broken connection cannot pass the refusal
+check.
+
+The bundled `sbx` adapter currently returns the explicit unsupported
+scenario response for cloned workspaces. It does not yet bind this
+source to a native clone operation. The fake adapter exercises these
+checks with a real local Git clone and real file access by the test
+process. It does not emulate guest user identities. Its results judge
+the checks, not a live Docker Sandboxes backend.
 
 An unavailable scenario **MUST** return exit `2` with exactly
 `unsupported workspace mode: <mode>` on stderr, before creating any
@@ -599,19 +626,53 @@ that optional groups cannot be discarded to repair a selected conflict;
 `groups-failure` checks that an accepted hook's exit is an execution
 error, not a skip or preflight refusal.
 
-The conflict checks observe refusal and its source diagnostics. A refused
-`create` returns no sandbox ID, and the adapter exposes no effect trace
-for a failed create. The suite therefore cannot inspect whether files or
-hooks were applied before refusal. The before-application duty remains
-required by the specification, with an explicit TCK coverage waiver until
-the adapter can expose those effects.
+The conflict checks observe refusal and its source diagnostics. Separate
+before-application checks first run a control hook that reaches a
+suite-owned host endpoint. They then repeat the composition with a
+required lifecycle rejection or a duplicate-file conflict and check
+that no hook reached the endpoint. These checks detect hook effects
+that would otherwise disappear with a refused sandbox. Host attachment
+effects that leave no endpoint traffic still need an external trace.
 
-Atomic-selection checks observe final state, so they cannot detect effects
-applied during selection and rolled back before observation. The separate
-`selection-before-application` duty has an explicit coverage waiver until
-an adapter effect trace can judge it. `groups-expanded` checks validation
-after create-time argument and environment expansion, including when
-policy would reject the optional member. Lifetime checks exercise both initial acceptance and
-initial rejection: restart retains the decision and recreation uses the
+Atomic-selection checks observe final state. `groups-expanded` checks
+validation after create-time argument and environment expansion, including
+when policy would reject the optional member. Lifetime checks exercise
+both initial acceptance and initial rejection: restart retains the decision and recreation uses the
 new policy. Calling `selection-policy <id>` without rejection flags clears
 future rejections, allowing the inverse transition.
+
+## Lifecycle execution observations
+
+The ordering fixtures preserve independent lifecycle entries, including
+identical commands and an optional group whose skipped entry has no
+effects and contributes no ordering. Install and startup commands append
+to records.
+The workload captures those records and placed content at entrypoint
+launch. Stop/start verifies that installation stays complete and start
+content and commands run again. Provider and requirer fixtures exercise
+dependency order and a qualified-ID relationship that moves only its
+writer. A provider has separate setup and launch entries, so an inserted
+entry cannot swap the provider's unwritten order.
+
+An engine fixture reads its configuration before answering HTTP pings.
+Declaration order puts a root startup command before the engine and a
+consumer command after it. A separate fixture gives a lifecycle entry
+an edge to the engine and verifies that this Start relationship cannot
+move its Install command behind another lifecycle entry.
+Lifecycle files must already exist when the engine reads them.
+Background programs record their termination and check that the engine
+still answers and placed content remains. The suite reads the shutdown
+record after restart to observe reverse program order.
+
+Cycle, selection-refusal, conflict, workspace-failure, and command-failure
+checks use a suite-owned host endpoint. Each first runs a successful control command that reaches
+that endpoint, then verifies that the failed composition or prerequisite
+prevents the dependent command. A refusal alone is not evidence that no
+side effect occurred.
+
+These observations do not expose the order among host attachment
+operations, internal placement operations, or the final release of every
+host resource. Create returns after boot, so the adapter cannot request
+Stop partway through Install or Start. The coverage ledger names those
+gaps separately. Third-party contract registration is not observable
+through this adapter protocol.

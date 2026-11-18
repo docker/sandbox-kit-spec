@@ -214,9 +214,62 @@ func TestExpandedDescriptorCaptureIsIsolated(t *testing.T) {
 				values[0].(map[string]any)["value"] = "snapshot"
 				c.Source.Kit = "snapshot"
 				require.Equal(t, "effective", effective[i].Config["values"].([]any)[0].(map[string]any)["value"])
-				require.Equal(t, "selector", effective[i].Source.Kit)
+				require.Equal(t, "original", effective[i].Source.Kit)
 			}
 		})
+	}
+}
+
+func TestExpandedDescriptorCaptureIsolatesCapabilityScopes(t *testing.T) {
+	for _, method := range []string{"Resolve", "ResolvePartial", "Assemble"} {
+		for _, mutation := range []struct {
+			name   string
+			change func([]spec.CapabilityScope, string)
+			read   func([]spec.CapabilityScope) string
+		}{
+			{"scope table", func(scopes []spec.CapabilityScope, value string) {
+				scopes[0] = spec.CapabilityScope{Provides: []string{value}}
+			}, func(scopes []spec.CapabilityScope) string { return scopes[0].Provides[0] }},
+			{"scope bindings", func(scopes []spec.CapabilityScope, value string) {
+				scopes[0].Provides[0] = value
+			}, func(scopes []spec.CapabilityScope) string { return scopes[0].Provides[0] }},
+			{"scope requirements", func(scopes []spec.CapabilityScope, value string) {
+				scopes[0].Requires[0] = value
+			}, func(scopes []spec.CapabilityScope) string { return scopes[0].Requires[0] }},
+			{"scope integrations", func(scopes []spec.CapabilityScope, value string) {
+				scopes[0].Integrates[0] = value
+			}, func(scopes []spec.CapabilityScope) string { return scopes[0].Integrates[0] }},
+		} {
+			t.Run(method+"/"+mutation.name, func(t *testing.T) {
+				zero := uint32(0)
+				d := &spec.Descriptor{SchemaVersion: spec.SchemaVersion, Kind: spec.KindWorkload,
+					Provides: []string{"com.example/ordinary@1"},
+					CapabilityScopes: []spec.CapabilityScope{
+						{Provides: []string{"com.example/ordinary"}, Requires: []string{"com.example/ordinary"}, Integrates: []string{"com.example/ordinary"}}, {},
+					},
+					Capabilities: []spec.Capability{{Type: "com.example/ordinary@1", ID: "setup", Scope: &zero}},
+				}
+				result := resolveSelectionFixture(t, method, d, true, nil,
+					func(context.Context, spec.SelectionTarget, spec.Descriptor, spec.Capability) spec.CapabilityDecision {
+						return spec.CapabilityDecision{Accepted: true}
+					})
+				snapshot := result.Selections[0].ExpandedDescriptor
+				require.NotNil(t, snapshot)
+				effective := result.Kits[0].Descriptor
+				require.Equal(t, d.CapabilityScopes, snapshot.CapabilityScopes)
+				require.Equal(t, d.CapabilityScopes, effective.CapabilityScopes)
+
+				// Callers may edit either returned view. Neither replacing a
+				// scope nor editing one binding may rewrite the other view.
+				mutation.change(effective.CapabilityScopes, "com.example/effective")
+				require.Equal(t, "com.example/ordinary", mutation.read(snapshot.CapabilityScopes))
+				mutation.change(snapshot.CapabilityScopes, "com.example/snapshot")
+				require.Equal(t, "com.example/effective", mutation.read(effective.CapabilityScopes))
+				require.Len(t, snapshot.CapabilityScopes, 2, "empty original scopes retain their indexes")
+				require.Nil(t, snapshot.CapabilityScopes[1].Provides)
+				require.Nil(t, effective.CapabilityScopes[1].Provides)
+			})
+		}
 	}
 }
 
@@ -242,7 +295,11 @@ func resolveSelectionFixtureRaw(t *testing.T, method, kind string, raw []byte, c
 	client, err := New()
 	require.NoError(t, err)
 	requests := reqs(reg.ref("kit", "test"))
-	options := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(nil, environment)}
+	contracts := map[string]spec.ExecutionContract{
+		"com.example/ordinary@1": {},
+		"com.example/grouped@1":  {},
+	}
+	options := []ResolveOption{WithCapabilitySelector(selector), WithEnvironment(nil, environment), WithExecutionContracts(contracts)}
 	if capture {
 		options = append(options, WithExpandedDescriptors())
 	}
@@ -255,7 +312,7 @@ func resolveSelectionFixtureRaw(t *testing.T, method, kind string, raw []byte, c
 	case "Assemble":
 		var assembled *Result
 		assembled, err = Assemble(t.Context(), requests, Options{Loader: client.LoadKit, CapabilitySelector: selector,
-			RetainExpandedDescriptors: capture, Overrides: Overrides{Env: environment}})
+			ExecutionContracts: contracts, RetainExpandedDescriptors: capture, Overrides: Overrides{Env: environment}})
 		if err == nil {
 			result = assembled.Resolved
 		}
