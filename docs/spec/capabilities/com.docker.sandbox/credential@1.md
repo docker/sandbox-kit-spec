@@ -51,16 +51,24 @@ sole source; a Kit declares the need, the user's bindings answer it.
 | `oauth.tokenEndpoint` | object | `host` REQUIRED when `tokenEndpoint` is set. |
 | `oauth.resourceHosts` | list\<string\> | API hosts where the bearer is used. |
 | `oauth.sentinels` | object | The placeholder access/refresh tokens rendered in-container. |
-| `oauth.credentialFile` | object | Renders sentinels into a file the agent reads. `structure` is a declarative nested map, encoded after substitution — output is well-formed regardless of values. |
+| `oauth.credentialFile` | object | Renders sentinels into a file the agent reads. `structure` is a declarative nested map, encoded after substitution, so a value cannot break the file's syntax. |
 | `oauth.credentialFile.format` | string | Encoding of the substituted structure: `json` (default) or `toml`, for agents that read TOML credential files. Nested maps become TOML tables. |
 | `oauth.responseFields` | object | Maps a provider's nonstandard token-response field names: `accessToken`, `refreshToken`, `expiresIn`. The refresh mapping also covers providers that reuse one field for both tokens. |
 | `oauth.passthrough` | bool | Returns the real token to the container: a downgrade. |
 
-`credentialFile.structure` leaf strings may reference `{{.AccessToken}}`
-and `{{.RefreshToken}}` (strings), `{{.ExpiresAt}}` (a number),
-`{{.Scopes}}` (an array), and `{{.PrimaryApiKey}}` (a string whose
-enclosing key is omitted when no key is captured). Unknown placeholders are
-errors. Each placeholder renders in the target encoding's own type.
+`credentialFile.structure` leaf strings may reference placeholders,
+written `{{.Name}}` with optional spaces inside the braces:
+`{{.AccessToken}}` and `{{.RefreshToken}}` (strings), `{{.ExpiresAt}}` (a
+number), `{{.Scopes}}` (an array of strings), and `{{.PrimaryApiKey}}` (a
+string). A leaf that is exactly one placeholder renders in the target
+encoding's own type. A placeholder inside a longer string splices its
+string form: `{{.ExpiresAt}}` in decimal and `{{.Scopes}}` joined by
+single spaces. A leaf that references `{{.PrimaryApiKey}}`, alone or
+inside a longer string, is omitted, together with its map key or array
+element, when no key is captured. Unknown placeholders, any other
+template text, an unterminated `{{`, a `{{` in a map key, and a key,
+literal or substituted value that is not valid UTF-8 are errors. An
+omitted or empty structure has nothing to render, so no file is written.
 
 Scalar phase declarations remain valid. The list form requires a reader
 implementing this extension; older readers reject it.
@@ -100,6 +108,11 @@ A conforming runtime:
   wiring without seeing the secret.
 - **MUST** give an inject-only credential (no `name`) no environment <!-- tck: credential@1/inject-only-no-env -->
   presence at all: composing it adds no variable, sentinel or otherwise.
+- **MUST** write `oauth.credentialFile` in the encoding its `format` <!-- tck: credential@1/credential-file-format -->
+  declares, `json` when omitted, and refuse the Kit rather than write
+  the file in another encoding when it cannot honor that format. The
+  agent parses the file with its own reader, so a file in the wrong
+  encoding is a broken credential, not a degraded one.
 
 ## Composition
 

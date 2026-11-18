@@ -351,6 +351,7 @@ var waived = map[string]string{
 
 	"credential@1/resolved-from-host-store":         "host-internal: which store the value came from has no in-sandbox symptom",
 	"credential@1/oauth-token-endpoint-intercepted": "needs an OAuth fixture service the suite does not run yet",
+	"credential@1/credential-file-format":           "needs an OAuth fixture service the suite does not run yet: the spec does not say a runtime writes the file before it holds a token or captured key for the service, so no portable fixture makes one appear; spec.CredentialFile.Render is the reference encoding until then",
 	"credential@1/phase-scoped":                     "sentinel-phase-scoped observes only named proxy-managed API-key environments; outbound injection, OAuth endpoints and files, and unproxied credentials need presentation-specific phase probes",
 	"credential@1/required-without-binding-fails":   "the contract has the adapter bind the fixture secret, so the unbound path never occurs in-suite",
 
