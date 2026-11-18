@@ -48,7 +48,7 @@ func Notes(current Catalog, previous *Catalog) (string, error) {
 		old, ok := older[e.ID]
 		if !ok {
 			added = append(added, e)
-		} else if old.SchemaSHA256 != e.SchemaSHA256 || old.SpecSHA256 != e.SpecSHA256 {
+		} else if old.SchemaContractSHA256 != e.SchemaContractSHA256 || old.SpecSHA256 != e.SpecSHA256 {
 			changed = append(changed, e)
 		}
 		delete(older, e.ID)
@@ -80,7 +80,7 @@ func Notes(current Catalog, previous *Catalog) (string, error) {
 		for _, e := range changed {
 			old := previousEntry(previous, e.ID)
 			parts := []string{}
-			if old.SchemaSHA256 != e.SchemaSHA256 {
+			if old.SchemaContractSHA256 != e.SchemaContractSHA256 {
 				parts = append(parts, "schema")
 			}
 			if old.SpecSHA256 != e.SpecSHA256 {

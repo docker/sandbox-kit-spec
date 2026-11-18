@@ -223,6 +223,14 @@ runtime implementation status. The notes list additions and changes
 relative to the preceding release. The first release has no preceding
 tag, so its notes describe the initial catalog.
 
+Each entry's `schema_sha256` hashes its linked capability schema file.
+`schema_contract_sha256` also fingerprints the root schema's shared
+capability constraints, that type's conditional mapping, and the local
+schema fragments reachable through their `$ref` links. Release notes
+use the contract hash to detect schema changes, including changes in
+shared definitions, without treating an unrelated type's mapping as a
+change to every capability.
+
 For a local snapshot, pass the tag and its full commit SHA explicitly:
 
 ```sh
@@ -241,14 +249,16 @@ update in `docker/docs`; it never edits that repository's working tree
 in this checkout. The job runs only for the latest published release
 and only when `DOCS_SYNC_APP_ID` (a repository variable) and
 `DOCS_SYNC_APP_PRIVATE_KEY` (a repository secret) are configured. The
-GitHub App must be installed on `docker/docs` with contents and pull
-request write access. The updater changes only the capability catalog
-table. Newly listed docs types receive `Not verified` status because the
-catalog does not establish runtime support. If an existing docs support
-row is absent from the catalog, the updater stops for human review; it
-does not remove the row or erase historical runtime claims. Runtime
-support and restrictions remain owned by `docker/docs` and must be
-verified there.
+job skips the docs sync if either credential is missing. Runs for
+different releases share one concurrency group so they cannot race while
+checking the latest release and updating the docs branch. The GitHub App
+must be installed on `docker/docs` with contents and pull request write
+access. The updater changes only the capability catalog table. Newly
+listed docs types receive `Not verified` status because the catalog does
+not establish runtime support. If an existing docs support row is absent
+from the catalog, the updater stops for human review; it does not remove
+the row or erase historical runtime claims. Runtime support and
+restrictions remain owned by `docker/docs` and must be verified there.
 
 ## Conformance suites and releases
 

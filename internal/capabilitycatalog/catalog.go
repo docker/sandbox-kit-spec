@@ -24,11 +24,12 @@ var (
 
 // Entry records a specification contract, not a runtime implementation claim.
 type Entry struct {
-	ID           string `json:"id"`
-	SchemaURL    string `json:"schema_url"`
-	SpecURL      string `json:"spec_url"`
-	SchemaSHA256 string `json:"schema_sha256"`
-	SpecSHA256   string `json:"spec_sha256"`
+	ID                   string `json:"id"`
+	SchemaURL            string `json:"schema_url"`
+	SpecURL              string `json:"spec_url"`
+	SchemaSHA256         string `json:"schema_sha256"`
+	SchemaContractSHA256 string `json:"schema_contract_sha256"`
+	SpecSHA256           string `json:"spec_sha256"`
 }
 
 type Catalog struct {
@@ -93,7 +94,7 @@ func build(read readFile, version, revision string) (Catalog, error) {
 	}
 	seen := make(map[string]bool, len(conditions))
 	entries := make([]Entry, 0, len(conditions))
-	for _, condition := range conditions {
+	for conditionIndex, condition := range conditions {
 		id := condition.If.Properties["type"].Const
 		if !idPattern.MatchString(id) {
 			return Catalog{}, fmt.Errorf("invalid or missing conditional capability ID %q", id)
@@ -129,7 +130,11 @@ func build(read readFile, version, revision string) (Catalog, error) {
 		if len(strings.TrimSpace(string(doc))) == 0 {
 			return Catalog{}, fmt.Errorf("capability %s spec page is empty", id)
 		}
-		entries = append(entries, Entry{ID: id, SchemaURL: repository + "/blob/" + version + "/" + schemaPath, SpecURL: repository + "/blob/" + version + "/" + specPath, SchemaSHA256: hash(schema), SpecSHA256: hash(doc)})
+		contractHash, err := schemaContractHash(read, data, conditionIndex)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("capability %s schema contract: %w", id, err)
+		}
+		entries = append(entries, Entry{ID: id, SchemaURL: repository + "/blob/" + version + "/" + schemaPath, SpecURL: repository + "/blob/" + version + "/" + specPath, SchemaSHA256: hash(schema), SchemaContractSHA256: contractHash, SpecSHA256: hash(doc)})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 	return Catalog{1, version, revision, schemaVersion, entries}, nil
@@ -152,7 +157,7 @@ func (c Catalog) Validate() error {
 		if e.SchemaURL != wantSchema || e.SpecURL != wantSpec {
 			return fmt.Errorf("noncanonical URLs for %s", e.ID)
 		}
-		for _, digest := range []string{e.SchemaSHA256, e.SpecSHA256} {
+		for _, digest := range []string{e.SchemaSHA256, e.SchemaContractSHA256, e.SpecSHA256} {
 			if len(digest) != 64 {
 				return fmt.Errorf("invalid hash for %s", e.ID)
 			}

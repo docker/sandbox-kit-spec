@@ -113,12 +113,29 @@ jobs:
     name: propose docs capability catalog update
     needs: release
     if: ${{ vars.DOCS_SYNC_APP_ID != '' }}
+    concurrency:
+      group: docs-capability-catalog-sync
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      - name: Check docs sync credentials
+        id: credentials
+        env:
+          DOCS_SYNC_APP_ID: ${{ vars.DOCS_SYNC_APP_ID }}
+          DOCS_SYNC_APP_PRIVATE_KEY: ${{ secrets.DOCS_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "${DOCS_SYNC_APP_ID:-}" ] && [ -n "${DOCS_SYNC_APP_PRIVATE_KEY:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping optional docs sync because its GitHub App credentials are not configured."
+          fi
+
       - name: Check this is the latest published release
         id: latest
+        if: ${{ steps.credentials.outputs.enabled == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -133,21 +150,21 @@ jobs:
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         with:
           ref: ${{ github.ref }}
           path: spec
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         with:
           go-version-file: spec/go.mod
           cache-dependency-path: spec/go.sum
 
       - name: Create docker/docs app token
         id: app-token
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         with:
           app-id: ${{ vars.DOCS_SYNC_APP_ID }}
@@ -156,7 +173,7 @@ jobs:
           repositories: docs
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         with:
           repository: docker/docs
           path: docs
@@ -164,7 +181,7 @@ jobs:
           persist-credentials: false
 
       - name: Download and verify published capability catalog
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         working-directory: spec
         env:
           GH_TOKEN: ${{ github.token }}
@@ -184,7 +201,7 @@ jobs:
             dist/capabilities/capabilities.json >/dev/null
 
       - name: Update the docs capability table
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         working-directory: spec
         run: |
           go run ./cmd/capability-catalog docs \
@@ -193,7 +210,7 @@ jobs:
 
       - name: Open docs update pull request
         uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v7.0.8
-        if: ${{ steps.latest.outputs.matches == 'true' }}
+        if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         with:
           token: ${{ steps.app-token.outputs.token }}
           path: docs

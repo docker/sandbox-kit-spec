@@ -177,3 +177,78 @@ func TestPagePreservesTwentyOneExistingSupportRows(t *testing.T) {
 	require.Equal(t, len(c.Capabilities)-21, strings.Count(string(next), "| Not verified | Not verified |"))
 	require.True(t, strings.HasSuffix(string(next), "## Following section\nIntact.\n"))
 }
+
+func TestSchemaContractTracksSharedAndRootConstraints(t *testing.T) {
+	dir := fixture(t)
+	schemaPath := filepath.Join(dir, "schema/capabilities/com.docker.sandbox/zeta@1.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"title":"com.docker.sandbox/zeta@1","properties":{"port":{"$ref":"../../definitions/shared.schema.json#/definitions/port"}}}`), 0644))
+	sharedPath := filepath.Join(dir, "schema/definitions/shared.schema.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sharedPath), 0755))
+	require.NoError(t, os.WriteFile(sharedPath, []byte(`{"definitions":{"port":{"type":"integer","minimum":1}}}`), 0644))
+	before, err := Build(dir, tag, rev)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(sharedPath, []byte(`{"definitions":{"port":{"type":"integer","minimum":2}}}`), 0644))
+	afterShared, err := Build(dir, tag, rev)
+	require.NoError(t, err)
+	require.Equal(t, before.Capabilities[1].SchemaSHA256, afterShared.Capabilities[1].SchemaSHA256, "literal file hash must retain its meaning")
+	require.NotEqual(t, before.Capabilities[1].SchemaContractSHA256, afterShared.Capabilities[1].SchemaContractSHA256)
+	require.Equal(t, before.Capabilities[0].SchemaContractSHA256, afterShared.Capabilities[0].SchemaContractSHA256)
+	notes, err := Notes(afterShared, &before)
+	require.NoError(t, err)
+	require.Contains(t, notes, "- `com.docker.sandbox/zeta@1` (schema)")
+	require.NotContains(t, notes, "- `com.docker.sandbox/alpha@2` (schema)")
+	rootPath := filepath.Join(dir, "schema/kit.schema.json")
+	root, err := os.ReadFile(rootPath)
+	require.NoError(t, err)
+	updated := strings.Replace(string(root), `"then":{"properties":{"config":{"$ref":"capabilities/com.docker.sandbox/zeta@1.schema.json"}}}`, `"then":{"required":["config"],"properties":{"config":{"$ref":"capabilities/com.docker.sandbox/zeta@1.schema.json"}}}`, 1)
+	require.NotEqual(t, string(root), updated)
+	require.NoError(t, os.WriteFile(rootPath, []byte(updated), 0644))
+	afterRoot, err := Build(dir, tag, rev)
+	require.NoError(t, err)
+	require.Equal(t, afterShared.Capabilities[1].SchemaSHA256, afterRoot.Capabilities[1].SchemaSHA256)
+	require.NotEqual(t, afterShared.Capabilities[1].SchemaContractSHA256, afterRoot.Capabilities[1].SchemaContractSHA256)
+	require.Equal(t, afterShared.Capabilities[0].SchemaContractSHA256, afterRoot.Capabilities[0].SchemaContractSHA256)
+	notes, err = Notes(afterRoot, &afterShared)
+	require.NoError(t, err)
+	require.Contains(t, notes, "- `com.docker.sandbox/zeta@1` (schema)")
+	require.NotContains(t, notes, "- `com.docker.sandbox/alpha@2` (schema)")
+}
+
+func TestSchemaContractRejectsUnsafeRefsAndHandlesCycles(t *testing.T) {
+	for _, ref := range []string{"https://example.test/schema.json", "../../../../outside.json", "../../definitions/missing.schema.json"} {
+		t.Run(ref, func(t *testing.T) {
+			dir := fixture(t)
+			schemaPath := filepath.Join(dir, "schema/capabilities/com.docker.sandbox/zeta@1.schema.json")
+			require.NoError(t, os.WriteFile(schemaPath, []byte(`{"title":"com.docker.sandbox/zeta@1","properties":{"port":{"$ref":"`+ref+`"}}}`), 0644))
+			_, err := Build(dir, tag, rev)
+			require.Error(t, err)
+		})
+	}
+	dir := fixture(t)
+	schemaPath := filepath.Join(dir, "schema/capabilities/com.docker.sandbox/zeta@1.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"title":"com.docker.sandbox/zeta@1","definitions":{"recursive":{"$ref":"#/definitions/recursive"}},"properties":{"port":{"$ref":"#/definitions/recursive"}}}`), 0644))
+	_, err := Build(dir, tag, rev)
+	require.NoError(t, err)
+}
+
+func TestSchemaContractPreservesNumbersAndArrayReferences(t *testing.T) {
+	dir := fixture(t)
+	schemaPath := filepath.Join(dir, "schema/capabilities/com.docker.sandbox/zeta@1.schema.json")
+	sharedPath := filepath.Join(dir, "schema/definitions/shared.schema.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sharedPath), 0755))
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"title":"com.docker.sandbox/zeta@1","$ref":"../../definitions/shared.schema.json#/allOf/0"}`), 0644))
+	require.NoError(t, os.WriteFile(sharedPath, []byte(`{"allOf":[{"maximum":9007199254740992}]}`), 0644))
+	before, err := Build(dir, tag, rev)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(sharedPath, []byte(`{"allOf":[{"maximum":9007199254740993}]}`), 0644))
+	after, err := Build(dir, tag, rev)
+	require.NoError(t, err)
+	require.NotEqual(t, before.Capabilities[1].SchemaContractSHA256, after.Capabilities[1].SchemaContractSHA256)
+	notes, err := Notes(after, &before)
+	require.NoError(t, err)
+	require.Contains(t, notes, "- `com.docker.sandbox/zeta@1` (schema)")
+	for _, token := range []string{"-1", "01", "+0", "1", "-"} {
+		_, err := schemaPointerChild([]any{"item"}, token)
+		require.Error(t, err, "invalid array index %q", token)
+	}
+}
