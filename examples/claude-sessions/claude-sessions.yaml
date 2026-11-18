@@ -22,7 +22,8 @@ capabilities:
             state="/home/agent/.claude"
             history="/home/agent/claude-history"
             mkdir -p "$state"
-            for name in projects sessions todos shell-snapshots statsig; do
+            # Jobs must outlive the sandbox home along with session history.
+            for name in projects sessions todos shell-snapshots statsig jobs; do
               link="$state/$name"
               target="$history/$name"
               mkdir -p "$target"

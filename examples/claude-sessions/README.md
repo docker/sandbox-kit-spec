@@ -23,6 +23,7 @@ Claude Kit's hooks and links these directories under `~/.claude`:
 - `todos`: task state.
 - `shell-snapshots`: shell state snapshots.
 - `statsig`: feature-flag cache.
+- `jobs`: scheduled job state.
 
 The hook finishes before the agent starts, accepts its existing links,
 and refuses to replace nonempty directories or unexpected symlinks.
@@ -36,11 +37,18 @@ updates and sandbox removal. Concurrent sandboxes see each other's
 state; this Kit adds no writer locking. Use the runtime's storage
 interface to find, copy, or remove the host files.
 
-Older Claude Kits mounted private volumes at these five destinations.
+Older Claude Kits mounted private volumes at `projects`, `sessions`,
+`todos`, `shell-snapshots`, and `statsig`.
 Before recreating an existing sandbox, copy any state to keep into the
-runtime-owned host directory. Removing the volume declarations leaves
-their data retained but unmounted until sandbox removal; the new mixin
-does not migrate it automatically. A fresh sandbox needs no migration.
+matching subdirectories of the runtime-owned host directory. Removing
+the volume declarations leaves their data retained but unmounted until
+sandbox removal.
+
+`jobs` was not a former private-volume destination. Before recreating a
+sandbox, copy any existing local `~/.claude/jobs` state into the host
+directory's `jobs` subdirectory. The mixin does not migrate state
+automatically and refuses to replace nonempty local directories. A fresh
+sandbox needs no migration.
 
 Build against the current frontend source:
 
