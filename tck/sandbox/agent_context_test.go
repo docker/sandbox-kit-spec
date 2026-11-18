@@ -77,7 +77,7 @@ func TestContextDeliveryNeedsNoHelperCapabilities(t *testing.T) {
 }
 
 func TestContextDeliveryAcceptsMarkdownLinkLayouts(t *testing.T) {
-	for _, style := range []string{"angle", "reference"} {
+	for _, style := range []string{"angle", "reference", "wrapped", "continued", "parent"} {
 		t.Run(style, func(t *testing.T) {
 			a := adapter.New(filepath.Join("testdata", "fake-adapter"))
 			a.Env = []string{

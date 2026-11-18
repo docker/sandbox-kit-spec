@@ -83,7 +83,7 @@ if verb == "create":
     link_style = os.environ.get("KIT_TCK_FAKE_CONTEXT_LINK_STYLE", "plain")
     if broken in ("context-v2-reference-unattributed", "context-v2-reference-shared-file"):
         link_style = "reference"
-    if link_style != "plain":
+    if link_style not in ("plain", "parent"):
         progressive = {file.replace(".md", " guidance.md"): content for file, content in progressive.items()}
     if broken in ("context-v2-shared-progressive-file", "context-v2-reference-shared-file") and progressive:
         progressive = {"/home/agent/.kit-context-v2/shared.md": "\n\n".join(progressive.values())}
@@ -99,6 +99,13 @@ if verb == "create":
                     links.append(f"- Kit guidance: {file}")
                 elif link_style == "angle":
                     links.append(f"- [{kit}](<{file}>)")
+                elif link_style == "wrapped":
+                    links.append(f'- [{kit}\n  guidance](\n  <{file}>\n  "Read guidance"\n  )')
+                elif link_style == "continued":
+                    links.append(f"- `{kit}@1.0.0`\n  [Read guidance](<{file}>)")
+                elif link_style == "parent":
+                    relative = os.path.relpath(file, "/home/agent/.kit-tck/v2")
+                    links.append(f"- **{kit}**: {relative}")
                 elif link_style == "reference":
                     label = "Read guidance" if broken == "context-v2-reference-unattributed" else kit
                     links.append(f"- [{label}][{kit}]")
