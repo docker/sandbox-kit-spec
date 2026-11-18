@@ -224,3 +224,46 @@ rather than separately — a release of the Go packages is also the release of t
 conformance suites, and a suite that gains a check can fail a runtime
 that passed the previous tag. That is intended: the check reflects a duty
 the specification already stated.
+
+## Refining GitHub release notes
+
+After the release job publishes `kit-tck` and the frontend successfully,
+its dependent notes workflow drafts and publishes user-facing notes with
+Claude inside a Docker Sandbox. It uses GoReleaser's recorded
+`previous_tag`, the tagged source, public PRs, prior release formats,
+actual release assets, and registry evidence. It does not republish
+binaries, move image tags, or send notifications.
+
+The repository must have access to `ANTHROPIC_API_KEY`, plus the existing
+organization `DOCKERPUBLICBOT_USERNAME` variable and
+`DOCKERPUBLICBOT_READ_PAT` secret. The Docker token needs only Read scope
+for `sbx login`; Docker Hub OIDC for image publication does not replace
+this sandbox sign-in. Configure secrets through repository or organization
+settings before enabling the workflow. The workflow fails clearly when a
+required credential is missing. No write-scoped PAT is passed to Claude.
+
+The generation job has a read-only GitHub token and prefetches evidence
+before starting the sandbox. Only the agent workspace is mounted; the
+original snapshot and helper stay outside it. Claude receives the
+Anthropic credential through the sandbox's host-side secret store and
+writes a draft plus a claim/evidence report. A fresh runner publishes
+with `contents: write` only after deterministic validation and a fresh
+release/body/status/tag comparison. Concurrent edits or unresolved
+evidence gaps fail the notes job without undoing the successful release.
+The GitHub update is not atomic; a final read verifies the published body.
+
+For an existing tag, run **release notes** from Actions with `tag` set
+explicitly. `publish` defaults to false: inspect the baseline, draft,
+evidence report, and diff artifacts first. Set `publish` to true to
+publish on a subsequent run; it always takes a new snapshot and drafts
+again. If the existing body has no compare link, supply `base` from that
+release's GoReleaser metadata rather than guessing. Artifacts are retained
+for 14 days, including available diagnostics on failure. Correct a missing
+secret or evidence problem and rerun notes alone; the release job and its
+asset/image publication do not need rerunning.
+
+The workflow pins the public Linux `sbx` release and Claude template.
+Updating those pins is a separate compatibility decision. Local helper
+tests run with `python3 scripts/test-release-notes.py`. Full sandbox and
+Claude execution needs KVM and real credentials on a hosted runner; it
+cannot run inside a sandbox without nested virtualization.

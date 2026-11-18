@@ -138,3 +138,13 @@ jobs:
       # Minutes, not seconds: every check runs against the fake adapter,
       # and every mutation of it must fail the check it targets.
       - run: task test:tck
+
+  release-notes:
+    name: release notes publication safeguards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 scripts/test-release-notes.py
+      - run: bash -n scripts/draft-release-notes.sh

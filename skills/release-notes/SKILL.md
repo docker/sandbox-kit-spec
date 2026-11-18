@@ -15,6 +15,13 @@ assets, or send notifications. Use `git` for tagged source and `gh` for
 GitHub metadata. If required evidence is unavailable, report the gap;
 do not turn an incomplete inventory into publishable notes.
 
+In the repository's release-notes CI workflow, use the supplied copies of
+release, tag, PR, history, and artifact evidence instead of running the
+collection commands below. Follow the CI prompt's draft and evidence
+output contract only. A separate trusted job handles authorized automatic
+publication; the sandboxed drafting agent never publishes. Interactive
+use still defaults to a local draft unless publication is authorized.
+
 ## Establish the release and its scope
 
 Require an explicit released tag, such as `v3.0.0-m.5`. Ask if it is
