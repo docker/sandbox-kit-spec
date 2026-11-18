@@ -29,6 +29,7 @@ RUN set -eux; \
     test -f sbxenv/SKILL.md; \
     test -f sbxenv/REFERENCE.md; \
     test -f sbxenv/scripts/kits.py; \
+    test ! -e release-notes; \
     test ! -e README.md; \
     test ! -e skills.yaml; \
     test ! -e .dockerignore
