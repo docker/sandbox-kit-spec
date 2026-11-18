@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"strconv"
 	"strings"
 )
 
-// schemaContractHash covers the shared capability constraints, this type's
-// conditional mapping, and the JSON Schema fragments reachable through local
-// references. It deliberately excludes other types' conditional mappings.
+// schemaContractHash covers root descriptor validation, including constraints
+// around capability entries, and the JSON Schema fragments reachable through
+// local references. Only this type's conditional mapping participates.
 func schemaContractHash(read readFile, rootSchema []byte, conditionIndex int) (string, error) {
 	var root map[string]any
 	if err := decodeSchemaJSON(rootSchema, &root); err != nil {
@@ -26,27 +27,33 @@ func schemaContractHash(read readFile, rootSchema []byte, conditionIndex int) (s
 		return "", fmt.Errorf("root schema has no capability definition")
 	}
 	conditions, ok := capability["allOf"].([]any)
-	if !ok || conditionIndex >= len(conditions) {
+	if !ok || conditionIndex < 0 || conditionIndex >= len(conditions) {
 		return "", fmt.Errorf("root schema has no capability condition %d", conditionIndex)
 	}
-	common := make(map[string]any, len(capability))
-	for key, value := range capability {
-		if key != "allOf" {
-			common[key] = value
-		}
-	}
-	walk := referenceWalk{read: read, documents: map[string]any{"schema/kit.schema.json": root}, seen: make(map[string]bool), targets: make(map[string]any)}
-	if err := walk.visit(common, "schema/kit.schema.json"); err != nil {
+	// Copy each enclosing object before filtering allOf. The original parsed
+	// schema remains untouched for the next capability's fingerprint.
+	selectedCapability := maps.Clone(capability)
+	selectedCapability["allOf"] = []any{conditions[conditionIndex]}
+	selectedDefinitions := maps.Clone(definitions)
+	selectedDefinitions["capability"] = selectedCapability
+	selectedRoot := maps.Clone(root)
+	selectedRoot["definitions"] = selectedDefinitions
+	validationRoot := maps.Clone(selectedRoot)
+	delete(validationRoot, "definitions")
+	walk := referenceWalk{read: read, documents: map[string]any{"schema/kit.schema.json": selectedRoot}, seen: make(map[string]bool), targets: make(map[string]any)}
+	if err := walk.visit(validationRoot, "schema/kit.schema.json"); err != nil {
 		return "", err
 	}
-	if err := walk.visit(conditions[conditionIndex], "schema/kit.schema.json"); err != nil {
+	// A minimal fixture or future schema can define a capability without a
+	// root reference to it; include that selected definition directly too.
+	if err := walk.visit(selectedCapability, "schema/kit.schema.json"); err != nil {
 		return "", err
 	}
 	canonical, err := json.Marshal(struct {
-		Common     any            `json:"common"`
-		Condition  any            `json:"condition"`
+		Root       any            `json:"root"`
+		Capability any            `json:"capability"`
 		References map[string]any `json:"references"`
-	}{common, conditions[conditionIndex], walk.targets})
+	}{validationRoot, selectedCapability, walk.targets})
 	if err != nil {
 		return "", err
 	}

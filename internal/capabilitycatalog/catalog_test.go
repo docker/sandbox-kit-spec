@@ -252,3 +252,62 @@ func TestSchemaContractPreservesNumbersAndArrayReferences(t *testing.T) {
 		require.Error(t, err, "invalid array index %q", token)
 	}
 }
+
+func TestSchemaContractTracksEnclosingDescriptorRules(t *testing.T) {
+	rootPath := "schema/kit.schema.json"
+	baseRead := disk(filepath.Clean("../.."))
+	original, err := baseRead(rootPath)
+	require.NoError(t, err)
+	before, err := build(baseRead, tag, rev)
+	require.NoError(t, err)
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"root noNul", func(root map[string]any) {
+			defs := root["definitions"].(map[string]any)
+			defs["noNul"].(map[string]any)["not"].(map[string]any)["pattern"] = "changed-NUL-rule"
+		}},
+		{"mixin sbx exclusion", func(root map[string]any) {
+			rules := root["allOf"].([]any)
+			encoded, err := json.Marshal(rules)
+			require.NoError(t, err)
+			changed := strings.Replace(string(encoded), "com.docker.sandbox/sbx@1", "com.docker.sandbox/sbx@2", 1)
+			require.NotEqual(t, string(encoded), changed)
+			require.NoError(t, json.Unmarshal([]byte(changed), &rules))
+			root["allOf"] = rules
+		}},
+		{"capability group restriction", func(root map[string]any) {
+			defs := root["definitions"].(map[string]any)
+			group := defs["capabilityGroup"].(map[string]any)
+			group["properties"].(map[string]any)["capabilities"].(map[string]any)["minItems"] = float64(2)
+		}},
+		{"capability member restriction", func(root map[string]any) {
+			defs := root["definitions"].(map[string]any)
+			member := defs["capabilityMember"].(map[string]any)
+			member["allOf"] = append(member["allOf"].([]any), map[string]any{"not": map[string]any{"required": []string{"name"}}})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var root map[string]any
+			require.NoError(t, json.Unmarshal(original, &root))
+			tc.mutate(root)
+			changedRoot, err := json.Marshal(root)
+			require.NoError(t, err)
+			changedRead := func(path string) ([]byte, error) {
+				if path == rootPath {
+					return changedRoot, nil
+				}
+				return baseRead(path)
+			}
+			after, err := build(changedRead, tag, rev)
+			require.NoError(t, err)
+			require.Equal(t, before.Capabilities[0].SchemaSHA256, after.Capabilities[0].SchemaSHA256)
+			require.NotEqual(t, before.Capabilities[0].SchemaContractSHA256, after.Capabilities[0].SchemaContractSHA256)
+			notes, err := Notes(after, &before)
+			require.NoError(t, err)
+			require.Contains(t, notes, "- `"+after.Capabilities[0].ID+"` (schema)")
+		})
+	}
+}

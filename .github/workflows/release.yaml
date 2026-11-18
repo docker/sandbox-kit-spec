@@ -141,7 +141,7 @@ jobs:
         run: |
           set -euo pipefail
           latest=$(gh release list --repo docker/sandbox-kit-spec \
-            --limit 1 --json tagName --jq '.[0].tagName')
+            --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
           if [ "$latest" = "$GITHUB_REF_NAME" ]; then
             echo "matches=true" >> "$GITHUB_OUTPUT"
           else

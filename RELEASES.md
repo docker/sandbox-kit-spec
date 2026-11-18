@@ -224,12 +224,14 @@ relative to the preceding release. The first release has no preceding
 tag, so its notes describe the initial catalog.
 
 Each entry's `schema_sha256` hashes its linked capability schema file.
-`schema_contract_sha256` also fingerprints the root schema's shared
-capability constraints, that type's conditional mapping, and the local
-schema fragments reachable through their `$ref` links. Release notes
-use the contract hash to detect schema changes, including changes in
-shared definitions, without treating an unrelated type's mapping as a
-change to every capability.
+`schema_contract_sha256` also fingerprints the descriptor's shared
+validation context, that type's conditional mapping, and the local
+schema fragments reachable through their `$ref` links. The shared
+context includes rules around capability groups and descriptor-wide
+rules, so such changes conservatively mark affected capability contracts
+as changed. Release notes use the contract hash to detect schema changes
+without treating an unrelated type's mapping as a change to every
+capability.
 
 For a local snapshot, pass the tag and its full commit SHA explicitly:
 
