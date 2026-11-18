@@ -35,7 +35,7 @@ func TestHostSessionsSurviveHomeReplacement(t *testing.T) {
 			if agent == "codex" {
 				names = []string{"sessions", "archived_sessions"}
 			} else {
-				names = []string{"projects", "sessions", "todos", "shell-snapshots", "statsig"}
+				names = []string{"projects", "sessions", "todos", "shell-snapshots", "statsig", "jobs"}
 			}
 			for generation := range 2 {
 				home := filepath.Join(t.TempDir(), "agent home")
