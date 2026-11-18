@@ -1700,15 +1700,14 @@ func validateCredentialNeed(path string, i int, n Capability) (*Credential, erro
 				}
 			}
 		}
-		switch c.OAuth.CredentialFile.Format {
-		case "", "json", "toml":
-		default:
+		encoding, ok := credentialFileEncoding(c.OAuth.CredentialFile.Format)
+		if !ok {
 			errs.add(fieldErrorf(path+".config.oauth.credentialFile.format", "capabilities[%d] (%s): credentialFile.format %q is not json or toml", i, c.Service, c.OAuth.CredentialFile.Format))
 		}
 		// An omitted structure is schema-legal (path alone is required),
 		// so there is nothing to walk; the null check is for values
 		// inside a structure that exists.
-		if c.OAuth.CredentialFile.Format == "toml" && c.OAuth.CredentialFile.Structure != nil {
+		if encoding == "toml" && c.OAuth.CredentialFile.Structure != nil {
 			for _, at := range nullConfigPaths("structure", c.OAuth.CredentialFile.Structure, "") {
 				errs.add(fieldErrorf(path+".config.oauth.credentialFile."+at, "capabilities[%d] (%s): %s is null, which TOML cannot represent", i, c.Service, at))
 			}

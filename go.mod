@@ -8,6 +8,7 @@ require (
 	github.com/klauspost/compress v1.20.4
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.59.0
 	golang.org/x/term v0.48.0
