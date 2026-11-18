@@ -948,3 +948,138 @@ func TestCredentialFileRenderPlaceholderSpacesAreSpacesOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestCredentialFileRenderTypedNilContainers pins that a nil map or nil
+// slice is a null like an untyped nil: JSON writes null, TOML refuses it
+// with the location, and an empty non-nil container is unchanged.
+func TestCredentialFileRenderTypedNilContainers(t *testing.T) {
+	var nilMap map[string]any
+	var nilSlice []any
+	tests := []struct {
+		name      string
+		structure map[string]any
+		json      string
+		at        string
+	}{
+		{name: "top-level nil map", structure: map[string]any{"m": nilMap}, json: `{"m":null}`, at: "structure.m"},
+		{name: "top-level nil slice", structure: map[string]any{"s": nilSlice}, json: `{"s":null}`, at: "structure.s"},
+		{name: "nested nil map", structure: map[string]any{"outer": map[string]any{"m": nilMap}}, json: `{"outer":{"m":null}}`, at: "structure.outer.m"},
+		{name: "nested nil slice", structure: map[string]any{"outer": map[string]any{"s": nilSlice}}, json: `{"outer":{"s":null}}`, at: "structure.outer.s"},
+		{name: "nil map as an array element", structure: map[string]any{"list": []any{"a", nilMap}}, json: `{"list":["a",null]}`, at: "structure.list[1]"},
+		{name: "nil slice as an array element", structure: map[string]any{"list": []any{nilSlice}}, json: `{"list":[null]}`, at: "structure.list[0]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"/json", func(t *testing.T) {
+			require.Equal(t, tt.json, string(renderCredentialFile(t, "json", tt.structure, credentialFileValues)))
+		})
+		t.Run(tt.name+"/toml", func(t *testing.T) {
+			f := &CredentialFile{Path: "~/.credentials", Format: "toml", Structure: tt.structure}
+			out, err := f.Render(credentialFileValues)
+			require.ErrorContains(t, err, tt.at+" is null, which TOML cannot represent")
+			require.Nil(t, out)
+		})
+	}
+	t.Run("empty non-nil containers are unchanged", func(t *testing.T) {
+		structure := map[string]any{"m": map[string]any{}, "s": []any{}}
+		require.Equal(t, `{"m":{},"s":[]}`, string(renderCredentialFile(t, "json", structure, credentialFileValues)))
+		require.Equal(t, map[string]any{"m": map[string]any{}, "s": []any{}}, decodeTOML(t, renderCredentialFile(t, "toml", structure, credentialFileValues)))
+	})
+}
+
+// decodedCredentialFile decodes a Kit whose credential structure holds
+// one number literal, the way a runtime receives it: through typed
+// decoding, which hands Render a float64.
+func decodedCredentialFile(t *testing.T, literal string) *CredentialFile {
+	t.Helper()
+	kit := `# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Big Numbers
+description: A credential file with a large number literal
+kind: mixin
+version: "0.1.0"
+provides: [big-numbers]
+
+capabilities:
+  - type: com.docker.sandbox/credential@1
+    config:
+      service: example
+      phase: runtime
+      oauth:
+        tokenEndpoint: {host: api.example.com, path: /token}
+        credentialFile:
+          path: ~/.example/credentials
+          structure:
+            outer:
+              big: ` + literal + `
+`
+	d, err := Decode([]byte(kit))
+	require.NoError(t, err)
+	creds, err := CredentialsOf(DeclaredCapabilities(d.Capabilities))
+	require.NoError(t, err)
+	require.Len(t, creds, 1)
+	f := creds[0].OAuth.CredentialFile
+	require.IsType(t, float64(0), f.Structure["outer"].(map[string]any)["big"], "the typed path must hand Render a float64, or this test proves nothing")
+	return f
+}
+
+// TestCredentialFileRenderNumbersBeyondFloatPrecision pins that a number
+// the descriptor path may have rounded is refused instead of rendered as a
+// different value, while the largest exactly representable integers still
+// render as written.
+func TestCredentialFileRenderNumbersBeyondFloatPrecision(t *testing.T) {
+	for _, format := range []string{"", "toml"} {
+		name := format
+		if name == "" {
+			name = "json"
+		}
+		t.Run("exact/"+name, func(t *testing.T) {
+			for _, literal := range []string{"9007199254740991", "-9007199254740991"} {
+				f := decodedCredentialFile(t, literal)
+				f.Format = format
+				out, err := f.Render(credentialFileValues)
+				require.NoError(t, err)
+				if format == "toml" {
+					require.Equal(t, "[outer]\nbig = "+literal+"\n", string(out))
+				} else {
+					require.Equal(t, `{"outer":{"big":`+literal+`}}`, string(out))
+				}
+			}
+		})
+		t.Run("refused/"+name, func(t *testing.T) {
+			for _, literal := range []string{"9007199254740992", "9007199254740993", "-9007199254740992", "-9007199254740993", "9223372036854775807", "1e300"} {
+				f := decodedCredentialFile(t, literal)
+				f.Format = format
+				out, err := f.Render(credentialFileValues)
+				require.ErrorContains(t, err, "structure.outer.big: a number of magnitude 2^53 or more cannot be represented exactly", literal)
+				require.Nil(t, out)
+			}
+		})
+		t.Run("Go int64 stays exact/"+name, func(t *testing.T) {
+			f := &CredentialFile{Path: "~/.credentials", Format: format, Structure: map[string]any{"big": int64(math.MaxInt64), "small": 7}}
+			out, err := f.Render(credentialFileValues)
+			require.NoError(t, err)
+			if format == "toml" {
+				require.Equal(t, "big = 9223372036854775807\nsmall = 7\n", string(out))
+			} else {
+				require.Equal(t, `{"big":9223372036854775807,"small":7}`, string(out))
+			}
+		})
+	}
+}
+
+// TestCredentialFileRenderZeroSigns pins that negative zero keeps its sign
+// in both encodings, so under TOML it stays a float rather than becoming
+// the integer 0, while positive zero is the integer 0 as any whole number.
+func TestCredentialFileRenderZeroSigns(t *testing.T) {
+	negZero := math.Copysign(0, -1)
+	structure := map[string]any{"neg": negZero, "pos": 0.0}
+
+	require.Equal(t, `{"neg":-0,"pos":0}`, string(renderCredentialFile(t, "json", structure, credentialFileValues)))
+
+	out := renderCredentialFile(t, "toml", structure, credentialFileValues)
+	require.Equal(t, "neg = -0.0\npos = 0\n", string(out))
+	got := decodeTOML(t, out)
+	require.IsType(t, float64(0), got["neg"])
+	require.True(t, math.Signbit(got["neg"].(float64)), "the sign of negative zero was lost")
+	require.Equal(t, int64(0), got["pos"])
+}

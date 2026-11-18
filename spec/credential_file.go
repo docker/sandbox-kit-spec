@@ -80,10 +80,18 @@ type CredentialFileValues struct {
 // placeholder is not expanded again.
 //
 // TOML has no null, so a null anywhere in the structure is an error under
-// that format; JSON keeps it. Arrays need not be homogeneous, matching the
-// schema's tomlValue. A whole-number literal renders as a TOML integer:
-// typed decoding goes through JSON, which turns every number into a
-// float64, and the author who wrote 8080 meant an integer.
+// that format; JSON keeps it. A nil map or nil slice counts as a null, not
+// as an empty container; an empty non-nil one renders as {} or []. Arrays
+// need not be homogeneous, matching the schema's tomlValue. A whole-number
+// literal renders as a TOML integer: typed decoding goes through JSON,
+// which turns every number into a float64, and the author who wrote 8080
+// meant an integer; negative zero stays a float, so both encodings keep
+// its sign. A float64 that is NaN or infinite is an error in both
+// encodings, as neither can write it portably. So is one of magnitude 2^53
+// or more, because integers there are not exact in a float64; Go int and
+// int64 values are exact and are not subject to that limit. Digits a
+// float64 cannot hold that were lost when the descriptor was decoded,
+// below that magnitude, are not detectable here.
 //
 // The structure may hold only what descriptor decoding or a plain Go map
 // produces: nil, string, bool, float64, int, int64, map[string]any and
@@ -95,9 +103,6 @@ type CredentialFileValues struct {
 //
 // JSON output has no trailing newline; TOML output ends with one, which is
 // how the TOML encoder lays out a document.
-//
-// A float64 that is NaN or infinite is an error, as neither encoding can
-// write it portably.
 //
 // Every error names the offending location as a path from "structure"
 // (for example structure.auth.token or structure.scopes[1]), so an author
@@ -202,25 +207,26 @@ func (r credentialFileRenderer) renderSlice(at string, s []any) ([]any, error) {
 func (r credentialFileRenderer) renderValue(at string, value any) (any, bool, error) {
 	switch t := value.(type) {
 	case nil:
-		if r.toml {
-			return nil, false, fmt.Errorf("%s is null, which TOML cannot represent", at)
-		}
-		return nil, true, nil
+		return r.renderNull(at)
 	case string:
 		return r.renderLeaf(at, t)
 	case map[string]any:
+		// A nil container is a null, not an empty one: JSON would write
+		// null for it, so the two encodings must not disagree on it.
+		if t == nil {
+			return r.renderNull(at)
+		}
 		m, err := r.renderMap(at, t)
 		return m, err == nil, err
 	case []any:
+		if t == nil {
+			return r.renderNull(at)
+		}
 		s, err := r.renderSlice(at, t)
 		return s, err == nil, err
 	case float64:
-		// Neither encoding has a portable spelling: JSON cannot write NaN
-		// or an infinity, and TOML would write "nan" or "inf".
-		if math.IsNaN(t) || math.IsInf(t, 0) {
-			return nil, false, fmt.Errorf("%s: %v is not a finite number", at, t)
-		}
-		return r.renderFloat(t), true, nil
+		n, err := r.renderFloat(at, t)
+		return n, err == nil, err
 	case bool, int, int64:
 		return t, true, nil
 	default:
@@ -232,14 +238,42 @@ func (r credentialFileRenderer) renderValue(at string, value any) (any, bool, er
 	}
 }
 
+// maxExactFloat is 2^53, the point from which a float64 no longer holds
+// every integer, so a decoded number at or above it may not be what the
+// author wrote.
+const maxExactFloat = 1 << 53
+
+// renderNull is a null slot: JSON keeps it, TOML has no spelling for it.
+func (r credentialFileRenderer) renderNull(at string) (any, bool, error) {
+	if r.toml {
+		return nil, false, fmt.Errorf("%s is null, which TOML cannot represent", at)
+	}
+	return nil, true, nil
+}
+
 // renderFloat keeps a whole number an integer under TOML, where 8080.0
 // and 8080 are different types an agent's parser may tell apart. JSON
 // has one number type and encoding/json already writes 8080.
-func (r credentialFileRenderer) renderFloat(f float64) any {
-	if r.toml && f == math.Trunc(f) && f >= math.MinInt64 && f < math.MaxInt64 {
-		return int64(f)
+//
+// Descriptor decoding hands every number over as a float64, where integers
+// from 2^53 up are not all exact, so a number of that magnitude is refused
+// rather than written as a possibly different one. Every float rule lives here
+// so no caller can convert an out-of-range float to int64.
+func (r credentialFileRenderer) renderFloat(at string, f float64) (any, error) {
+	// Neither encoding has a portable spelling for these: JSON cannot
+	// write NaN or an infinity, and TOML would write "nan" or "inf".
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil, fmt.Errorf("%s: %v is not a finite number", at, f)
 	}
-	return f
+	if math.Abs(f) >= maxExactFloat {
+		return nil, fmt.Errorf("%s: a number of magnitude 2^53 or more cannot be represented exactly", at)
+	}
+	// Negative zero stays a float so both encodings keep its sign; as an
+	// integer it would lose it.
+	if r.toml && f == math.Trunc(f) && !(f == 0 && math.Signbit(f)) {
+		return int64(f), nil
+	}
+	return f, nil
 }
 
 // renderLeaf substitutes one leaf string. A leaf that is exactly one
