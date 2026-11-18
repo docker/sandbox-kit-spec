@@ -406,11 +406,19 @@ func TestCredentialFileRenderEmptyStructure(t *testing.T) {
 		require.NotErrorIs(t, err, ErrNoCredentialStructure)
 		require.Nil(t, out)
 	})
-	t.Run("empty structure is {} in json", func(t *testing.T) {
-		require.Equal(t, "{}", string(renderCredentialFile(t, "json", map[string]any{}, credentialFileValues)))
-	})
-	t.Run("empty structure is an empty toml document", func(t *testing.T) {
-		require.Empty(t, renderCredentialFile(t, "toml", map[string]any{}, credentialFileValues))
+	for _, format := range []string{"", "json", "toml"} {
+		t.Run("empty structure is refused like an omitted one/"+format, func(t *testing.T) {
+			f := &CredentialFile{Path: "~/.credentials", Format: format, Structure: map[string]any{}}
+			out, err := f.Render(credentialFileValues)
+			require.ErrorIs(t, err, ErrNoCredentialStructure)
+			require.Nil(t, out)
+		})
+	}
+	t.Run("the format is still judged first", func(t *testing.T) {
+		f := &CredentialFile{Path: "~/.credentials", Format: "ini", Structure: map[string]any{}}
+		_, err := f.Render(credentialFileValues)
+		require.ErrorContains(t, err, `format "ini"`)
+		require.NotErrorIs(t, err, ErrNoCredentialStructure)
 	})
 }
 
@@ -1082,4 +1090,134 @@ func TestCredentialFileRenderZeroSigns(t *testing.T) {
 	require.IsType(t, float64(0), got["neg"])
 	require.True(t, math.Signbit(got["neg"].(float64)), "the sign of negative zero was lost")
 	require.Equal(t, int64(0), got["pos"])
+}
+
+// composedCredentialFile decodes a one-credential Kit, then composes it
+// the way a runtime does, and returns the credentialFile before and after.
+func composedCredentialFile(t *testing.T, format, structure string) (before, after *CredentialFile) {
+	t.Helper()
+	kit := `# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Composed Credential File
+description: A credential file that is composed
+kind: mixin
+version: "0.1.0"
+provides: [composed-file]
+
+capabilities:
+  - type: com.docker.sandbox/credential@1
+    config:
+      service: example
+      phase: runtime
+      oauth:
+        tokenEndpoint: {host: api.example.com, path: /token}
+        credentialFile:
+          path: ~/.example/credentials
+` + format + structure
+	d, err := Decode([]byte(kit))
+	require.NoError(t, err)
+	credentialFileOf := func(d *Descriptor) *CredentialFile {
+		creds, err := CredentialsOf(DeclaredCapabilities(d.Capabilities))
+		require.NoError(t, err)
+		require.Len(t, creds, 1)
+		require.NotNil(t, creds[0].OAuth)
+		require.NotNil(t, creds[0].OAuth.CredentialFile)
+		return creds[0].OAuth.CredentialFile
+	}
+	before = credentialFileOf(d)
+	composed, err := Compose([]Contribution{{Reference: "composed", Descriptor: d}})
+	require.NoError(t, err)
+	return before, credentialFileOf(composed)
+}
+
+// requireEmptyStructureRoundTrip asserts the precondition the empty-
+// structure cases depend on: the declared `structure: {}` decodes to a
+// non-nil empty map, and composition's JSON round trip drops it to nil
+// because the field is omitempty. Without that, the cases below would
+// not exercise the round trip they guard.
+func requireEmptyStructureRoundTrip(t *testing.T, before, after *CredentialFile) {
+	t.Helper()
+	require.NotNil(t, before.Structure)
+	require.Empty(t, before.Structure)
+	require.Nil(t, after.Structure)
+}
+
+// TestCredentialFileRenderSurvivesComposition pins that composing a Kit
+// does not change what Render does: composition rewrites each credential
+// through JSON, which drops an empty structure, so an empty one has to mean
+// what an omitted one means, and a non-empty one must come through intact.
+func TestCredentialFileRenderSurvivesComposition(t *testing.T) {
+	t.Run("empty structure renders nothing before and after", func(t *testing.T) {
+		before, after := composedCredentialFile(t, "", "          structure: {}\n")
+		requireEmptyStructureRoundTrip(t, before, after)
+		for _, f := range []*CredentialFile{before, after} {
+			out, err := f.Render(credentialFileValues)
+			require.ErrorIs(t, err, ErrNoCredentialStructure)
+			require.Nil(t, out)
+		}
+	})
+	t.Run("empty toml structure renders nothing before and after", func(t *testing.T) {
+		before, after := composedCredentialFile(t, "          format: toml\n", "          structure: {}\n")
+		requireEmptyStructureRoundTrip(t, before, after)
+		for _, f := range []*CredentialFile{before, after} {
+			out, err := f.Render(credentialFileValues)
+			require.ErrorIs(t, err, ErrNoCredentialStructure)
+			require.Nil(t, out)
+		}
+	})
+	t.Run("non-empty structure renders the same bytes before and after", func(t *testing.T) {
+		before, after := composedCredentialFile(t, "          format: toml\n", `          structure:
+            auth:
+              token: "{{.AccessToken}}"
+              refresh: "{{ .RefreshToken }}"
+              scopes: "{{.Scopes}}"
+              expiresAt: "{{.ExpiresAt}}"
+            apiKey: "{{.PrimaryApiKey}}"
+            port: 8080
+`)
+		want, err := before.Render(credentialFileValues)
+		require.NoError(t, err)
+		require.NotEmpty(t, want)
+		got, err := after.Render(credentialFileValues)
+		require.NoError(t, err)
+		require.Equal(t, string(want), string(got))
+		require.Equal(t, before.Structure, after.Structure)
+		require.Equal(t, "toml", after.Format)
+	})
+}
+
+// TestCredentialFileRenderAllOmittedStructureStillRenders pins the other
+// side of the empty-structure rule: a structure declared with content whose
+// entries are all omitted during substitution is an empty document, not
+// ErrNoCredentialStructure, because the author did declare something.
+func TestCredentialFileRenderAllOmittedStructureStillRenders(t *testing.T) {
+	noKey := credentialFileValues
+	noKey.PrimaryApiKey = ""
+	tests := []struct {
+		name      string
+		structure map[string]any
+		json      string
+	}{
+		{name: "only the omitted key", structure: map[string]any{"key": "{{.PrimaryApiKey}}"}, json: `{}`},
+		{name: "embedded omitted keys", structure: map[string]any{"a": "Bearer {{.PrimaryApiKey}}", "b": "{{.AccessToken}}:{{.PrimaryApiKey}}"}, json: `{}`},
+		{name: "only an array that empties", structure: map[string]any{"keys": []any{"{{.PrimaryApiKey}}"}}, json: `{"keys":[]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"/json", func(t *testing.T) {
+			f := &CredentialFile{Path: "~/.credentials", Structure: tt.structure}
+			out, err := f.Render(noKey)
+			require.NoError(t, err)
+			require.Equal(t, tt.json, string(out))
+		})
+		t.Run(tt.name+"/toml", func(t *testing.T) {
+			f := &CredentialFile{Path: "~/.credentials", Format: "toml", Structure: tt.structure}
+			out, err := f.Render(noKey)
+			require.NoError(t, err)
+			if tt.json == `{}` {
+				require.Empty(t, out)
+			} else {
+				require.Equal(t, "keys = []\n", string(out))
+			}
+		})
+	}
 }

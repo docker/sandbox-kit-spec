@@ -17,9 +17,12 @@ import (
 )
 
 // ErrNoCredentialStructure is returned by Render when the credentialFile
-// declares a path but no structure. That is a valid Kit: a runtime writes
-// no file for it, rather than treating it as a failure.
-var ErrNoCredentialStructure = errors.New("credentialFile: structure is not declared; nothing to render")
+// declares a path but no structure, or an empty one. That is a valid Kit:
+// there is nothing to render, so a runtime writes no file for it, rather
+// than treating it as a failure. An empty structure counts as an omitted
+// one because serialization cannot tell them apart: composition rewrites
+// each credential through JSON, which drops an empty structure.
+var ErrNoCredentialStructure = errors.New("credentialFile: structure is not declared or is empty; nothing to render")
 
 // credentialFileEncoding is the single source of which credentialFile
 // format values exist and which encoding each selects: "" and "json" are
@@ -51,10 +54,13 @@ type CredentialFileValues struct {
 // escapes; "toml" produces a TOML 1.0 document in which nested maps become
 // tables. Any other format is an error. The output is deterministic: JSON
 // sorts keys, and TOML sorts keys within each table, writing a table's
-// plain values before its sub-tables. A nil Structure returns ErrNoCredentialStructure
-// (test with errors.Is): the Kit is valid and a runtime writes no file in
-// that case. An empty, non-nil one renders as an empty document ({} in
-// JSON, nothing in TOML).
+// plain values before its sub-tables. A Structure that is nil or has no
+// entries returns ErrNoCredentialStructure (test with errors.Is): the Kit
+// is valid, there is nothing to render, and a runtime writes no file in
+// that case. A structure whose entries are all omitted during
+// substitution, such as one holding only {{.PrimaryApiKey}} with no key
+// captured, was declared with content and still renders as an empty
+// document ({} in JSON, nothing in TOML).
 //
 // Placeholders are recognized only in leaf string values, written
 // {{.Name}} with optional spaces inside the braces. The names are
@@ -115,7 +121,7 @@ func (f *CredentialFile) Render(v CredentialFileValues) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("credentialFile: format %q is not json or toml", f.Format)
 	}
-	if f.Structure == nil {
+	if len(f.Structure) == 0 {
 		return nil, ErrNoCredentialStructure
 	}
 	encode := marshalJSON

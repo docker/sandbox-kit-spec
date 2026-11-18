@@ -816,19 +816,21 @@ type Sentinels struct {
 type CredentialFile struct {
 	Path string `json:"path" yaml:"path"`
 	// Structure is a declarative nested map, encoded after placeholder
-	// substitution in the encoding Format selects, so a value cannot break
-	// the file's syntax. Leaf strings may reference placeholders, written
-	// {{.Name}} with optional spaces inside the braces: {{.AccessToken}}
-	// and {{.RefreshToken}} (strings), {{.ExpiresAt}} (a number),
-	// {{.Scopes}} (an array of strings), and {{.PrimaryApiKey}} (a string). A leaf
-	// that is exactly one placeholder renders in the target encoding's own
-	// type. A placeholder inside a longer string splices its string form:
+	// substitution in the encoding Format selects, so a value cannot
+	// break the file's syntax. Leaf strings may reference placeholders,
+	// written {{.Name}} with optional spaces inside the braces:
+	// {{.AccessToken}} and {{.RefreshToken}} (strings), {{.ExpiresAt}}
+	// (a number), {{.Scopes}} (an array of strings), and
+	// {{.PrimaryApiKey}} (a string). A leaf that is exactly one
+	// placeholder renders in the target encoding's own type. A
+	// placeholder inside a longer string splices its string form:
 	// {{.ExpiresAt}} in decimal, {{.Scopes}} joined by single spaces. A
-	// leaf that references {{.PrimaryApiKey}} is omitted, with its map key
-	// or array element, when no key is captured. Unknown placeholders, any
-	// other template text, an unterminated "{{", a "{{" in a map key, and
-	// a key, literal or substituted value that is not valid UTF-8 are
-	// errors.
+	// leaf that references {{.PrimaryApiKey}} is omitted, with its map
+	// key or array element, when no key is captured. Unknown
+	// placeholders, any other template text, an unterminated "{{", a
+	// "{{" in a map key, and a key, literal or substituted value that is
+	// not valid UTF-8 are errors. An omitted or empty structure has
+	// nothing to render, so no file is written.
 	Structure map[string]any `json:"structure,omitempty" yaml:"structure,omitempty"`
 	// Format selects the encoding of the substituted structure: "json"
 	// (the default when empty) or "toml", for agents that read TOML

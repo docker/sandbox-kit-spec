@@ -67,7 +67,8 @@ single spaces. A leaf that references `{{.PrimaryApiKey}}`, alone or
 inside a longer string, is omitted, together with its map key or array
 element, when no key is captured. Unknown placeholders, any other
 template text, an unterminated `{{`, a `{{` in a map key, and a key,
-literal or substituted value that is not valid UTF-8 are errors.
+literal or substituted value that is not valid UTF-8 are errors. An
+omitted or empty structure has nothing to render, so no file is written.
 
 Scalar phase declarations remain valid. The list form requires a reader
 implementing this extension; older readers reject it.
