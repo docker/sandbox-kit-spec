@@ -2,6 +2,7 @@ package spec
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,7 +53,11 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 			}
 			if len(contexts) > 0 {
 				require.Len(t, contexts, 2, "offer legacy and modern context")
-				require.Equal(t, contexts[CapabilityAgentContext].Config, contexts[CapabilityAgentContextV2].Config)
+				modernConfig := maps.Clone(contexts[CapabilityAgentContextV2].Config)
+				// Delivery is specific to @2; both versions retain the same body
+				// and discovery destination throughout the example rollout.
+				delete(modernConfig, "delivery")
+				require.Equal(t, contexts[CapabilityAgentContext].Config, modernConfig)
 				values, err := ResolveArgs(d.Args, nil)
 				require.NoError(t, err)
 				expanded, err := ExpandBuildArgs(raw, d.Args, values)

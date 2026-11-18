@@ -557,7 +557,7 @@ func TestAgentContextV2Schema(t *testing.T) {
 	require.Equal(t, false, schema["additionalProperties"])
 	properties := at(t, schema, "properties")
 	require.NotContains(t, properties, "contentFile")
-	require.Len(t, properties, 3)
+	require.Len(t, properties, 4)
 	require.Equal(t, "string", at(t, properties, "content")["type"])
 	require.Equal(t, at(t, loadJSON(t, perTypeSchemaPath(CapabilityAgentContext)), "properties", "directory"), at(t, properties, "directory"))
 	require.Equal(t, []any{"filename"}, at(t, schema, "dependencies")["directory"])
@@ -758,4 +758,14 @@ func TestBuildSecretSchemaMatchesGrammar(t *testing.T) {
 		}
 	}
 	require.ElementsMatch(t, []string{"env", "buildArg", "default", "required", "enum", "pattern"}, excluded)
+}
+
+func TestAgentContextV2DeliverySchema(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentContextV2))
+	delivery := at(t, schema, "properties", "delivery")
+	require.Equal(t, "string", delivery["type"])
+	require.Equal(t, AgentContextDeliveryProgressive, delivery["default"])
+	branches := delivery["anyOf"].([]any)
+	require.ElementsMatch(t, []any{AgentContextDeliveryProgressive, AgentContextDeliveryInline}, branches[0].(map[string]any)["enum"])
+	assertAcceptsKitArg(t, delivery, "bearing")
 }

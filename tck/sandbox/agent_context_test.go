@@ -65,3 +65,13 @@ func TestFakeInlineContextMatchesFixtureNotParentPath(t *testing.T) {
 		require.NoError(t, a.Remove(t.Context(), id))
 	}
 }
+
+func TestContextDeliveryNeedsNoHelperCapabilities(t *testing.T) {
+	a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+	a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capAgentContextV2, "KIT_TCK_FAKE_BROKEN="}
+	selected := check{requirement: "agent-context@2/delivery", capability: capAgentContextV2, run: contextDeliveryMaterialized}
+	rep, err := runChecks(t.Context(), &Env{Adapter: a, Fixtures: Fixtures(FixtureDir)}, []check{selected})
+	require.NoError(t, err)
+	require.False(t, rep.Failed(), "%s", rep)
+	require.Empty(t, rep.Findings, "delivery is observable with only agent-context@2")
+}

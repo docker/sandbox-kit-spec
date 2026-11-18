@@ -82,6 +82,10 @@ licenses: [MIT]
 version: "${{ kit.args.version }}"
 
 args:
+  context_delivery:
+    default: progressive
+    enum: [progressive, inline]
+    description: How the agent reads this Kit's guidance
   version:
     default: "2.98.0"
     pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -101,6 +105,7 @@ capabilities:
 
   - type: com.docker.sandbox/agent-context@2
     config:
+      delivery: ${{ kit.args.context_delivery }}
       content: Use gh for GitHub operations.
 ```
 
@@ -132,7 +137,7 @@ often got wrong:
 | `lifecycle@1` | install/startup hooks, staged files | Hook environments are **deny-by-default**. Declare every variable in `env:`, including ones only a child process reads — `curl`, `pip` and `npm` need `HTTP_PROXY`/`HTTPS_PROXY`, and `docker` needs `DOCKER_HOST`. |
 | `volume@1` | persistent paths | Declare needed capacity with `size`; omission leaves it unspecified and conflicts with another Kit's explicit request. Retained volume settings cannot change on re-create or a later create under the same name. |
 | `host-mount@1` | host-shared caches, datasets, or artifacts | Declare only the absolute, canonical in-container `path` and optional octal `mode`. The runtime owns the host location. Data is shared across sandboxes of the declaring Kit, survives sandbox removal, and is visible to the host user. Use an optional group to couple cache setup with the mount; see `examples/shared-cache`. |
-| `agent-context@2` | inline instructions the agent reads | Use `content:` for every body; `contentFile` is rejected. Profile destinations and precedence match @1, but every effective profile contains all selected guidance and the runtime materializes it directly. Kit args and final `kit.env` references expand normally; shell variables remain literal. Do not mix selected @1 and @2 requests. Rebuild every member of a migrated set. The serialized descriptor warns above 64 KiB and fails above 512 KiB after expansion and composition. |
+| `agent-context@2` | inline instructions the agent reads | Use `content:` for every body; `contentFile` is rejected. Profile destinations and precedence match @1. Mixin delivery defaults to `progressive` (per-Kit files indexed from every profile); `delivery: inline` loads that body directly in every profile. Workload guidance always stays in the root profiles. Expose the choice through an ordinary create-phase arg with enum `[progressive, inline]` and default `progressive`; explicit empty delivery is invalid. Delivery does not route bodies between profiles. Kit args and final `kit.env` references expand normally; shell variables remain literal. Do not mix selected @1 and @2 requests. Rebuild every member of a migrated set. The serialized descriptor warns above 64 KiB and fails above 512 KiB after expansion and composition. |
 | `agent-context@1` | legacy progressive instructions the agent reads | A workload can supply the legacy workspace-sibling `filename`. An agent workload or mixin supplies `filename` plus an absolute `directory` at its discovery location; this overrides the legacy fallback. Different explicit destinations each get a profile, so agent mixins stack. Tool mixins contribute bodies alone. Use `contentFile:` for a static body, but inline `content:` when the body interpolates an arg — a staged body is never arg-expanded. |
 | `open-url@1` | opening documentation, dashboards, or authentication URLs in the host browser | Config-less host interaction grant. The runtime supplies `xdg-open` and `BROWSER`; HTTP/HTTPS only. Browser traffic is outside sandbox network policy. Remote hosts open on the provider machine, not the CLI client. Use optional only if printing the URL is an acceptable fallback. |
 | `auto-restart@1` | services that resume after host or runtime recovery | Config-less and not permission surface. Requests from any Kit apply to the whole sandbox. Explicitly stopped sandboxes stay stopped. Declare `long-running@1` too when the service must outlive client sessions. Does not request restart after an in-guest crash. |

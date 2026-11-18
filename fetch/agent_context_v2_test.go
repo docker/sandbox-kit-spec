@@ -35,8 +35,12 @@ func TestResolveAgentContextV2WithoutLayers(t *testing.T) {
 	require.NoError(t, err)
 	contexts, err := spec.AgentContextsV2Of(result.Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, []spec.AgentContextV2{{Filename: "AGENTS.md", Content: "Tool guidance.\n\nBase guidance."}}, contexts)
-	require.Zero(t, reg.blobReads, "all guidance is available from metadata")
+	require.Equal(t, []spec.AgentContextV2{{Filename: "AGENTS.md", Content: "Base guidance.", Delivery: spec.AgentContextDeliveryInline}}, contexts)
+	toolContexts, err := spec.AgentContextsV2Of(result.Kits[0].Descriptor.Capabilities)
+	require.NoError(t, err)
+	require.Equal(t, []spec.AgentContextV2{{Content: "Tool guidance."}}, toolContexts)
+	require.Equal(t, spec.AgentContextDeliveryProgressive, toolContexts[0].EffectiveDelivery())
+	require.Zero(t, reg.blobReads, "progressive and root guidance are available from metadata")
 }
 
 func TestAssembleAgentContextV2WithoutReadingLayers(t *testing.T) {
@@ -48,6 +52,7 @@ func TestAssembleAgentContextV2WithoutReadingLayers(t *testing.T) {
 	base.Descriptor = kitJSON(t, d)
 	base.Config.Config.Env = []string{"HOME=/home/final"}
 	d = inlineContextDescriptor(spec.KindMixin, "Tool: ${{ kit.args.team }}")
+	d.Capabilities[0].Config["delivery"] = spec.AgentContextDeliveryInline
 	d.Provides = []string{"tool@1.0.0"}
 	d.Args = map[string]spec.Arg{"team": {Required: true}}
 	tool.Descriptor = kitJSON(t, d)
@@ -65,7 +70,7 @@ func TestAssembleAgentContextV2WithoutReadingLayers(t *testing.T) {
 	require.Zero(t, reads)
 	contexts, err := spec.AgentContextsV2Of(result.Resolved.Descriptor.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, []spec.AgentContextV2{{Filename: "AGENTS.md", Content: "Tool: platform\n\nBase: /home/final; $HOME ${HOME}"}}, contexts)
+	require.Equal(t, []spec.AgentContextV2{{Filename: "AGENTS.md", Content: "Tool: platform\n\nBase: /home/final; $HOME ${HOME}", Delivery: spec.AgentContextDeliveryInline}}, contexts)
 }
 
 func TestResolveAgentContextV2ExpandedBudgetDiagnostics(t *testing.T) {

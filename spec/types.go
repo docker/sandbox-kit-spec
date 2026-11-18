@@ -1227,10 +1227,25 @@ type AgentContext struct {
 	Content string `json:"content,omitempty" yaml:"content,omitempty"`
 }
 
-// AgentContextV2 carries inline guidance in both authored and effective configs.
-// Effective profiles each contain all selected guidance in dependency order.
+const (
+	AgentContextDeliveryProgressive = "progressive"
+	AgentContextDeliveryInline      = "inline"
+)
+
+// AgentContextV2 carries descriptor guidance and its runtime delivery mode.
+// Omitted delivery uses progressive surfacing for mixin contributions.
 type AgentContextV2 struct {
+	Delivery  string `json:"delivery,omitempty" yaml:"delivery,omitempty"`
 	Directory string `json:"directory,omitempty" yaml:"directory,omitempty"`
 	Filename  string `json:"filename,omitempty" yaml:"filename,omitempty"`
 	Content   string `json:"content,omitempty" yaml:"content,omitempty"`
+}
+
+// EffectiveDelivery returns the authored mode, with the progressive default.
+// Validate declarations before using it; unknown concrete modes are errors.
+func (a AgentContextV2) EffectiveDelivery() string {
+	if a.Delivery == "" {
+		return AgentContextDeliveryProgressive
+	}
+	return a.Delivery
 }

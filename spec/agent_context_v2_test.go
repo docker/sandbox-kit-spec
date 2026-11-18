@@ -22,6 +22,18 @@ func TestAgentContextV2StrictValidation(t *testing.T) {
 		want   string
 	}{
 		{"body", map[string]any{"content": "Use the tools."}, ""},
+		{"progressive", map[string]any{"content": "body", "delivery": AgentContextDeliveryProgressive}, ""},
+		{"inline", map[string]any{"content": "body", "delivery": AgentContextDeliveryInline}, ""},
+		{"delivery arg", map[string]any{"content": "body", "delivery": "${{ kit.args.team }}"}, ""},
+		{"delivery env", map[string]any{"content": "body", "delivery": "${{ kit.env.CONTEXT_DELIVERY }}"}, ""},
+		{"empty delivery", map[string]any{"content": "body", "delivery": ""}, "delivery must be"},
+		{"unknown delivery", map[string]any{"content": "body", "delivery": "direct"}, "delivery must be"},
+		{"case delivery", map[string]any{"content": "body", "delivery": "INLINE"}, "delivery must be"},
+		{"literal bad delivery beside template", map[string]any{"content": "${{ kit.args.team }}", "delivery": "direct"}, "delivery must be"},
+		{"delivery null", map[string]any{"content": "body", "delivery": nil}, "must be a string"},
+		{"delivery boolean", map[string]any{"content": "body", "delivery": true}, "cannot unmarshal bool"},
+		{"malformed delivery", map[string]any{"content": "body", "delivery": "${{ kit.args.bad-name }}"}, "malformed Kit reference"},
+		{"case delivery field", map[string]any{"content": "body", "Delivery": "inline"}, "unknown field"},
 		{"profile", map[string]any{"filename": "AGENTS.md"}, ""},
 		{"explicit profile", map[string]any{"directory": "/home/agent/.agent", "filename": "AGENTS.md"}, ""},
 		{"file", map[string]any{"contentFile": "./body.md"}, "unknown field"},
@@ -71,12 +83,12 @@ func TestAgentContextV2Composition(t *testing.T) {
 	for _, multi := range []bool{false, true} {
 		t.Run(fmt.Sprintf("multiple profiles=%t", multi), func(t *testing.T) {
 			contributions := []Contribution{
-				{Reference: "tools", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": "Tools guidance.\n"})}}},
+				{Reference: "tools", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": "Tools guidance.\n", "delivery": AgentContextDeliveryInline})}}},
 				{Reference: "agent", Descriptor: &Descriptor{Kind: KindWorkload, Capabilities: []Capability{contextV2(map[string]any{"filename": "AGENTS.md", "content": "Agent guidance."})}}},
 			}
 			if multi {
 				contributions = append(contributions, Contribution{Reference: "second", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{
-					contextV2(map[string]any{"directory": "/home/agent/.agent", "filename": "AGENTS.md", "content": "Second guidance."}),
+					contextV2(map[string]any{"directory": "/home/agent/.agent", "filename": "AGENTS.md", "content": "Second guidance.", "delivery": AgentContextDeliveryInline}),
 					contextV2(map[string]any{"directory": "/home/agent/.other", "filename": "OTHER.md"}),
 				}}})
 			}
@@ -114,20 +126,20 @@ func TestAgentContextV2Composition(t *testing.T) {
 	require.NoError(t, err)
 	profiles, err := AgentContextsV2Of(d.Capabilities)
 	require.NoError(t, err)
-	require.Equal(t, []AgentContextV2{{Content: "body"}}, profiles)
+	require.Empty(t, profiles, "progressive body-only mixins retain bodies in the caller inputs")
 }
 
 func TestAgentContextV2PublishedSelection(t *testing.T) {
 	for _, allOptional := range []bool{false, true} {
 		for _, grouped := range []bool{false, true} {
 			t.Run(fmt.Sprintf("optional=%t/grouped=%t", allOptional, grouped), func(t *testing.T) {
-				first := contextV2(map[string]any{"directory": "/profiles/first", "filename": "AGENTS.md", "content": "First body."})
+				first := contextV2(map[string]any{"directory": "/profiles/first", "filename": "AGENTS.md", "content": "First body.", "delivery": AgentContextDeliveryInline})
 				first.Optional = true
 				first.Name = "first"
 				second := contextV2(map[string]any{"directory": "/profiles/second", "filename": "OTHER.md", "content": "Second body."})
 				second.Optional = allOptional
 				second.Name = "second"
-				feature := contextV2(map[string]any{"content": "Optional feature body."})
+				feature := contextV2(map[string]any{"content": "Optional feature body.", "delivery": AgentContextDeliveryInline})
 				feature.Optional = true
 				feature.Name = "feature"
 				if grouped {
@@ -235,8 +247,12 @@ func TestAgentContextPublishedIndependentVersions(t *testing.T) {
 				selected.Capabilities = selection.Capabilities
 				effective, err := Compose([]Contribution{{Reference: "alternatives", Descriptor: &selected}})
 				require.NoError(t, err)
-				require.Len(t, effective.Capabilities, 1)
-				require.Equal(t, version, effective.Capabilities[0].Type)
+				if version == CapabilityAgentContextV2 && !explicit {
+					require.Empty(t, effective.Capabilities, "body-only progressive guidance stays in selected inputs")
+				} else {
+					require.Len(t, effective.Capabilities, 1)
+					require.Equal(t, version, effective.Capabilities[0].Type)
+				}
 			}
 			_, err = Compose([]Contribution{{Reference: "alternatives", Descriptor: d}})
 			require.ErrorContains(t, err, "@1 and @2")
@@ -262,7 +278,7 @@ func TestAgentContextV2CompositionSize(t *testing.T) {
 	for _, size := range []int{SizeWarnBytes/2 + 100, SizeErrorBytes/2 + 100} {
 		var contributions []Contribution
 		for i := range 2 {
-			contributions = append(contributions, Contribution{Reference: fmt.Sprint(i), Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": strings.Repeat("x", size)})}}})
+			contributions = append(contributions, Contribution{Reference: fmt.Sprint(i), Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": strings.Repeat("x", size), "delivery": AgentContextDeliveryInline})}}})
 		}
 		composed, err := Compose(contributions)
 		if size > SizeErrorBytes/2 {
@@ -283,7 +299,7 @@ func TestAgentContextV2CompositionSize(t *testing.T) {
 	}
 	// The hard budget counts the full content of every effective profile.
 	_, err := Compose([]Contribution{{Reference: "profiles", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{
-		contextV2(map[string]any{"directory": "/a", "filename": "AGENTS.md", "content": strings.Repeat("x", SizeErrorBytes/2)}),
+		contextV2(map[string]any{"directory": "/a", "filename": "AGENTS.md", "content": strings.Repeat("x", SizeErrorBytes/2), "delivery": AgentContextDeliveryInline}),
 		contextV2(map[string]any{"directory": "/b", "filename": "AGENTS.md"}),
 	}}}})
 	require.ErrorContains(t, err, "byte budget")
@@ -353,7 +369,7 @@ capabilities:
 func TestAgentContextV2CompositionCountsSerializedEscapes(t *testing.T) {
 	var contributions []Contribution
 	for i := range 2 {
-		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": strings.Repeat("<", 45000)})}}
+		d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": strings.Repeat("<", 45000), "delivery": AgentContextDeliveryInline})}}
 		raw, err := json.Marshal(d)
 		require.NoError(t, err)
 		_, err = ValidatePublished(raw, d)
@@ -368,7 +384,7 @@ func TestAgentContextV2RejectsRepeatedBodiesBeforeAllocatingProfiles(t *testing.
 	for _, character := range []string{"x", "<"} {
 		t.Run(character, func(t *testing.T) {
 			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
-				contextV2(map[string]any{"content": strings.Repeat(character, 32*1024)}),
+				contextV2(map[string]any{"content": strings.Repeat(character, 32*1024), "delivery": AgentContextDeliveryInline}),
 			}}
 			for i := range 128 {
 				d.Capabilities = append(d.Capabilities, contextV2(map[string]any{
@@ -403,4 +419,216 @@ func TestAgentContextV2AccessorDoesNotDiscardRequests(t *testing.T) {
 	require.ErrorContains(t, err, "AgentContextsV2Of")
 	_, err = AgentContextsV2Of([]Capability{{Group: &CapabilityGroup{Capabilities: []Capability{body}}}})
 	require.ErrorContains(t, err, "select groups first")
+}
+
+func TestAgentContextV2DeliveryComposition(t *testing.T) {
+	for _, mode := range []string{"", AgentContextDeliveryProgressive, AgentContextDeliveryInline} {
+		t.Run("delivery="+mode, func(t *testing.T) {
+			mixin := contextV2(map[string]any{"content": "mixin\n"})
+			if mode != "" {
+				mixin.Config["delivery"] = mode
+			}
+			workload := contextV2(map[string]any{"filename": "AGENTS.md", "content": "base", "delivery": AgentContextDeliveryProgressive})
+			contributions := []Contribution{
+				{Reference: "mixin", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{mixin}}},
+				{Reference: "base", Descriptor: &Descriptor{Kind: KindWorkload, Capabilities: []Capability{workload}}},
+			}
+			effective, err := Compose(contributions)
+			require.NoError(t, err)
+			profile, err := AgentContextV2Of(effective.Capabilities)
+			require.NoError(t, err)
+			want := "base"
+			if mode == AgentContextDeliveryInline {
+				want = "mixin\n\n\nbase"
+			}
+			require.Equal(t, want, profile.Content)
+			require.Equal(t, AgentContextDeliveryInline, profile.EffectiveDelivery())
+			// Compose does not rewrite a progressive input as inline.
+			require.Equal(t, "mixin\n", contributions[0].Descriptor.Capabilities[0].Config["content"])
+		})
+	}
+	// Every selected root body goes to every profile, independent of the
+	// profile owner's delivery. An inline profile cannot pull other Kits in.
+	contributions := []Contribution{
+		{Reference: "progressive", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": "deferred"})}}},
+		{Reference: "inline", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"directory": "/inline", "filename": "A.md", "content": "inline", "delivery": AgentContextDeliveryInline})}}},
+		{Reference: "base", Descriptor: &Descriptor{Kind: KindWorkload, Capabilities: []Capability{contextV2(map[string]any{"directory": "/base", "filename": "B.md", "content": "base"})}}},
+	}
+	d, err := Compose(contributions)
+	require.NoError(t, err)
+	profiles, err := AgentContextsV2Of(d.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, profiles, 2)
+	for _, p := range profiles {
+		require.Equal(t, "inline\n\nbase", p.Content)
+	}
+}
+
+func TestAgentContextV2PublishedDeliveryBoundaries(t *testing.T) {
+	progressive := contextV2(map[string]any{"content": "deferred"})
+	inline := contextV2(map[string]any{"content": "eager", "delivery": AgentContextDeliveryInline})
+	inline.Optional = true
+	inline.Name = "eager"
+	merged, err := Merge([]Contribution{
+		{Reference: "progressive", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{progressive}}},
+		{Reference: "inline", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{inline}}},
+	}, MergeOptions{})
+	require.NoError(t, err)
+	require.Equal(t, KindMixin, merged.Descriptor.Kind)
+	for _, acceptInline := range []bool{false, true} {
+		selected, err := SelectCapabilities(t.Context(), "published-mixins", merged.Descriptor, func(_ context.Context, _ SelectionTarget, _ Descriptor, c Capability) CapabilityDecision {
+			return CapabilityDecision{Accepted: acceptInline || c.Name != "eager"}
+		})
+		require.NoError(t, err)
+		copy := *merged.Descriptor
+		copy.Capabilities = selected.Capabilities
+		bodies, err := AgentContextsV2Of(copy.Capabilities)
+		require.NoError(t, err)
+		require.Equal(t, AgentContextDeliveryProgressive, bodies[0].EffectiveDelivery())
+		copy.Capabilities = append(copy.Capabilities, contextV2(map[string]any{"directory": "/profile", "filename": "AGENTS.md"}))
+		effective, err := Compose([]Contribution{{Reference: "published-mixins", Descriptor: &copy}})
+		require.NoError(t, err)
+		profile, err := AgentContextV2Of(effective.Capabilities)
+		require.NoError(t, err)
+		want := ""
+		if acceptInline {
+			want = "eager"
+		}
+		require.Equal(t, want, profile.Content)
+	}
+	// A published workload owns its complete guidance. Source metadata is
+	// diagnostic and cannot change a consumed descriptor's workload role.
+	workload := *merged.Descriptor
+	workload.Kind = KindWorkload
+	selected, err := SelectCapabilities(t.Context(), "workload", &workload, Supported(CapabilityAgentContextV2))
+	require.NoError(t, err)
+	workload.Capabilities = selected.Capabilities
+	effective, err := Compose([]Contribution{{Reference: "workload", Descriptor: &workload}})
+	require.NoError(t, err)
+	profile, err := AgentContextV2Of(effective.Capabilities)
+	require.NoError(t, err)
+	require.Equal(t, "deferred\n\neager", profile.Content)
+}
+
+func TestAgentContextV2DeliveryExpansion(t *testing.T) {
+	for _, reference := range []string{"${{ kit.args.delivery }}", "${{ kit.env.DELIVERY }}"} {
+		for _, value := range []string{AgentContextDeliveryProgressive, AgentContextDeliveryInline, "", "unknown"} {
+			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Args: map[string]Arg{"delivery": {}}, Capabilities: []Capability{contextV2(map[string]any{"content": "body", "delivery": reference})}}
+			raw, err := json.Marshal(d)
+			require.NoError(t, err)
+			_, err = ValidateRaw(raw, d)
+			require.NoError(t, err)
+			if ContainsArgRef(reference) {
+				raw, err = ExpandCreateArgs(raw, d.Args, map[string]string{"delivery": value})
+				require.NoError(t, err)
+				d, err = Decode(raw)
+				require.NoError(t, err)
+			} else {
+				d, err = ExpandEnvironment(d, map[string]string{"DELIVERY": value})
+				require.NoError(t, err)
+			}
+			raw, err = json.Marshal(d)
+			require.NoError(t, err)
+			_, err = ValidateEffective(raw, d)
+			if value == "" || value == "unknown" {
+				require.ErrorContains(t, err, "delivery must be")
+			} else {
+				require.NoError(t, err)
+			}
+		}
+	}
+}
+
+func TestAgentContextV2PublishedMixedDeliveryGroup(t *testing.T) {
+	feature := Capability{Group: &CapabilityGroup{Optional: true, Capabilities: []Capability{
+		{Type: CapabilityVolume, Config: map[string]any{"path": "/cache"}},
+		contextV2(map[string]any{"content": "inline feature", "delivery": AgentContextDeliveryInline}),
+		contextV2(map[string]any{"directory": "/feature", "filename": "FEATURE.md", "content": "progressive feature"}),
+	}}}
+	published, err := Merge([]Contribution{{Reference: "feature", Descriptor: &Descriptor{Kind: KindMixin, Capabilities: []Capability{feature}}}}, MergeOptions{})
+	require.NoError(t, err)
+	nested, err := Merge([]Contribution{{Reference: "nested", Descriptor: published.Descriptor}}, MergeOptions{})
+	require.NoError(t, err)
+	for _, accept := range []bool{false, true} {
+		selected, err := SelectCapabilities(t.Context(), "nested", nested.Descriptor, func(_ context.Context, _ SelectionTarget, _ Descriptor, c Capability) CapabilityDecision {
+			return CapabilityDecision{Accepted: c.Type != CapabilityVolume || accept}
+		})
+		require.NoError(t, err)
+		copy := *nested.Descriptor
+		copy.Capabilities = selected.Capabilities
+		bodies, err := AgentContextsV2Of(copy.Capabilities)
+		require.NoError(t, err)
+		if accept {
+			require.Len(t, bodies, 2)
+			require.Equal(t, AgentContextDeliveryInline, bodies[0].EffectiveDelivery())
+			require.Equal(t, AgentContextDeliveryProgressive, bodies[1].EffectiveDelivery())
+		} else {
+			require.Empty(t, bodies)
+		}
+		base := &Descriptor{Kind: KindWorkload, Capabilities: []Capability{contextV2(map[string]any{"directory": "/base", "filename": "BASE.md", "content": "base"})}}
+		effective, err := Compose([]Contribution{{Reference: "nested", Descriptor: &copy}, {Reference: "base", Descriptor: base}})
+		require.NoError(t, err)
+		profiles, err := AgentContextsV2Of(effective.Capabilities)
+		require.NoError(t, err)
+		want, count := "base", 1
+		if accept {
+			want, count = "inline feature\n\nbase", 2
+		}
+		require.Len(t, profiles, count)
+		for _, profile := range profiles {
+			require.Equal(t, want, profile.Content)
+		}
+	}
+}
+
+func TestAgentContextV2BodyOnlyDelivery(t *testing.T) {
+	for _, mode := range []string{AgentContextDeliveryProgressive, AgentContextDeliveryInline} {
+		d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": "body\n", "delivery": mode})}}
+		effective, err := Compose([]Contribution{{Reference: "body-only", Descriptor: d}})
+		require.NoError(t, err)
+		raw, err := json.Marshal(effective)
+		require.NoError(t, err)
+		_, err = ValidateEffective(raw, effective)
+		require.NoError(t, err)
+		profiles, err := AgentContextsV2Of(effective.Capabilities)
+		require.NoError(t, err)
+		if mode == AgentContextDeliveryInline {
+			require.Equal(t, []AgentContextV2{{Content: "body\n", Delivery: AgentContextDeliveryInline}}, profiles)
+		} else {
+			require.Empty(t, profiles)
+		}
+	}
+}
+
+func TestAgentContextV2ProgressiveCompositionBudget(t *testing.T) {
+	var contributions []Contribution
+	for i := range 2 {
+		d := &Descriptor{Kind: KindMixin, Capabilities: []Capability{contextV2(map[string]any{"content": strings.Repeat("x", SizeErrorBytes/2+1)})}}
+		contributions = append(contributions, Contribution{Reference: fmt.Sprint(i), Descriptor: d})
+	}
+	_, err := Compose(contributions)
+	require.ErrorIs(t, err, ErrDescriptorTooLarge, "retained progressive source bodies still count toward the hard composition budget")
+}
+
+func TestAgentContextV2TypedDeliveryDecode(t *testing.T) {
+	for _, raw := range []string{`{"content":"body"}`, `{"content":"body","delivery":"progressive"}`, `{"content":"body","delivery":"inline"}`, `{"content":"body","delivery":"${{ kit.args.delivery }}"}`, `{"content":"body","delivery":"${{ kit.env.DELIVERY }}"}`, `{"content":"body","delivery":"unknown"}`} {
+		var value AgentContextV2
+		require.NoError(t, json.Unmarshal([]byte(raw), &value), raw)
+		if !strings.Contains(raw, "delivery") {
+			require.Equal(t, AgentContextDeliveryProgressive, value.EffectiveDelivery())
+		}
+		encoded, err := json.Marshal(value)
+		require.NoError(t, err)
+		var before, after map[string]any
+		require.NoError(t, json.Unmarshal([]byte(raw), &before))
+		require.NoError(t, json.Unmarshal(encoded, &after))
+		require.Equal(t, before, after, "typed decoding must retain a stated delivery for subsequent expansion and validation")
+	}
+	for _, raw := range []string{`{"content":"body","delivery":""}`, `{"content":"body","delivery":null}`, `{"content":"body","delivery":false}`, `{"content":"body","Delivery":"inline"}`, `{"content":"body","unexpected":"inline"}`} {
+		var value AgentContextV2
+		require.Error(t, json.Unmarshal([]byte(raw), &value), raw)
+		var config map[string]any
+		require.NoError(t, json.Unmarshal([]byte(raw), &config))
+		require.Error(t, DecodeCapabilityConfig(contextV2(config), &value), raw)
+	}
 }

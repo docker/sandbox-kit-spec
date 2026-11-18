@@ -8,11 +8,17 @@ capabilities:
       filename: AGENTS.md
       content: base-context-v2
 build: |
+  FROM golang:1.26.11-alpine AS context-observer
+  WORKDIR /src
+  COPY snapshot.go .
+  RUN CGO_ENABLED=0 GO111MODULE=off GOTOOLCHAIN=local go build -trimpath -o /context-v2-snapshot snapshot.go
+
   FROM docker/sandbox-templates:claude-code-docker
   ENV KIT_CONTEXT_TEAM=image
   RUN mkdir -p /home/agent/.kit-tck/v2 /home/agent/.kit-tck/v2-other \
       && for file in /home/agent/AGENTS.md /home/agent/.kit-tck/v2/AGENTS.md /home/agent/.kit-tck/v2-other/OTHER.md; do \
         printf '%s\n' 'existing-context-v2' > "$file"; done
+  COPY --from=context-observer /context-v2-snapshot /usr/local/bin/context-v2-snapshot
   COPY --chmod=0755 entrypoint /usr/local/bin/context-v2-entrypoint
   WORKDIR /home/agent/workspace
   ENTRYPOINT ["/usr/local/bin/context-v2-entrypoint"]

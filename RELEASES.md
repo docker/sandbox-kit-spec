@@ -132,6 +132,16 @@ that previously allowed these overrides or supplied only some values
 need to change to match this draft. Descriptor fields, capability config,
 and `schemaVersion` are unchanged.
 
+The in-place `agent-context@2` delivery addition in
+[issue #878](https://github.com/docker/sbx-releases/issues/878) uses the
+same exception, approved by maintainer @cdupuis. It adds
+`config.delivery` with `progressive` as the omitted default and `inline`
+as the alternative for mixin guidance. Consumed workload guidance stays
+in the root profile. Older strict readers reject descriptors using the
+new field; runtimes that previously loaded all `@2` mixin guidance inline
+need the matching draft implementation, even when the field is omitted.
+`agent-context@1` and `schemaVersion` are unchanged.
+
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new

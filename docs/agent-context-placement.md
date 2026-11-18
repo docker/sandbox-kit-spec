@@ -1,9 +1,10 @@
 # Agent context discovery destinations
 
 The example agent workloads and mixins declare explicit
-`agent-context@2` profiles so runtime guidance and the combined inline
-Kit guidance reach the files their harnesses discover. The effective
-configuration carries the full body for each profile.
+`agent-context@2` profiles so runtime guidance, root instruction bodies,
+and progressive Kit indexes reach the files their harnesses discover.
+The effective configuration carries workload and inline mixin bodies;
+selected inputs retain progressive mixin bodies for per-Kit files.
 
 | Harness | Example profile | Discovery constraints |
 |---|---|---|
@@ -32,14 +33,16 @@ building these sets; selected `@1` and `@2` requests cannot compose.
 Several agents can share one sandbox. Each explicit profile is its own
 destination, so the Claude and Codex mixins together produce both
 `/home/agent/.claude/CLAUDE.md` and `/home/agent/.codex/AGENTS.md`, each
-with the runtime guidance and the combined body of every selected Kit,
-the other agent included. Profiles naming the same directory and filename
+with the runtime guidance, workload and inline mixin bodies, and an index
+of progressive mixin guidance, the other agent included. Mixin delivery
+defaults to `progressive`; `delivery: inline` affects only that
+contribution, and every contribution applies to every profile. Profiles naming the same directory and filename
 are one destination. An earlier revision refused differing explicit
 profiles, which broke stacking two agent mixins on a shell from the
 release that introduced the directory field until this was relaxed.
 
 The examples require a runtime advertising `agent-context@2`, including
-its destination, inline materialization, and preservation duties.
+its destination, configurable delivery, and preservation duties.
 `agent-context@1` remains supported with its original progressive
 surfacing contract. This repository defines and tests these contracts;
 it does not contain the `sbx` runtime handler.

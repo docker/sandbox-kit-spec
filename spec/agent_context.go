@@ -1,10 +1,66 @@
 package spec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
 )
+
+// UnmarshalJSON preserves the distinction between omitted delivery and an
+// invalid explicit empty value before a typed round trip can erase it.
+// Decode each string once: a second full-object pass would duplicate large
+// escaped instruction bodies before composition can enforce its budget.
+func (a *AgentContextV2) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	start, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if start == nil {
+		*a = AgentContextV2{}
+		return nil
+	}
+	if start != json.Delim('{') {
+		return fmt.Errorf("agent-context@2 config must be an object")
+	}
+	var value AgentContextV2
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		var target *string
+		switch key {
+		case "directory":
+			target = &value.Directory
+		case "filename":
+			target = &value.Filename
+		case "content":
+			target = &value.Content
+		case "delivery":
+			target = &value.Delivery
+		default:
+			return fmt.Errorf("json: unknown field %q", key)
+		}
+		var text *string
+		if err := dec.Decode(&text); err != nil {
+			return err
+		}
+		if text == nil {
+			return fmt.Errorf("%s must be a string", key)
+		}
+		if key == "delivery" && *text == "" {
+			return fmt.Errorf("delivery must be progressive or inline")
+		}
+		*target = *text
+	}
+	if _, err := dec.Token(); err != nil {
+		return err
+	}
+	*a = value
+	return nil
+}
 
 // Check the raw shape even when text is parameterized: expansion cannot make
 // an unknown field or a null into a valid inline-context declaration.
@@ -14,7 +70,7 @@ func validateContextV2(field string, i int, n Capability) error {
 		return configErrorf(field, i, err)
 	}
 	// Decoding admits only exact field names, so each key is directory,
-	// filename, or content.
+	// filename, content, or delivery.
 	for key, value := range n.Config {
 		text, ok := value.(string)
 		if !ok {
@@ -22,6 +78,12 @@ func validateContextV2(field string, i int, n Capability) error {
 		}
 		if ContainsKitPlaceholder(envRef.ReplaceAllString(argRef.ReplaceAllString(text, ""), "")) {
 			return fieldErrorf(field+".config."+key, "capabilities[%d]: malformed Kit reference", i)
+		}
+	}
+	if delivery, stated := n.Config["delivery"]; stated {
+		value, _ := delivery.(string)
+		if !ContainsKitPlaceholder(value) && value != AgentContextDeliveryProgressive && value != AgentContextDeliveryInline {
+			return fieldErrorf(field+".config.delivery", "capabilities[%d]: delivery must be progressive or inline", i)
 		}
 	}
 	if a.Filename == "" && a.Content == "" {

@@ -49,9 +49,10 @@
 // Resolved.ContainerEnv contains their conflict-checked union for container
 // creation; these override image defaults at runtime.
 // Resolved.Warnings contains advisory findings from final validation.
-// Inline agent-context@2 guidance is complete in Resolved.Descriptor: read
-// every effective profile with spec.AgentContextsV2Of. No contributor lookup
-// or layer read is needed. agent-context@1 retains its staged-file contract;
+// agent-context@2 effective profiles contain workload and inline mixin
+// guidance. Use spec.AgentContextsV2Of on Resolved.Kits' selected descriptors
+// for progressive mixin bodies and Kit attribution. No layer read is needed.
+// agent-context@1 retains its staged-file contract;
 // selecting both context versions is an explicit composition error.
 //
 // LoadImage implements assemble.ImageLoader using the same credentials and

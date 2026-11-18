@@ -14,4 +14,5 @@ capabilities:
           config:
             filename: OPTIONAL.md
             directory: /home/agent/.kit-tck/v2-optional
+            delivery: inline
             content: optional-context-v2

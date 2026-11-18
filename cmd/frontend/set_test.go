@@ -1166,8 +1166,15 @@ func TestKitDeclarationsPreservesParameterizedContextAlternatives(t *testing.T) 
 				input.Capabilities = selected.Capabilities
 				composed, err := spec.Compose([]spec.Contribution{{Reference: "set", Descriptor: &input}})
 				require.NoError(t, err)
-				require.Len(t, composed.Capabilities, 1)
-				require.Equal(t, version, composed.Capabilities[0].Type)
+				if version == spec.CapabilityAgentContextV2 {
+					require.Empty(t, composed.Capabilities, "progressive body-only guidance stays in selected declarations")
+					contexts, err := spec.AgentContextsV2Of(input.Capabilities)
+					require.NoError(t, err)
+					require.Equal(t, "modern platform", contexts[0].Content)
+				} else {
+					require.Len(t, composed.Capabilities, 1)
+					require.Equal(t, version, composed.Capabilities[0].Type)
+				}
 			}
 			_, err = spec.Compose([]spec.Contribution{{Reference: "set", Descriptor: d}})
 			require.ErrorContains(t, err, "@1 and @2", "selection of both versions still refuses")
