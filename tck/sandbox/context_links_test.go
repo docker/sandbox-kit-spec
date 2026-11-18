@@ -71,10 +71,37 @@ func contextLinkCases() []contextLinkCase {
 		{"versioned-code-attribution", "- `context-v2-tool@1.0.0`: [Read guidance](./tool.md)", "tool.md", true, true},
 		{"versioned-code-heading", "# `context-v2-tool@1.0.0-beta.1+build.2`\n\n[Read guidance](./tool.md)", "tool.md", true, true},
 		{"code-path-is-not-attribution", "- `./context-v2-tool@1.0.0.md`: [Read guidance](./tool.md)", "tool.md", true, false},
+		{"qualified-code-attribution", "- `docker.io/library/context-v2-tool:1.0.0`: [Read guidance](./tool.md)", "tool.md", true, true},
+		{"qualified-code-heading", "# `docker.io/library/context-v2-tool:1.0.0`\n## Guidance\n[Read guidance](./tool.md)", "tool.md", true, true},
+		{"qualified-code-port-attribution", "- `registry.example.test:5000/team/context-v2-tool:latest`: [Read guidance](./tool.md)", "tool.md", true, true},
+		{"qualified-destination-is-not-attribution", "- [Other](docker.io/library/context-v2-tool:1.0.0) [Read guidance](./tool.md)", "tool.md", true, false},
+		{"qualified-reference-is-not-attribution", "- [Read guidance][tool]\n\n[tool]: ./tool.md \"docker.io/library/context-v2-tool:1.0.0\"", "tool.md", true, false},
+		{"absolute-qualified-code-path-is-not-attribution", "- `/home/agent/docker.io/library/context-v2-tool:1.0.0`: [Read guidance](./tool.md)", "tool.md", true, false},
+		{"relative-qualified-code-path-is-not-attribution", "- `./docker.io/library/context-v2-tool:1.0.0`: [Read guidance](./tool.md)", "tool.md", true, false},
+		{"code-absolute-fragment-literal", "- context-v2-tool: `$ABS`", "kits/tool#1.md", true, true},
+		{"code-relative-fragment-literal", "- context-v2-tool: `./tool#1.md`", "tool#1.md", true, true},
+		{"code-percent-escape-literal", "- context-v2-tool: `./tool%20guidance.md`", "tool%20guidance.md", true, true},
+		{"code-invalid-percent-escape-literal", "- context-v2-tool: `./tool%name.md`", "tool%name.md", true, true},
+		{"code-query-literal", "- context-v2-tool: `./tool?1.md`", "tool?1.md", true, true},
+		{"code-character-reference-literal", "- context-v2-tool: `./tool&amp;guide.md`", "tool&amp;guide.md", true, true},
+		{"code-backslash-literal", "- context-v2-tool: `./tool\\[1].md`", "tool\\[1].md", true, true},
+		{"plain-fragment-literal", "- context-v2-tool: ./tool#1.md", "tool#1.md", true, true},
+		{"plain-percent-escape-literal", "- context-v2-tool: ./tool%20guidance.md", "tool%20guidance.md", true, true},
+		{"link-fragment-is-not-path", "- [context-v2-tool](./tool.md#guidance)", "tool.md", true, true},
+		{"link-percent-fragment-is-path", "- [context-v2-tool](./tool%231.md)", "tool#1.md", true, true},
+		{"reference-percent-encoding", "- [context-v2-tool][tool]\n\n[tool]: ./tool%20guidance.md#guidance", "tool guidance.md", true, true},
 		{"unmatched-outer-bracket", "unmatched [ before [context-v2-tool](./tool.md)", "tool.md", true, true},
 		{"invalid-definition-before-link", "[unused]:\n- [context-v2-tool](./tool.md)", "tool.md", true, true},
 		{"first-definition-wins", "- [context-v2-tool][tool]\n\n[tool]: ./tool.md\n[tool]: ./missing.md", "tool.md", true, true},
 		{"kit-heading", "# context-v2-tool\n\n[Read guidance](./tool.md)", "tool.md", true, true},
+		{"ancestor-kit-heading", "# context-v2-tool\n## Guidance\n[Read guidance](./tool.md)", "tool.md", true, true},
+		{"multiple-ancestor-headings", "# Kits\n## context-v2-tool\n#### Guidance\n[Read guidance](./tool.md)", "tool.md", true, true},
+		{"ancestor-survives-child-sibling", "# context-v2-tool\n## Overview\n### Details\n## Guidance\n[Read guidance](./tool.md)", "tool.md", true, true},
+		{"same-level-heading-closes-kit", "# Kits\n## context-v2-tool\n### Guidance\n## Other Kit\n[Read guidance](./tool.md)", "tool.md", true, false},
+		{"higher-level-heading-closes-kit", "## context-v2-tool\n### Guidance\n# Other Kit\n[Read guidance](./tool.md)", "tool.md", true, false},
+		{"list-heading-under-section-is-not-attribution", "# Kits\n- ## context-v2-tool\n- [Read guidance](./tool.md)", "tool.md", true, false},
+		{"nested-list-heading-is-not-attribution", "# Kits\n- Other Kit\n  - ## context-v2-tool\n  - [Read guidance](./tool.md)", "tool.md", true, false},
+		{"heading-after-list-closes-kit", "# context-v2-tool\n- Other guidance\n# Other Kit\n## Guidance\n[Read guidance](./tool.md)", "tool.md", true, false},
 		{"definition-is-not-attribution", "- [Read guidance][context-v2-tool]\n\n[context-v2-tool]: ./tool.md", "tool.md", true, false},
 		{"continued-reference-title-is-not-attribution", "- [Read guidance][tool]\n\n  [tool]: ./tool.md\n    \"context-v2-tool\"", "tool.md", true, false},
 		{"title-is-not-attribution", "- [Read guidance][tool]\n\n[tool]: ./tool.md \"context-v2-tool\"", "tool.md", true, false},
@@ -153,6 +180,10 @@ func TestContextLinksStartupObserverParity(t *testing.T) {
 	require.NoError(t, err)
 	var observed map[string]map[string]string
 	require.NoError(t, json.Unmarshal(raw, &observed))
-	require.Equal(t, want, parsed, "the conformance parser resolves complete local destinations")
-	require.Equal(t, want, observed, "the standalone startup observer resolves the same destinations")
+	t.Run("scanner", func(t *testing.T) {
+		require.Equal(t, want, parsed, "the conformance parser resolves complete local destinations")
+	})
+	t.Run("executable", func(t *testing.T) {
+		require.Equal(t, want, observed, "the standalone startup observer resolves the same destinations")
+	})
 }

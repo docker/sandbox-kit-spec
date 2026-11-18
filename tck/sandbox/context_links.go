@@ -15,20 +15,25 @@ type contextLink struct {
 
 type contextLinkEntry struct {
 	text    string
-	heading bool
+	heading int
 }
 
 type contextLinkSpan struct {
 	start, end  int
 	label       string
 	destination string
+	markdown    bool
 }
 
 var (
-	contextReference  = regexp.MustCompile(`^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(.*)$`)
-	contextPlainPath  = regexp.MustCompile("(?:(?:\\.\\.?/)+|/)[^\\s\x60\"'<>()\\[\\]]+")
-	contextListItem   = regexp.MustCompile(`^([ \t]*)(?:[-+*]|[0-9]{1,9}[.)])[ \t]+`)
-	contextCodePath   = regexp.MustCompile("`([^`\\n]+)`")
+	contextReference    = regexp.MustCompile(`^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*(.*)$`)
+	contextPlainPath    = regexp.MustCompile("(?:(?:\\.\\.?/)+|/)[^\\s\x60\"'<>()\\[\\]]+")
+	contextListItem     = regexp.MustCompile(`^([ \t]*)(?:[-+*]|[0-9]{1,9}[.)])[ \t]+`)
+	contextCodePath     = regexp.MustCompile("`([^`\\n]+)`")
+	contextHeading      = regexp.MustCompile(`^(#{1,6})(?:[ \t]+|$)`)
+	contextQualifiedKit = regexp.MustCompile(`^(?:localhost|[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)(?::[0-9]+)?/` +
+		`(?:[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*/)*[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*` +
+		`(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}(?:@sha256:[a-f0-9]{64})?|@sha256:[a-f0-9]{64})$`)
 	contextKitVersion = regexp.MustCompile(`^[^/\s]+@v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)*$`)
 )
 
@@ -79,7 +84,7 @@ func contextLinks(text string) []contextLink {
 		}
 	}
 	var links []contextLink
-	heading := ""
+	var headings [6]string
 	for _, entry := range contextLinkEntries(lines, definitions) {
 		line := entry.text
 		spans := contextMarkdownSpans(line, references)
@@ -91,11 +96,13 @@ func contextLinks(text string) []contextLink {
 		}
 		for _, match := range contextCodePath.FindAllSubmatchIndex(remaining, -1) {
 			value := string(remaining[match[2]:match[3]])
-			// A versioned Kit identity has dots but is visible attribution.
-			if !strings.ContainsAny(value, "/.") || contextKitVersion.MatchString(value) {
-				continue
+			// Keep visible Kit identities, but mask every code span before
+			// scanning plain paths so slashes in a qualified name stay visible.
+			span := contextLinkSpan{start: match[0], end: match[1], label: value}
+			if strings.ContainsAny(value, "/.") && !contextKitVersion.MatchString(value) && !contextQualifiedKit.MatchString(value) {
+				span.label, span.destination = "", value
 			}
-			spans = append(spans, contextLinkSpan{start: match[0], end: match[1], destination: value})
+			spans = append(spans, span)
 			for j := match[0]; j < match[1]; j++ {
 				remaining[j] = ' '
 			}
@@ -113,13 +120,23 @@ func contextLinks(text string) []contextLink {
 		}
 		visible.WriteString(line[end:])
 		attribution := contextUnescape(visible.String())
-		if entry.heading {
-			heading = attribution
+		if entry.heading > 0 {
+			// A heading closes only its own level and deeper sections.
+			clear(headings[entry.heading-1:])
+			headings[entry.heading-1] = attribution
 		}
 		for _, span := range spans {
-			target, err := url.Parse(contextUnescape(span.destination))
-			if err == nil && target.Scheme == "" && target.Host == "" && target.Path != "" {
-				links = append(links, contextLink{destination: target.Path, attribution: heading + "\n" + attribution})
+			destination := span.destination
+			if span.markdown {
+				target, err := url.Parse(contextUnescape(destination))
+				if err != nil || target.Scheme != "" || target.Host != "" {
+					continue
+				}
+				destination = target.Path
+			}
+			// File paths are literal; only Markdown destinations are URLs.
+			if destination != "" {
+				links = append(links, contextLink{destination: destination, attribution: strings.Join(headings[:], "\n") + "\n" + attribution})
 			}
 		}
 	}
@@ -151,10 +168,10 @@ func contextLinkEntries(lines []string, definitions map[int]bool) []contextLinkE
 		}
 		line = strings.Repeat(" ", indent) + line[prefix:]
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") && (len(stack) == 0 || indent < stack[0].indent) {
+		if heading := contextHeading.FindStringSubmatch(trimmed); heading != nil && indent < 4 && (len(stack) == 0 || indent < stack[0].indent) {
 			stack = nil
 			paragraph = -1
-			entries = append(entries, contextLinkEntry{text: trimmed, heading: true})
+			entries = append(entries, contextLinkEntry{text: trimmed, heading: len(heading[1])})
 			continue
 		}
 		marker := contextListItem.FindStringIndex(line)
@@ -362,7 +379,7 @@ func contextMarkdownSpans(line string, references map[string]string) []contextLi
 			destination = references[contextReferenceLabel(id)]
 		}
 		if destination != "" {
-			spans = append(spans, contextLinkSpan{start: start, end: end, label: label, destination: destination})
+			spans = append(spans, contextLinkSpan{start: start, end: end, label: label, destination: destination, markdown: true})
 			start = end - 1
 		}
 	}
