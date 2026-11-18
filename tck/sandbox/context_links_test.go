@@ -1,12 +1,15 @@
 package sandbox
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +24,8 @@ type contextLinkCase struct {
 
 func contextLinkCases() []contextLinkCase {
 	return []contextLinkCase{
+		{"repeated-reference-backtick-label", "# context-v2-tool\n\n[x`]: ./ref.md\n\n[x`] first\n\n[x`] `docs/b.md`", "docs/b.md", true, true},
+		{"repeated-reference-path-label-is-hidden", "[r]: ./ref.md\n\n[./label/path][r]\n\n[./label/path][r]", "label/path", false, false},
 		{"escaped-code-opener-preserves-link", "\\`[context-v2-tool](./tool.md)`", "tool.md", true, true},
 		{"code-span-link-is-literal", "`[context-v2-tool](./tool.md)`", "tool.md", false, false},
 		{"code-span-reference-is-literal", "`[context-v2-tool][tool]`\n\n[tool]: ./tool.md", "tool.md", false, false},
@@ -150,10 +155,7 @@ func TestContextLinksRecognizeAttributedDestinations(t *testing.T) {
 // real executable against the same destinations, including paths with spaces,
 // so accepting a link here cannot hide missing startup evidence.
 func TestContextLinksStartupObserverParity(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "snapshot")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "testdata/fixtures/context-v2-workload/snapshot.go")
-	output, err := build.CombinedOutput()
-	require.NoError(t, err, "%s", output)
+	binary := buildContextObserver(t)
 	outputFile := filepath.Join(t.TempDir(), "observed.json")
 	arguments := []string{outputFile}
 	want := map[string]map[string]string{}
@@ -178,7 +180,7 @@ func TestContextLinksStartupObserverParity(t *testing.T) {
 			}
 		}
 	}
-	output, err = exec.CommandContext(t.Context(), binary, arguments...).CombinedOutput()
+	output, err := exec.CommandContext(t.Context(), binary, arguments...).CombinedOutput()
 	require.NoError(t, err, "%s", output)
 	raw, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
@@ -190,6 +192,199 @@ func TestContextLinksStartupObserverParity(t *testing.T) {
 	t.Run("executable", func(t *testing.T) {
 		require.Equal(t, want, observed, "the standalone startup observer resolves the same destinations")
 	})
+}
+
+func buildContextObserver(t *testing.T) string {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "snapshot")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "testdata/fixtures/context-v2-workload/snapshot.go")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	output, err := build.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	return binary
+}
+
+func runContextObserver(t *testing.T, binary string, arguments ...string) map[string]map[string]string {
+	t.Helper()
+	outputFile := filepath.Join(t.TempDir(), "observed.json")
+	// A FIFO with no writer used to block launch indefinitely. Bound the
+	// executable, rather than leaving a blocked goroutine in the test runner.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, binary, append([]string{outputFile}, arguments...)...).CombinedOutput()
+	require.NoError(t, ctx.Err(), "startup observer blocked: %s", output)
+	require.NoError(t, err, "%s", output)
+	raw, err := os.ReadFile(outputFile)
+	require.NoError(t, err)
+	var observed map[string]map[string]string
+	require.NoError(t, json.Unmarshal(raw, &observed))
+	return observed
+}
+
+func TestContextLinksStartupObserverBounds(t *testing.T) {
+	binary := buildContextObserver(t)
+	const fileLimit = 1 << 20
+	for _, kind := range []string{"fifo", "symlink-fifo", "oversized", "directory", "device"} {
+		t.Run("target-"+kind, func(t *testing.T) {
+			dir := t.TempDir()
+			bad := filepath.Join(dir, "bad")
+			switch kind {
+			case "fifo", "symlink-fifo":
+				output, err := exec.CommandContext(t.Context(), "mkfifo", bad).CombinedOutput()
+				require.NoError(t, err, "%s", output)
+				if kind == "symlink-fifo" {
+					require.NoError(t, os.Symlink(bad, bad+"-link"))
+					bad += "-link"
+				}
+			case "oversized":
+				// Small enough to reproduce safely on the old executable.
+				require.NoError(t, os.WriteFile(bad, []byte(strings.Repeat("x", fileLimit+1)), 0o600))
+			case "directory":
+				require.NoError(t, os.Mkdir(bad, 0o700))
+			case "device":
+				// /dev/null is safe even if regular-file rejection regresses.
+				require.NoError(t, os.Symlink("/dev/null", bad))
+			}
+			good := filepath.Join(dir, "good")
+			require.NoError(t, os.WriteFile(good, []byte("complete guidance"), 0o600))
+			profile, snapshot := filepath.Join(dir, "AGENTS.md"), filepath.Join(dir, "snapshot")
+			require.NoError(t, os.WriteFile(snapshot, []byte(fmt.Sprintf("[bad](%s)\n\n[good](%s)", bad, good)), 0o600))
+			observed := runContextObserver(t, binary, profile, snapshot)
+			require.Equal(t, map[string]map[string]string{profile: {good: "complete guidance"}}, observed)
+		})
+	}
+	for _, kind := range []string{"fifo", "oversized"} {
+		t.Run("snapshot-"+kind, func(t *testing.T) {
+			dir := t.TempDir()
+			bad := filepath.Join(dir, "bad")
+			if kind == "fifo" {
+				output, err := exec.CommandContext(t.Context(), "mkfifo", bad).CombinedOutput()
+				require.NoError(t, err, "%s", output)
+			} else {
+				require.NoError(t, os.WriteFile(bad, []byte(strings.Repeat("x", fileLimit+1)), 0o600))
+			}
+			good := filepath.Join(dir, "good")
+			require.NoError(t, os.WriteFile(good, []byte("guidance"), 0o600))
+			snapshot, profile := filepath.Join(dir, "snapshot"), filepath.Join(dir, "AGENTS.md")
+			require.NoError(t, os.WriteFile(snapshot, []byte("[good](./good)"), 0o600))
+			observed := runContextObserver(t, binary, filepath.Join(dir, "BAD.md"), bad, profile, snapshot)
+			require.Equal(t, map[string]map[string]string{profile: {good: "guidance"}}, observed)
+		})
+	}
+}
+
+func TestContextLinksStartupObserverBudget(t *testing.T) {
+	binary := buildContextObserver(t)
+	t.Run("three-profiles-with-repeated-links", func(t *testing.T) {
+		dir := t.TempDir()
+		// A full descriptor budget per snapshot and per body, with worst
+		// case JSON escaping, still leaves headroom for all three profiles.
+		body := strings.Repeat("\x00", 512<<10)
+		target := filepath.Join(dir, "body")
+		require.NoError(t, os.WriteFile(target, []byte(body), 0o600))
+		linked := filepath.Join(dir, "linked")
+		require.NoError(t, os.Symlink(target, linked))
+		index := strings.Repeat("[context-v2-tool](./linked)\n\n", 64)
+		index = strings.Repeat("x", (512<<10)-len(index)-2) + "\n\n" + index
+		snapshot := filepath.Join(dir, "snapshot")
+		require.NoError(t, os.WriteFile(snapshot, []byte(index), 0o600))
+		require.NoError(t, os.Symlink(snapshot, snapshot+"-link"))
+		var arguments []string
+		for i := range 3 {
+			profile := filepath.Join(dir, fmt.Sprintf("PROFILE-%d", i))
+			// Repeating a profile must not spend the allowance again either.
+			arguments = append(arguments, profile, snapshot+"-link", profile, snapshot+"-link")
+		}
+		observed := runContextObserver(t, binary, arguments...)
+		require.Len(t, observed, 3)
+		for _, files := range observed {
+			require.Len(t, files, 1)
+			require.Equal(t, body, files[linked])
+		}
+	})
+	t.Run("aggregate-skips-whole-bodies-and-continues", func(t *testing.T) {
+		dir := t.TempDir()
+		body := strings.Repeat("x", 512<<10)
+		target := filepath.Join(dir, "body")
+		require.NoError(t, os.WriteFile(target, []byte(body), 0o600))
+		var index strings.Builder
+		for i := range 12 {
+			name := fmt.Sprintf("body-%d", i)
+			require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
+			fmt.Fprintf(&index, "[context-v2-tool](./%s)\n\n", name)
+		}
+		good := filepath.Join(dir, "good")
+		require.NoError(t, os.WriteFile(good, []byte("remaining valid guidance"), 0o600))
+		index.WriteString("[context-v2-tool](./good)")
+		profile, snapshot := filepath.Join(dir, "AGENTS.md"), filepath.Join(dir, "snapshot")
+		require.NoError(t, os.WriteFile(snapshot, []byte(index.String()), 0o600))
+		observed := runContextObserver(t, binary, profile, snapshot)
+		files := observed[profile]
+		// Each half-MiB body costs 3.5 MiB including its JSON allowance;
+		// four fit in 16 MiB. The next eight are omitted in their entirety.
+		require.Len(t, files, 5)
+		for i := range 12 {
+			got, ok := files[filepath.Join(dir, fmt.Sprintf("body-%d", i))]
+			if i < 4 {
+				require.True(t, ok)
+				require.Equal(t, body, got)
+			} else {
+				require.False(t, ok, "an over-budget body must not become truncated evidence")
+			}
+		}
+		require.Equal(t, "remaining valid guidance", files[good])
+	})
+
+	t.Run("per-file-limit-is-inclusive", func(t *testing.T) {
+		dir := t.TempDir()
+		body := strings.Repeat("x", 1<<20)
+		target := filepath.Join(dir, "body")
+		require.NoError(t, os.WriteFile(target, []byte(body), 0o600))
+		index := "[context-v2-tool](./body)"
+		index = strings.Repeat("x", (1<<20)-len(index)-2) + "\n\n" + index
+		profile, snapshot := filepath.Join(dir, "AGENTS.md"), filepath.Join(dir, "snapshot")
+		require.NoError(t, os.WriteFile(snapshot, []byte(index), 0o600))
+		observed := runContextObserver(t, binary, profile, snapshot)
+		require.Equal(t, body, observed[profile][target])
+	})
+}
+
+func TestContextLinksStartupObserverAvoidsAttributionAmplification(t *testing.T) {
+	limiter, err := exec.LookPath("prlimit")
+	if err != nil {
+		t.Skip("prlimit is required for the observer memory regression")
+	}
+	binary := buildContextObserver(t)
+	for name, body := range map[string]string{
+		"heading-attribution":       "# " + strings.Repeat("x", 256<<10) + "\n\n" + strings.Repeat("[x](./x)\n\n", 20000),
+		"repeated-valid-references": "[x]: ./x\n\n" + strings.Repeat("[x]\n\n", 20000),
+		"reference-destinations":    "[x]: ./" + strings.Repeat("x", 256<<10) + "\n\n" + strings.Repeat("[x]\n\n", 20000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			profile, snapshot := filepath.Join(dir, "AGENTS.md"), filepath.Join(dir, "snapshot")
+			require.NoError(t, os.WriteFile(snapshot, []byte(body), 0o600))
+			target := filepath.Join(dir, "x")
+			require.NoError(t, os.WriteFile(target, []byte("complete guidance"), 0o600))
+			outputFile := filepath.Join(dir, "observed.json")
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			command := exec.CommandContext(ctx, limiter, "--as=1073741824", "--", binary, outputFile, profile, snapshot)
+			command.Env = append(os.Environ(), "GOMEMLIMIT=64MiB")
+			output, err := command.CombinedOutput()
+			require.NoError(t, ctx.Err(), "observer did not complete: %s", output)
+			require.NoError(t, err, "%s", output)
+			raw, err := os.ReadFile(outputFile)
+			require.NoError(t, err)
+			var observed map[string]map[string]string
+			require.NoError(t, json.Unmarshal(raw, &observed))
+			want := map[string]map[string]string{profile: {target: "complete guidance"}}
+			if name == "reference-destinations" {
+				want[profile] = map[string]string{}
+			}
+			require.Equal(t, want, observed)
+		})
+	}
 }
 
 func FuzzContextLinks(f *testing.F) {
