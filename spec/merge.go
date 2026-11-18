@@ -1359,8 +1359,9 @@ func (m *capabilityMerge) mergedContext() ([]Capability, []ContextSource, error)
 	}
 
 	if v2 {
-		// Progressive bodies are absent from effective profile Content, but
-		// still count toward the composition's serialized guidance budget.
+		// Retained guidance also needs a hard bound before materialization.
+		// Advisory warnings concern each serialized descriptor, not the sum
+		// of selected inputs retained alongside the effective profile.
 		if _, err := joinContextV2(sources, 1); err != nil {
 			return nil, nil, err
 		}

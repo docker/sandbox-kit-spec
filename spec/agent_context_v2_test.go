@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -381,6 +382,7 @@ func TestAgentContextV2CompositionCountsSerializedEscapes(t *testing.T) {
 }
 
 func TestAgentContextV2RejectsRepeatedBodiesBeforeAllocatingProfiles(t *testing.T) {
+	// Keep this test serial: the measured operation controls process-wide GC.
 	for _, character := range []string{"x", "<"} {
 		t.Run(character, func(t *testing.T) {
 			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
@@ -395,14 +397,24 @@ func TestAgentContextV2RejectsRepeatedBodiesBeforeAllocatingProfiles(t *testing.
 			require.NoError(t, err)
 			_, err = ValidatePublished(raw, d)
 			require.NoError(t, err, "the input fits the descriptor budget")
-			var before, after runtime.MemStats
-			runtime.ReadMemStats(&before)
-			_, err = Compose([]Contribution{{Reference: "profiles", Descriptor: d}})
-			runtime.ReadMemStats(&after)
+			allocated, err := func() (uint64, error) {
+				// Start with cold JSON scratch pools, then keep GC from
+				// clearing them midway through the measured operation.
+				// Two collections also clear sync.Pool's victim cache.
+				previousGC := debug.SetGCPercent(-1)
+				defer debug.SetGCPercent(previousGC)
+				runtime.GC()
+				runtime.GC()
+				var before, after runtime.MemStats
+				runtime.ReadMemStats(&before)
+				_, composeErr := Compose([]Contribution{{Reference: "profiles", Descriptor: d}})
+				runtime.ReadMemStats(&after)
+				return after.TotalAlloc - before.TotalAlloc, composeErr
+			}()
 			require.ErrorIs(t, err, ErrDescriptorTooLarge)
 			// Rejecting a small input must not allocate its multi-megabyte
 			// repeated output. Leave ample room for decoding and merge state.
-			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(8*SizeErrorBytes))
+			require.Less(t, allocated, uint64(8*SizeErrorBytes))
 		})
 	}
 }
