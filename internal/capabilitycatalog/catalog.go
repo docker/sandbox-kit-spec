@@ -2,6 +2,7 @@
 package capabilitycatalog
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -33,11 +34,13 @@ type Entry struct {
 }
 
 type Catalog struct {
-	FormatVersion int     `json:"format_version"`
-	Version       string  `json:"version"`
-	Revision      string  `json:"revision"`
-	SchemaVersion string  `json:"schema_version"`
-	Capabilities  []Entry `json:"capabilities"`
+	FormatVersion     int     `json:"format_version"`
+	Version           string  `json:"version"`
+	Revision          string  `json:"revision"`
+	SchemaVersion     string  `json:"schema_version"`
+	SharedSpecSHA256  string  `json:"shared_spec_sha256"`
+	ConformanceSHA256 string  `json:"conformance_sha256"`
+	Capabilities      []Entry `json:"capabilities"`
 }
 
 type readFile func(string) ([]byte, error)
@@ -137,7 +140,18 @@ func build(read readFile, version, revision string) (Catalog, error) {
 		entries = append(entries, Entry{ID: id, SchemaURL: repository + "/blob/" + version + "/" + schemaPath, SpecURL: repository + "/blob/" + version + "/" + specPath, SchemaSHA256: hash(schema), SchemaContractSHA256: contractHash, SpecSHA256: hash(doc)})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
-	return Catalog{1, version, revision, schemaVersion, entries}, nil
+	shared, err := read("docs/spec/SPEC-v3.md")
+	if err != nil {
+		return Catalog{}, fmt.Errorf("shared specification: %w", err)
+	}
+	conformance, err := read("docs/spec/conformance.md")
+	if err != nil {
+		return Catalog{}, fmt.Errorf("conformance specification: %w", err)
+	}
+	if len(bytes.TrimSpace(shared)) == 0 || len(bytes.TrimSpace(conformance)) == 0 {
+		return Catalog{}, errors.New("empty shared specification document")
+	}
+	return Catalog{FormatVersion: 1, Version: version, Revision: revision, SchemaVersion: schemaVersion, SharedSpecSHA256: hash(shared), ConformanceSHA256: hash(conformance), Capabilities: entries}, nil
 }
 
 func hash(data []byte) string { h := sha256.Sum256(data); return hex.EncodeToString(h[:]) }
@@ -146,6 +160,11 @@ func hash(data []byte) string { h := sha256.Sum256(data); return hex.EncodeToStr
 func (c Catalog) Validate() error {
 	if c.FormatVersion != 1 || !versionPattern.MatchString(c.Version) || !revisionPattern.MatchString(c.Revision) || c.SchemaVersion == "" || len(c.Capabilities) == 0 {
 		return errors.New("invalid or empty capability catalog")
+	}
+	for _, digest := range []string{c.SharedSpecSHA256, c.ConformanceSHA256} {
+		if decoded, err := hex.DecodeString(digest); err != nil || len(decoded) != sha256.Size {
+			return errors.New("invalid shared specification hash")
+		}
 	}
 	last := ""
 	for _, e := range c.Capabilities {

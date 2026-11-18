@@ -23,6 +23,8 @@ func fixture(t *testing.T) string {
 		require.NoError(t, os.WriteFile(name, []byte(body), 0644))
 	}
 	write("schema/kit.schema.json", `{"properties":{"schemaVersion":{"const":"3"}},"definitions":{"capability":{"allOf":[{"if":{"properties":{"type":{"const":"com.docker.sandbox/zeta@1"}}},"then":{"properties":{"config":{"$ref":"capabilities/com.docker.sandbox/zeta@1.schema.json"}}}},{"if":{"properties":{"type":{"const":"com.docker.sandbox/alpha@2"}}},"then":{"properties":{"config":{"$ref":"capabilities/com.docker.sandbox/alpha@2.schema.json"}}}}]}}}`)
+	write("docs/spec/SPEC-v3.md", "# Shared specification\n")
+	write("docs/spec/conformance.md", "# Conformance specification\n")
 	for _, id := range []string{"alpha@2", "zeta@1"} {
 		write("schema/capabilities/com.docker.sandbox/"+id+".schema.json", `{"title":"com.docker.sandbox/`+id+`"}`)
 		write("docs/spec/capabilities/com.docker.sandbox/"+id+".md", "# "+id+"\n")
@@ -84,6 +86,27 @@ func TestNotesClassifyContentChanges(t *testing.T) {
 	first, err := Notes(current, nil)
 	require.NoError(t, err)
 	require.NotContains(t, first, "### Changed specification or schema\n\n- ")
+}
+
+func TestNotesTrackSharedSpecificationOnlyChanges(t *testing.T) {
+	for _, name := range []string{"SPEC-v3.md", "conformance.md"} {
+		t.Run(name, func(t *testing.T) {
+			dir := fixture(t)
+			before, err := Build(dir, tag, rev)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "docs/spec", name), []byte("# Revised shared obligations\n"), 0644))
+			after, err := Build(dir, tag, rev)
+			require.NoError(t, err)
+			require.Equal(t, before.Capabilities, after.Capabilities)
+			notes, err := Notes(after, &before)
+			require.NoError(t, err)
+			require.Contains(t, notes, "### Shared normative specification changes\n\n- ["+name+"]("+repository+"/blob/"+tag+"/docs/spec/"+name+")\n")
+			require.Contains(t, notes, "### Changed specification or schema\n\nNone.")
+			unchanged, err := Notes(after, &after)
+			require.NoError(t, err)
+			require.Contains(t, unchanged, "### Shared normative specification changes\n\nNone.")
+		})
+	}
 }
 
 func TestPagePreservesSupportAndFailsClosed(t *testing.T) {

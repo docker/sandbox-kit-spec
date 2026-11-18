@@ -61,6 +61,7 @@ func Notes(current Catalog, previous *Catalog) (string, error) {
 	fmt.Fprintf(&b, "## Capability catalog for %s\n\n", current.Version)
 	fmt.Fprintf(&b, "The [machine-readable capability catalog](%s/releases/download/%s/capabilities.json) lists specification contracts. Runtime support depends on the implementation.\n\n", repository, current.Version)
 	fmt.Fprintf(&b, "Schema version: `%s`. Full revision: `%s`.\n\n", current.SchemaVersion, current.Revision)
+	writeSharedNotes(&b, current, previous)
 	section := func(name string, entries []Entry) {
 		fmt.Fprintf(&b, "### %s\n\n", name)
 		if len(entries) == 0 {
@@ -93,6 +94,28 @@ func Notes(current Catalog, previous *Catalog) (string, error) {
 	section("Removed", removed)
 	section("Full inventory", current.Capabilities)
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
+}
+
+func writeSharedNotes(b *strings.Builder, current Catalog, previous *Catalog) {
+	b.WriteString("### Shared normative specification changes\n\n")
+	oldSpec, oldConformance := "", ""
+	if previous != nil {
+		oldSpec, oldConformance = previous.SharedSpecSHA256, previous.ConformanceSHA256
+	}
+	changed := false
+	for _, doc := range []struct{ path, current, previous string }{
+		{"SPEC-v3.md", current.SharedSpecSHA256, oldSpec},
+		{"conformance.md", current.ConformanceSHA256, oldConformance},
+	} {
+		if doc.current != doc.previous {
+			fmt.Fprintf(b, "- [%s](%s/blob/%s/docs/spec/%s)\n", doc.path, repository, current.Version, doc.path)
+			changed = true
+		}
+	}
+	if !changed {
+		b.WriteString("None.\n")
+	}
+	b.WriteByte('\n')
 }
 
 const tableHeader = "| Capability | Local sandboxes | Cloud sandboxes | Restrictions |"

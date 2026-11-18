@@ -223,6 +223,12 @@ runtime implementation status. The notes list additions and changes
 relative to the preceding release. The first release has no preceding
 tag, so its notes describe the initial catalog.
 
+The catalog also records `shared_spec_sha256` for `SPEC-v3.md` and
+`conformance_sha256` for `conformance.md`. Notes report changes to these
+shared normative documents separately, including edits that leave every
+capability page and schema unchanged. The initial catalog lists both
+documents in that section.
+
 Each entry's `schema_sha256` hashes its linked capability schema file.
 `schema_contract_sha256` also fingerprints the descriptor's shared
 validation context, that type's conditional mapping, and the local
