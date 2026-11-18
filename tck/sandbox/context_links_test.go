@@ -21,6 +21,10 @@ type contextLinkCase struct {
 
 func contextLinkCases() []contextLinkCase {
 	return []contextLinkCase{
+		{"escaped-code-opener-preserves-link", "\\`[context-v2-tool](./tool.md)`", "tool.md", true, true},
+		{"code-span-link-is-literal", "`[context-v2-tool](./tool.md)`", "tool.md", false, false},
+		{"code-span-reference-is-literal", "`[context-v2-tool][tool]`\n\n[tool]: ./tool.md", "tool.md", false, false},
+		{"code-span-link-before-real-link", "`[Other](./missing.md)` context-v2-tool: [Read guidance](./tool.md)", "tool.md", true, true},
 		{"plain-parent", "- **context-v2-tool**: ../kits/tool.md", "../kits/tool.md", true, true},
 		{"plain-multiple-parents", "- **context-v2-tool**: ../../kits/tool.md", "../../kits/tool.md", true, true},
 		{"plain-mixed-relative-prefixes", "- **context-v2-tool**: ./.././../kits/tool.md", "../../kits/tool.md", true, true},
@@ -185,5 +189,20 @@ func TestContextLinksStartupObserverParity(t *testing.T) {
 	})
 	t.Run("executable", func(t *testing.T) {
 		require.Equal(t, want, observed, "the standalone startup observer resolves the same destinations")
+	})
+}
+
+func FuzzContextLinks(f *testing.F) {
+	for _, tc := range contextLinkCases() {
+		f.Add(tc.index)
+	}
+	for _, seed := range []string{"[x](file \"\\", "[x]: file\n \"\\", "[[]](../x)", "`[x](./x)`", "###### x\n[y](<../z>)"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		if len(text) > 32768 {
+			t.Skip()
+		}
+		contextLinks(text)
 	})
 }

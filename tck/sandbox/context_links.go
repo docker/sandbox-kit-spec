@@ -95,6 +95,16 @@ func contextLinks(text string) []contextLink {
 			}
 		}
 		for _, match := range contextCodePath.FindAllSubmatchIndex(remaining, -1) {
+			overlap := false
+			for _, span := range spans {
+				if match[0] < span.end && span.start < match[1] {
+					overlap = true
+					break
+				}
+			}
+			if overlap {
+				continue
+			}
 			value := string(remaining[match[2]:match[3]])
 			// Keep visible Kit identities, but mask every code span before
 			// scanning plain paths so slashes in a qualified name stay visible.
@@ -345,7 +355,15 @@ func contextInlineEnd(line string, at int) int {
 func contextMarkdownSpans(line string, references map[string]string) []contextLinkSpan {
 	var spans []contextLinkSpan
 	pairs := contextBracketPairs(line)
+	codeEnds := map[int]int{}
+	for _, span := range contextCodePath.FindAllStringIndex(line, -1) {
+		codeEnds[span[0]] = span[1]
+	}
 	for start := 0; start < len(line); start++ {
+		if end, code := codeEnds[start]; code {
+			start = end - 1
+			continue
+		}
 		if line[start] == '\\' {
 			start++
 			continue
