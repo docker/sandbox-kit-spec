@@ -157,20 +157,66 @@ def read_regular(path, limit=125000):
         os.close(directory)
 
 
+def compare_line(line):
+    """Recognize a standalone compare line, never a prefix of an authored notice."""
+    url = r"https://github\.com/docker/sandbox-kit-spec/compare/[A-Za-z0-9._/-]+"
+    return re.fullmatch(
+        rf"(?:Full changelog: (?:{url}|\[[^]\r\n]+\]\({url}\))\.?|"
+        rf"\*\*Full Changelog\*\*: {url})", line.strip()
+    ) is not None
+
+
+def changelog_suffix(chunk):
+    """Remove only the known GoReleaser heading and contiguous SHA commit list.
+
+    Unknown list formats and wrapped entries need maintainer review: guessing
+    where generated text ends can discard authored upgrade or security notes.
+    """
+    lines = chunk.splitlines(keepends=True)[1:]
+    entry = re.compile(r"[*-] [0-9a-f]{7,40} \S.*")
+    index = 0
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    first = index
+    while index < len(lines) and entry.fullmatch(lines[index].rstrip("\r\n")):
+        index += 1
+    if index == first:
+        raise ValueError("Cannot establish generated Changelog boundary")
+    # A nonblank continuation could belong to the final generated entry or
+    # to authored content. Do not accept either interpretation automatically.
+    if index < len(lines) and lines[index].strip():
+        raise ValueError("Ambiguous generated Changelog continuation")
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index < len(lines) and lines[index][:1].isspace():
+        raise ValueError("Ambiguous generated Changelog continuation")
+    return "".join(lines[index:])
+
+
 def protected_parts(body):
-    """Only familiar summary sections may be replaced; retain other authored text."""
+    """Yield (text, whole_section): preserve authored suffixes independently."""
     chunks = re.split(r"(?m)(?=^## )", body)
-    editable = {"## Highlights", "## Compatibility", "## Changelog"}
     for chunk in chunks:
         if not chunk.strip():
             continue
         heading = chunk.splitlines()[0].strip()
-        if heading in editable:
+        if heading in {"## Highlights", "## Compatibility"}:
             continue
-        # The compare link belongs to the release range, not an authored introduction.
-        if chunk.strip().startswith("Full changelog:"):
-            continue
-        yield chunk
+        if heading == "## Changelog":
+            chunk = changelog_suffix(chunk)
+        else:
+            if not compare_line(chunk.splitlines()[0]):
+                yield chunk, True
+                continue
+        # A generated compare line may separate the commit list from an
+        # appended notice. Exempt that line alone; retain the exact suffix
+        # even when the draft moves it outside the old Changelog section.
+        lines = chunk.splitlines(keepends=True)
+        if lines and compare_line(lines[0]):
+            lines = lines[1:]
+        suffix = "".join(lines).strip("\r\n")
+        if suffix:
+            yield suffix, False
 
 
 def validate(snapshot, output):
@@ -194,8 +240,10 @@ def validate(snapshot, output):
         raise ValueError("Draft omits the verified full changelog link")
     if len(draft.strip()) < 200 or len(draft.encode()) > 125000:
         raise ValueError("Draft is empty or exceeds GitHub release body limits")
-    for part in protected_parts(snapshot["release"]["body"]):
-        if part not in list(protected_parts(draft)):
+    draft_sections = [part for part, whole_section in protected_parts(draft) if whole_section]
+    for part, whole_section in protected_parts(snapshot["release"]["body"]):
+        preserved = part in draft_sections if whole_section else part in draft
+        if not preserved:
             raise ValueError("Draft removed existing authored or artifact content")
     return draft
 

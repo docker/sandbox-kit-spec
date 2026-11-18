@@ -163,6 +163,72 @@ class PublicationTests(unittest.TestCase):
                 (self.output / "release-notes.md").write_text(changed)
                 self.assertEqual(self.exercise(fails=True), [])
 
+    def exercise_preservation(self, fails=False):
+        return self.exercise(current=self.snapshot["release"],
+                             after=dict(self.snapshot["release"], body=(self.output / "release-notes.md").read_text()),
+                             fails=fails)
+
+    def changelog_original(self, suffix="", entries="* abcdef1234567890 fix: reject invalid credentials\n"):
+        self.snapshot["release"]["body"] = (
+            "Release introduction.\n\n## Changelog\n" + entries + "\n" + suffix +
+            "## Artifacts\nKeep these exact download instructions.\n\n" +
+            "Full changelog: https://github.com/docker/sandbox-kit-spec/compare/v3.1.0...v3.2.0\n")
+
+    def test_raw_goreleaser_commit_lists_can_be_replaced(self):
+        for entries in ("* abcdef1234567890 fix: reject invalid credentials\n",
+                        "- abcdef1 fix: reject invalid credentials\n- 123abcd feat: validate files\n"):
+            with self.subTest(entries=entries):
+                self.changelog_original(entries=entries)
+                self.write_inputs()
+                self.assertEqual(len(self.exercise_preservation()), 1)
+
+    def test_appended_changelog_notices_must_survive_exactly(self):
+        for notice in ("Security notice: revoke previously exposed tokens.\n",
+                       "### Security notice\nRevoke previously exposed tokens.\n\nDo not reuse old credentials.\n"):
+            for compare in ("", "**Full Changelog**: https://github.com/docker/sandbox-kit-spec/compare/v3.1.0...v3.2.0\n\n",
+                            "Full changelog: [v3.1.0...v3.2.0](https://github.com/docker/sandbox-kit-spec/compare/v3.1.0...v3.2.0).\n\n"):
+                with self.subTest(notice=notice, compare=compare):
+                    self.changelog_original(compare + notice + "\n")
+                    self.write_inputs()
+                    self.assertEqual(self.exercise_preservation(fails=True), [])
+                    changed = self.draft.replace("## Artifacts", notice.replace("Revoke", "Keep").replace("revoke", "keep") + "\n## Artifacts")
+                    (self.output / "release-notes.md").write_text(changed)
+                    self.assertEqual(self.exercise_preservation(fails=True), [])
+                    # The preserved suffix may move outside the generated list.
+                    (self.output / "release-notes.md").write_text(self.draft.replace("## Artifacts", notice + "\n## Artifacts"))
+                    self.assertEqual(len(self.exercise_preservation()), 1)
+
+    def test_unknown_or_ambiguous_changelog_boundaries_never_publish(self):
+        for entries in ("", "Maintainer introduction.\n\n* abcdef1 fix: credentials\n",
+                        "* fix: credentials without a commit SHA\n",
+                        "* abcdef1 fix: credentials\n  wrapped text\n",
+                        "* abcdef1 fix: credentials\nAuthored notice without a separator.\n",
+                        "* abcdef1 fix: credentials\n\n    indented continuation\n"):
+            with self.subTest(entries=entries):
+                self.changelog_original(entries=entries)
+                self.write_inputs()
+                self.assertEqual(self.exercise_preservation(fails=True), [])
+
+    def test_leading_compare_exempts_only_the_compare_line(self):
+        compare = "Full changelog: https://github.com/docker/sandbox-kit-spec/compare/v3.1.0...v3.2.0\n"
+        notice = "Security notice: revoke old credentials.\n"
+        for trailing in (notice, "### Security\n" + notice):
+            with self.subTest(trailing=trailing):
+                self.snapshot["release"]["body"] = compare + "\n" + trailing + "\n"
+                self.write_inputs()
+                self.assertEqual(self.exercise_preservation(fails=True), [])
+                (self.output / "release-notes.md").write_text(self.draft.replace("## Artifacts", trailing + "\n## Artifacts"))
+                self.assertEqual(len(self.exercise_preservation()), 1)
+        self.snapshot["release"]["body"] = compare
+        self.write_inputs()
+        self.assertEqual(len(self.exercise_preservation()), 1)
+
+    def test_compare_prefix_with_inline_authored_text_is_protected(self):
+        self.snapshot["release"]["body"] = (
+            "Full changelog: https://github.com/docker/sandbox-kit-spec/compare/v3.1.0...v3.2.0 Security notice: revoke old credentials.\n")
+        self.write_inputs()
+        self.assertEqual(self.exercise_preservation(fails=True), [])
+
     def test_unrelated_agent_files_are_not_staged(self):
         (self.output / "secrets").symlink_to(self.root)
         (self.output / "execute-me.sh").write_text("exit 99")
