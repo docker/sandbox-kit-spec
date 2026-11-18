@@ -21,6 +21,11 @@ vars:
   # with it, so an image tag can never name a version the kit did not
   # install. Set TAG to pin one build instead.
   TAG: ""
+  # Release catalog inputs are explicit: the general REVISION stamp can
+  # include a dirty-worktree suffix and is not a commit identifier.
+  RELEASE_TAG: ""
+  RELEASE_REVISION: ""
+  PREVIOUS_REF: ""
   # Extra flags for one kit's build, by the kit's own arg names — the
   # frontend validates them and hands the Dockerfile its declared
   # buildArg name: BUILD_ARGS='--build-arg version=2.99.0'.
@@ -57,6 +62,29 @@ vars:
   STAMP_FLAGS: "--build-arg REVISION={{.REVISION}}"
 
 tasks:
+  release:capabilities:
+    desc: >-
+      Generate the catalog and release notes for a tagged checkout:
+      task release:capabilities RELEASE_TAG=v3.X.Y
+      RELEASE_REVISION=<full-commit-sha> [PREVIOUS_REF=v3.X.Z]. Writes
+      under ignored dist/.
+    requires:
+      vars: [RELEASE_TAG, RELEASE_REVISION]
+    preconditions:
+      - sh: printf '%s' "{{.RELEASE_REVISION}}" | grep -Eq '^[0-9a-f]{40}$'
+        msg: "RELEASE_REVISION must be a full 40-character lowercase commit SHA"
+      - sh: printf '%s' "{{.RELEASE_TAG}}" | grep -Eq '^v3\.'
+        msg: "RELEASE_TAG must identify a schema-3 release, e.g. v3.1.0"
+    cmds:
+      - |
+        set -euo pipefail
+        previous="{{.PREVIOUS_REF}}"
+        args=()
+        if [ -n "$previous" ]; then args+=(--previous-ref "$previous"); fi
+        go run ./cmd/capability-catalog release --root . \
+          --version "{{.RELEASE_TAG}}" --revision "{{.RELEASE_REVISION}}" \
+          "${args[@]}" --output-dir dist/capabilities
+
   default:
     silent: true
     cmds:

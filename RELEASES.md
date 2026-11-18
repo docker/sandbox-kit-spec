@@ -214,6 +214,42 @@ kit tags already follow. Only `kit-tck` feeds its version to spec links,
 and it passes the tag alone: a revision is not a ref, and a URL built
 from one resolves to nothing.
 
+## Capability catalog
+
+Each module release publishes `capabilities.json` and
+`capability-notes.md`. The catalog describes capability types present in
+the tagged specification and their config schemas; it contains no
+runtime implementation status. The notes list additions and changes
+relative to the preceding release. The first release has no preceding
+tag, so its notes describe the initial catalog.
+
+For a local snapshot, pass the tag and its full commit SHA explicitly:
+
+```sh
+task release:capabilities RELEASE_TAG=v3.X.Y \
+  RELEASE_REVISION=<full-commit-sha> [PREVIOUS_REF=v3.X.Z]
+```
+
+The output is written under ignored `dist/capabilities/`. Omitting
+`PREVIOUS_REF` is appropriate for the first release. The release workflow
+generates the same files from the tag, attaches both to the GitHub
+release, includes them in `checksums.txt`, and places the notes in the
+release description.
+
+After a release, an optional workflow job proposes the catalog table
+update in `docker/docs`; it never edits that repository's working tree
+in this checkout. The job runs only for the latest published release
+and only when `DOCS_SYNC_APP_ID` (a repository variable) and
+`DOCS_SYNC_APP_PRIVATE_KEY` (a repository secret) are configured. The
+GitHub App must be installed on `docker/docs` with contents and pull
+request write access. The updater changes only the capability catalog
+table. Newly listed docs types receive `Not verified` status because the
+catalog does not establish runtime support. If an existing docs support
+row is absent from the catalog, the updater stops for human review; it
+does not remove the row or erase historical runtime claims. Runtime
+support and restrictions remain owned by `docker/docs` and must be
+verified there.
+
 ## Conformance suites and releases
 
 `task tck:runtime ADAPTER=<path>` judges a runtime through its adapter,

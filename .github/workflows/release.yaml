@@ -108,3 +108,104 @@ jobs:
           fi
           FRONTEND_PUSH_OK=1 FRONTEND_PROMOTE_MAJOR="$promote" \
             task frontend:push FRONTEND_VERSION="$version"
+
+  docs-capabilities:
+    name: propose docs capability catalog update
+    needs: release
+    if: ${{ vars.DOCS_SYNC_APP_ID != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check this is the latest published release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest=$(gh release list --repo docker/sandbox-kit-spec \
+            --limit 1 --json tagName --jq '.[0].tagName')
+          if [ "$latest" = "$GITHUB_REF_NAME" ]; then
+            echo "matches=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "matches=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping docs sync for $GITHUB_REF_NAME; latest release is $latest."
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        with:
+          ref: ${{ github.ref }}
+          path: spec
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        with:
+          go-version-file: spec/go.mod
+          cache-dependency-path: spec/go.sum
+
+      - name: Create docker/docs app token
+        id: app-token
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          app-id: ${{ vars.DOCS_SYNC_APP_ID }}
+          private-key: ${{ secrets.DOCS_SYNC_APP_PRIVATE_KEY }}
+          owner: docker
+          repositories: docs
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        with:
+          repository: docker/docs
+          path: docs
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Download and verify published capability catalog
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        working-directory: spec
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/capabilities
+          gh release download "$GITHUB_REF_NAME" \
+            --repo docker/sandbox-kit-spec \
+            --pattern capabilities.json \
+            --pattern checksums.txt \
+            --dir dist/capabilities
+          expected=$(awk '$2 ~ /(^|\/)capabilities\.json$/ {print $1}' dist/capabilities/checksums.txt)
+          actual=$(sha256sum dist/capabilities/capabilities.json | awk '{print $1}')
+          test -n "$expected" && test "$expected" = "$actual"
+          jq -e --arg version "$GITHUB_REF_NAME" --arg revision "$GITHUB_SHA" \
+            '.version == $version and .revision == $revision' \
+            dist/capabilities/capabilities.json >/dev/null
+
+      - name: Update the docs capability table
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        working-directory: spec
+        run: |
+          go run ./cmd/capability-catalog docs \
+            --catalog dist/capabilities/capabilities.json \
+            --page ../docs/content/manuals/ai/sandboxes/customize/author/capabilities.md
+
+      - name: Open docs update pull request
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v7.0.8
+        if: ${{ steps.latest.outputs.matches == 'true' }}
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          path: docs
+          add-paths: content/manuals/ai/sandboxes/customize/author/capabilities.md
+          branch: chore/sync-kit-capabilities
+          delete-branch: true
+          commit-message: 'docs: update released kit capabilities'
+          title: 'docs: update released kit capabilities'
+          sign-commits: true
+          body: |
+            Update the Docker Sandboxes capability reference from the catalog published with `${{ github.ref_name }}`.
+
+            Source release: https://github.com/docker/sandbox-kit-spec/releases/tag/${{ github.ref_name }}
+
+            Runtime support and restrictions remain docs-owned and are preserved by the catalog updater.
