@@ -200,7 +200,7 @@ jobs:
             '.version == $version and .revision == $revision' \
             dist/capabilities/capabilities.json >/dev/null
 
-      - name: Update the docs capability table
+      - name: Update the docs capability reference
         if: ${{ steps.credentials.outputs.enabled == 'true' && steps.latest.outputs.matches == 'true' }}
         working-directory: spec
         run: |

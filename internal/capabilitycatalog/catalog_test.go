@@ -27,7 +27,7 @@ func fixture(t *testing.T) string {
 	write("docs/spec/conformance.md", "# Conformance specification\n")
 	for _, id := range []string{"alpha@2", "zeta@1"} {
 		write("schema/capabilities/com.docker.sandbox/"+id+".schema.json", `{"title":"com.docker.sandbox/`+id+`"}`)
-		write("docs/spec/capabilities/com.docker.sandbox/"+id+".md", "# "+id+"\n")
+		write("docs/spec/capabilities/com.docker.sandbox/"+id+".md", "# `com.docker.sandbox/"+id+"`\n\nDescription of "+id+".\n\n## Shape\n")
 	}
 	return dir
 }
@@ -332,5 +332,46 @@ func TestSchemaContractTracksEnclosingDescriptorRules(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, notes, "- `"+after.Capabilities[0].ID+"` (schema)")
 		})
+	}
+}
+
+func TestDescriptionsFromAllCurrentSpecPages(t *testing.T) {
+	c, err := Build(filepath.Clean("../.."), tag, rev)
+	require.NoError(t, err)
+	require.Len(t, c.Capabilities, 27)
+	for _, entry := range c.Capabilities {
+		require.NotEmpty(t, entry.Description, entry.ID)
+	}
+	byID := map[string]Entry{}
+	for _, entry := range c.Capabilities {
+		byID[entry.ID] = entry
+	}
+	require.Contains(t, byID["com.docker.sandbox/host-port@1"].Description, "[port@1]("+repository+"/blob/"+tag+"/docs/spec/capabilities/com.docker.sandbox/port@1.md)")
+	require.Contains(t, byID["com.docker.sandbox/acp@1"].Description, "[Agent Client Protocol](https://agentclientprotocol.com/)")
+	require.Contains(t, byID["com.docker.sandbox/agent-skill@1"].Description, "One bundled agent skill")
+}
+
+func TestDescriptionIntroAndUnsafeMarkup(t *testing.T) {
+	specURL := repository + "/blob/" + tag + "/docs/spec/capabilities/com.docker.sandbox/host-port@1.md"
+	page := []byte("# `com.docker.sandbox/host-port@1`\n\nOne wrapped line with [port@1](port@1.md) and\n`inline` text.\n\n## Shape\n")
+	description, err := descriptionFromPage(page, "com.docker.sandbox/host-port@1", specURL)
+	require.NoError(t, err)
+	require.Equal(t, "One wrapped line with [port@1]("+repository+"/blob/"+tag+"/docs/spec/capabilities/com.docker.sandbox/port@1.md) and `inline` text.", description)
+	for _, bad := range []string{
+		"# `com.docker.sandbox/host-port@1`\n\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\nUnterminated introduction.",
+		"# `com.docker.sandbox/host-port@1`\n\n[escape](../../../../../outside.md)\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\n[script](javascript:alert)\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\n![image](port@1.md)\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\n```go\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\n~~~go\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\n+ list item\n\n## Shape\n",
+		"# `com.docker.sandbox/host-port@1`\n\n1. list item\n\n## Shape\n",
+	} {
+		_, err := descriptionFromPage([]byte(bad), "com.docker.sandbox/host-port@1", specURL)
+		require.Error(t, err, bad)
+	}
+	for _, bad := range []string{"", "two\nlines", "<script>alert</script>", "[x](file:///tmp/x)", "[x](port@1.md)", "[x](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md)", "[broken]("} {
+		require.Error(t, validateDescription(bad, specURL), bad)
 	}
 }

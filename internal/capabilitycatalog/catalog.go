@@ -26,6 +26,7 @@ var (
 // Entry records a specification contract, not a runtime implementation claim.
 type Entry struct {
 	ID                   string `json:"id"`
+	Description          string `json:"description"`
 	SchemaURL            string `json:"schema_url"`
 	SpecURL              string `json:"spec_url"`
 	SchemaSHA256         string `json:"schema_sha256"`
@@ -133,11 +134,16 @@ func build(read readFile, version, revision string) (Catalog, error) {
 		if len(strings.TrimSpace(string(doc))) == 0 {
 			return Catalog{}, fmt.Errorf("capability %s spec page is empty", id)
 		}
+		specURL := repository + "/blob/" + version + "/" + specPath
+		description, err := descriptionFromPage(doc, id, specURL)
+		if err != nil {
+			return Catalog{}, err
+		}
 		contractHash, err := schemaContractHash(read, data, conditionIndex)
 		if err != nil {
 			return Catalog{}, fmt.Errorf("capability %s schema contract: %w", id, err)
 		}
-		entries = append(entries, Entry{ID: id, SchemaURL: repository + "/blob/" + version + "/" + schemaPath, SpecURL: repository + "/blob/" + version + "/" + specPath, SchemaSHA256: hash(schema), SchemaContractSHA256: contractHash, SpecSHA256: hash(doc)})
+		entries = append(entries, Entry{ID: id, Description: description, SchemaURL: repository + "/blob/" + version + "/" + schemaPath, SpecURL: specURL, SchemaSHA256: hash(schema), SchemaContractSHA256: contractHash, SpecSHA256: hash(doc)})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 	shared, err := read("docs/spec/SPEC-v3.md")
@@ -175,6 +181,9 @@ func (c Catalog) Validate() error {
 		wantSpec := repository + "/blob/" + c.Version + "/docs/spec/capabilities/" + e.ID + ".md"
 		if e.SchemaURL != wantSchema || e.SpecURL != wantSpec {
 			return fmt.Errorf("noncanonical URLs for %s", e.ID)
+		}
+		if err := validateDescription(e.Description, e.SpecURL); err != nil {
+			return fmt.Errorf("invalid description for %s: %w", e.ID, err)
 		}
 		for _, digest := range []string{e.SchemaSHA256, e.SchemaContractSHA256, e.SpecSHA256} {
 			if len(digest) != 64 {

@@ -223,6 +223,11 @@ runtime implementation status. The notes list additions and changes
 relative to the preceding release. The first release has no preceding
 tag, so its notes describe the initial catalog.
 
+Each catalog entry also carries a short Markdown description extracted
+from the opening prose of its capability specification page. Relative
+links in that prose point to the tagged specification. The description
+explains the specification contract; it does not assert runtime support.
+
 The catalog also records `shared_spec_sha256` for `SPEC-v3.md` and
 `conformance_sha256` for `conformance.md`. Notes report changes to these
 shared normative documents separately, including edits that leave every
@@ -261,12 +266,17 @@ job skips the docs sync if either credential is missing. Runs for
 different releases share one concurrency group so they cannot race while
 checking the latest release and updating the docs branch. The GitHub App
 must be installed on `docker/docs` with contents and pull request write
-access. The updater changes only the capability catalog table. Newly
-listed docs types receive `Not verified` status because the catalog does
-not establish runtime support. If an existing docs support row is absent
-from the catalog, the updater stops for human review; it does not remove
-the row or erase historical runtime claims. Runtime support and
-restrictions remain owned by `docker/docs` and must be verified there.
+access. The updater changes the capability catalog table and owns the
+`## Capability descriptions` section immediately below it. Paired HTML
+markers bound the generated section so later releases can refresh its
+prose without touching surrounding docs. A missing or malformed marker,
+or an unmarked descriptions heading, stops the update for human review.
+Newly listed docs types receive `Not verified` status because the
+catalog does not establish runtime support. If an existing docs support
+row is absent from the catalog, the updater stops for human review; it
+does not remove the row or erase historical runtime claims. Runtime
+support and restrictions remain owned by `docker/docs` and must be
+verified there.
 
 ## Conformance suites and releases
 

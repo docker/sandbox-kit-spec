@@ -121,8 +121,12 @@ func writeSharedNotes(b *strings.Builder, current Catalog, previous *Catalog) {
 const tableHeader = "| Capability | Local sandboxes | Cloud sandboxes | Restrictions |"
 const tableRule = "| --- | --- | --- | --- |"
 const note = "Not verified means Docker Sandboxes support has not been confirmed for that\ncapability. Specification links are pinned to the catalog release."
+const descriptionsHeading = "## Capability descriptions"
+const descriptionsStart = "<!-- capability-catalog:descriptions:start -->"
+const descriptionsEnd = "<!-- capability-catalog:descriptions:end -->"
 
-// UpdatePage updates only the support table and its brief explanation.
+// UpdatePage updates the support table, its brief explanation, and the
+// generated descriptions section.
 // Existing implementation claims are retained literally; new types are unverified.
 // A row absent from the catalog fails closed so removals receive manual review
 // before anyone deletes a runtime support claim from the downstream page.
@@ -196,15 +200,70 @@ func UpdatePage(page []byte, catalog Catalog) ([]byte, error) {
 	}
 	result := source[:start] + table.String() + source[rowsEnd:]
 	// Keep the note beside the table, without changing other prose.
-	if strings.Contains(result, note) {
-		return []byte(result), nil
+	if !strings.Contains(result, note) {
+		marker := "All capability names in the table have the `com.docker.sandbox/` prefix.\n"
+		if strings.Count(result, marker) != 1 {
+			return nil, fmt.Errorf("capability table explanation is missing or ambiguous")
+		}
+		result = strings.Replace(result, marker, marker+note+"\n", 1)
 	}
-	marker := "All capability names in the table have the `com.docker.sandbox/` prefix.\n"
-	if strings.Count(result, marker) != 1 {
-		return nil, fmt.Errorf("capability table explanation is missing or ambiguous")
+	return updateDescriptions(result, strings.Index(result, tableHeader)+table.Len(), catalog)
+}
+
+func updateDescriptions(page string, tableEnd int, catalog Catalog) ([]byte, error) {
+	startCount := strings.Count(page, descriptionsStart)
+	endCount := strings.Count(page, descriptionsEnd)
+	if startCount > 1 || endCount > 1 || startCount != endCount {
+		return nil, fmt.Errorf("capability description markers are missing or duplicated")
 	}
-	result = strings.Replace(result, marker, marker+note+"\n", 1)
-	return []byte(result), nil
+	var section strings.Builder
+	section.WriteString(descriptionsStart + "\n\n" + descriptionsHeading + "\n\n")
+	for _, e := range catalog.Capabilities {
+		fmt.Fprintf(&section, "### [`%s`](%s)\n\n%s\n\n", strings.TrimPrefix(e.ID, "com.docker.sandbox/"), e.SpecURL, e.Description)
+	}
+	section.WriteString(descriptionsEnd + "\n")
+	generated := section.String()
+	if startCount == 0 {
+		if hasDescriptionHeading(page) {
+			return nil, fmt.Errorf("unmarked capability descriptions heading")
+		}
+		return []byte(page[:tableEnd] + "\n" + generated + page[tableEnd:]), nil
+	}
+	start := strings.Index(page, descriptionsStart)
+	end := strings.Index(page, descriptionsEnd)
+	if start < tableEnd || end < start || !markerLine(page, start, descriptionsStart) || !markerLine(page, end, descriptionsEnd) || strings.TrimSpace(page[tableEnd:start]) != "" {
+		return nil, fmt.Errorf("capability description markers are misplaced or reversed")
+	}
+	end += len(descriptionsEnd) + 1
+	if hasDescriptionHeading(page[:start] + page[end:]) {
+		return nil, fmt.Errorf("unmarked capability descriptions heading")
+	}
+	return []byte(page[:start] + generated + page[end:]), nil
+}
+
+func markerLine(page string, at int, marker string) bool {
+	return (at == 0 || page[at-1] == '\n') &&
+		at+len(marker) < len(page) && page[at+len(marker)] == '\n'
+}
+
+func hasDescriptionHeading(page string) bool {
+	lines := strings.Split(page, "\n")
+	for i, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.Trim(fields[len(fields)-1], "#") == "" {
+			fields = fields[:len(fields)-1]
+		}
+		if strings.Join(fields, " ") == descriptionsHeading {
+			return true
+		}
+		if strings.TrimSpace(line) == "Capability descriptions" && i+1 < len(lines) {
+			underline := strings.TrimSpace(lines[i+1])
+			if underline != "" && strings.Trim(underline, "-") == "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func WriteRelease(dir string, c Catalog, previous *Catalog) error {
