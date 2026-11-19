@@ -1,0 +1,92 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Cross-app Granola
+description: >-
+  Lets the sandbox use meeting notes through Granola's MCP server as
+  the person running it, using Cross App Access, which Granola calls
+  enterprise-managed authorization. The host exchanges the person's
+  enterprise sign-in for an identity assertion grant bound to Granola's
+  authorization server, has it redeemed for a short-lived token, and
+  presents that token on requests to the server; the agent never sees
+  it. The identity provider's administrator decides who may reach
+  Granola through the sandbox, and the Granola workspace's
+  administrator decides whether MCP clients may read transcripts and
+  organise or edit notes, so nobody is sent through a consent screen.
+  It needs a Granola Enterprise workspace that signs in through that
+  identity provider.
+
+kind: mixin
+provides: ["cross-app-granola"]
+version: "1.0.0"
+
+capabilities:
+  # Every exchange is signed into this identity's ledger, so access taken
+  # in a person's name is attributable to one sandbox.
+  - type: com.docker.sandbox/workload-identity@1
+    description: Record each exchange against this sandbox
+    config:
+      ledger: required
+
+  # The runtime connects to the server itself and offers its tools to
+  # the agent, so nobody registers Granola with the runtime first. The
+  # connection is made as the person, with the token of the grant that
+  # `access` names. A runtime that cannot do this leaves the agent to
+  # connect on its own, which that grant already covers.
+  - type: com.docker.sandbox/mcp-registration@1
+    optional: true
+    description: Offer the Granola MCP server's tools to the agent
+    config:
+      name: granola
+      url: https://mcp.granola.ai/mcp
+      access: granola
+
+  # The server's host, which is also the grant's inject domain, must be
+  # reachable; the policy unions with the workload's own.
+  - type: com.docker.sandbox/network-policy@2
+    description: Reach the Granola MCP server
+    config:
+      runtime:
+        allow:
+          - hosts: ["mcp.granola.ai"]
+
+  # Granola issues no client IDs: it identifies the client the runtime
+  # redeems grants as by the URL of a client ID metadata document, and
+  # that client authenticates with a signed assertion instead of a
+  # secret. The one scope admits the token to the MCP server; what it
+  # may do there is the workspace's setting, not a scope.
+  #
+  # No resource: an identity provider connected to Granola refuses a
+  # grant request that names one.
+  - type: com.docker.sandbox/cross-app-access@1
+    description: Use the Granola MCP server as the signed-in person
+    config:
+      name: granola
+      issuer: https://mcp-auth.granola.ai
+      scopes:
+        - mcp
+      inject:
+        - domain: mcp.granola.ai
+
+  # Offer both versions during the runtime rollout; select one.
+  - type: com.docker.sandbox/agent-context@1
+    optional: true
+    config: &agent-context
+      content: |
+        # Granola as the person running this sandbox
+
+        The Granola MCP server at `https://mcp.granola.ai/mcp` serves
+        this sandbox as the person running it. Requests to it carry a
+        short-lived token issued for that person; it reaches that
+        person's meeting notes, and reads transcripts and organises or
+        edits notes only where their workspace lets MCP clients do so.
+        You do not hold the token and cannot read it. The
+        sandbox's MCP gateway lists the server as `granola`; use its
+        tools there. If it is missing, connect to the URL over
+        streamable HTTP without an `Authorization` header and without
+        starting an OAuth flow; the host adds the token. A 401 or 403
+        means the identity provider or Granola did not allow this
+        access; report it rather than looking for another credential.
+
+  - type: com.docker.sandbox/agent-context@2
+    optional: true
+    config: *agent-context
