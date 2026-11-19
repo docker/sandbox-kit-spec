@@ -61,6 +61,15 @@ A conforming runtime:
   [lifecycle](lifecycle@1.md) startup hook (a fresh mount may come up
   root-owned).
 
+Mounts declared at sandbox creation apply parent before child,
+whatever their declaration order. A volume mounted beneath a workspace
+hides the matching workspace directory inside the sandbox: writes there
+go to the volume, and the host files stay in place on the host. A fresh
+volume starts empty; it hides those files without copying them. For
+example, with a host workspace at `/ws` and a volume at `/ws/cache`,
+`/ws/main.go` is the host workspace file and `/ws/cache/build.o` is
+stored in the volume. Reordering the declarations does not change this.
+
 ## Identity and lifetime
 
 A runtime **MUST** isolate block storage by (owner scope, sandbox name, <!-- tck: volume@1/name-and-path-identity -->
