@@ -61,6 +61,7 @@ func Validate(d *Descriptor) (warnings []string, err error) {
 	errs.add(validateNoNUL(d))
 	errs.add(validateIconURL(d.IconURL))
 	errs.add(validateCapabilityNames(d))
+	errs.add(validateProvidesFrom(d))
 	errs.add(validateCapabilityEntries(d))
 	errs.add(validateArgs(d.Args))
 	errs.add(validateRecipe(d))
@@ -244,6 +245,7 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 	warnings, err = Validate(d)
 	errs.add(err)
 	errs.add(validateRawBuildSecrets(raw, d))
+	errs.add(validateRawProvidesFrom(raw, d))
 
 	sizeWarnings, sizeErr := validateSize(raw)
 	warnings = append(warnings, sizeWarnings...)
@@ -352,6 +354,18 @@ func ValidatePublished(raw []byte, d *Descriptor) (warnings []string, err error)
 		if argRef.MatchString(s) {
 			errs.add(fieldErrorf(fmt.Sprintf("provides[%d]", i), "published descriptor still references an arg in provides entry %q; build-phase expansion did not run", s))
 		}
+	}
+	// providesFrom is an instruction to the build, and publishing
+	// replaces it with the entries it stated (§9.7). One that survives
+	// names files nobody resolved, in a field readers built before it
+	// existed refuse to decode.
+	//
+	// Judged on the bytes as well as the struct, because the rule is
+	// about the key being there: `providesFrom: {}` and a bare
+	// `providesFrom:` decode to no entries at all, and a strict reader
+	// that does not know the field refuses them just the same.
+	if len(d.ProvidesFrom) > 0 || carriesProvidesFrom(raw) {
+		errs.add(fieldErrorf("providesFrom", "published descriptor still carries providesFrom; publishing states those entries in provides and drops the field, so this artifact was never resolved"))
 	}
 	// §9.2 is a property of every published descriptor, not only of the
 	// frontend's build path, so third-party artifacts are held to it too.

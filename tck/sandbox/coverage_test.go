@@ -146,6 +146,9 @@ var kitCovers = map[string][]string{
 		"SPEC-v3 §7.1.1/validate-declarations",
 		"SPEC-v3 §9.2/versioned-provides",
 		"SPEC-v3 §3.4/set-kind-never-published",
+		// ValidatePublished refuses the field, so an artifact that
+		// still carries it fails the same check.
+		"SPEC-v3 §9.7/not-published",
 	},
 
 	// A merged kit's staged roots are counted against the kits its
@@ -282,6 +285,17 @@ var waived = map[string]string{
 	"SPEC-v3 §9.6/agreed-across-platforms":     "the frontend intersects databases or listed kits' derived entries across target platforms; one published manifest cannot show what another platform recorded",
 	"SPEC-v3 §5.1/derived-namespaces-reserved": "grammar rule, judged by the spec package's validators; a published descriptor cannot distinguish an authored deb/ entry from a derived one, and derived-provides refuses either if the image disagrees",
 	"SPEC-v3 §5.1/namespace-reverse-dns":       "grammar rule, judged by the spec package's validators and schema tests",
+
+	// Stated provides: publishing replaces providesFrom with ordinary
+	// provides entries and drops the field, so a published Kit keeps no
+	// record of which entry came from a path or which path that was.
+	// What the frontend did with one is judged where it happens.
+	"SPEC-v3 §9.7/name-is-authored":            "grammar rule, judged by the spec package's validators and schema tests",
+	"SPEC-v3 §9.7/workload-only":               "grammar rule, judged by the spec package's validators and schema tests",
+	"SPEC-v3 §9.7/owned-by-one-package":        "build-time resolution, judged by spec/provides_from_test.go; the published descriptor does not record the path an entry was stated from",
+	"SPEC-v3 §9.7/links-followed-when-unowned": "build-time resolution, judged by spec/provides_from_test.go; the published descriptor does not record the path an entry was stated from",
+	"SPEC-v3 §9.7/version-is-the-owners":       "build-time resolution, judged by spec/provides_from_test.go; the published descriptor does not record the path an entry was stated from",
+	"SPEC-v3 §9.7/agreed-across-platforms":     "the frontend resolves every path on every target platform; one published manifest cannot show what another platform recorded",
 
 	// Grammar rules: the spec package's validators and schema tests are
 	// where these are judged, statement by statement.

@@ -63,28 +63,37 @@ func PackageDatabases() []PackageDatabase {
 func ReadDpkgStatus(r io.Reader) ([]Package, error) {
 	var out []Package
 	err := eachStanza(r, func(fields map[string]string) {
-		// The third word of dpkg's want/flag/status triple is the one
-		// that says whether the files are on disk.
-		parts := strings.Fields(fields["status"])
-		if len(parts) == 0 || parts[len(parts)-1] != "installed" {
+		if !dpkgInstalled(fields) {
 			return
 		}
 		if name := fields["package"]; name != "" {
 			out = append(out, Package{Name: name, Version: fields["version"]})
 		}
-	}, func(line string) (string, string, bool) {
-		// A continuation line belongs to the field above it, and none of
-		// the three fields read here spans lines, so it is skipped.
-		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-			return "", "", false
-		}
-		key, value, found := strings.Cut(line, ":")
-		if !found {
-			return "", "", false
-		}
-		return strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(value), true
-	})
+	}, dpkgField)
 	return out, err
+}
+
+// dpkgInstalled reports whether a status stanza records a package whose
+// files are on disk. The third word of dpkg's want/flag/status triple is
+// the one that says so.
+func dpkgInstalled(fields map[string]string) bool {
+	parts := strings.Fields(fields["status"])
+	return len(parts) > 0 && parts[len(parts)-1] == "installed"
+}
+
+// dpkgField splits one line of a dpkg status stanza into a lowercased
+// field name and its value.
+func dpkgField(line string) (string, string, bool) {
+	// A continuation line belongs to the field above it, and none of
+	// the fields read here spans lines, so it is skipped.
+	if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+		return "", "", false
+	}
+	key, value, found := strings.Cut(line, ":")
+	if !found {
+		return "", "", false
+	}
+	return strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(value), true
 }
 
 // ReadApkInstalled lists the packages an apk installed database records.

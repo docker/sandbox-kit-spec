@@ -106,6 +106,13 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 	if err != nil {
 		return nil, withYAMLSource(err, filename, src.descriptor)
 	}
+	// providesFrom is an instruction to this build, kept on d until the
+	// filesystems it names exist. The published form never carries it
+	// (§9.7), so it leaves here, before anything judges that form.
+	published, err = spec.WithoutProvidesFrom(published)
+	if err != nil {
+		return nil, withYAMLSource(err, filename, src.descriptor)
+	}
 
 	content := commentContent
 	switch {
@@ -243,6 +250,12 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 		if err := spec.RequireAuthoredProvides(pd); err != nil {
 			return nil, withYAMLSource(err, filename, src.descriptor)
 		}
+		// On the expanded form for the same reason: a provides entry
+		// whose name came out of an arg can only now be seen to state
+		// a capability providesFrom states too.
+		if err := spec.RequireDistinctProvidesFrom(pd, d.ProvidesFrom); err != nil {
+			return nil, withYAMLSource(err, filename, src.descriptor)
+		}
 	}
 
 	res := gwclient.NewResult()
@@ -308,6 +321,13 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 		if err != nil {
 			return nil, err
 		}
+		// What the author asked for by name stands ahead of the
+		// inventory nobody asked for entry by entry.
+		stated, err := statedProvides(ctx, d.ProvidesFrom, builds)
+		if err != nil {
+			return nil, withYAMLSource(err, filename, src.descriptor)
+		}
+		derived = append(stated, derived...)
 		if len(derived) > 0 {
 			published, pd, err = withDerivedProvides(published, derived)
 			if err != nil {
@@ -1029,6 +1049,21 @@ func withDerivedProvides(published []byte, derived []string) ([]byte, *spec.Desc
 		// A kit that declared none still carries what its filesystem
 		// holds, so the field is created rather than skipped.
 		provides = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		// No key on the root is not the same as no entries: a merge
+		// key can hand the root a provides list from another mapping,
+		// and a key created here would override that list rather than
+		// extend it. So the new list starts from what the descriptor
+		// decodes to, which is the author's entries wherever they were
+		// written — and leaves the merged mapping alone, since
+		// something else may share it.
+		inherited, err := spec.Decode(published)
+		if err != nil {
+			return nil, nil, fmt.Errorf("published descriptor no longer decodes: %w", err)
+		}
+		for _, entry := range inherited.Provides {
+			provides.Content = append(provides.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: entry})
+		}
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "provides"}, provides)
 	case provides.Kind == yaml.ScalarNode && provides.Tag == "!!null":
