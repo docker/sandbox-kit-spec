@@ -245,6 +245,7 @@ func ValidateRaw(raw []byte, d *Descriptor) (warnings []string, err error) {
 	warnings, err = Validate(d)
 	errs.add(err)
 	errs.add(validateRawBuildSecrets(raw, d))
+	errs.add(validateRawProvidesFrom(raw, d))
 
 	sizeWarnings, sizeErr := validateSize(raw)
 	warnings = append(warnings, sizeWarnings...)

@@ -797,3 +797,51 @@ func TestWithoutProvidesFromLeavesSharedNodesAsTheyWere(t *testing.T) {
 		})
 	}
 }
+
+// The kind rule is about the field being written, not about it having
+// entries: the schema refuses the key on a mixin or a set whatever is
+// under it, and validation must not accept a descriptor an editor
+// already marked wrong — nor let the build drop the field in silence.
+func TestProvidesFromKindRuleAppliesToAnEmptyField(t *testing.T) {
+	const mixin = "schemaVersion: \"3\"\nkind: mixin\nversion: \"1.0.0\"\n"
+	const set = "schemaVersion: \"3\"\nkind: set\nkits:\n  - ref: docker.io/example/base:1.0.0\n"
+	const workload = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\nbuild: |\n  FROM scratch\n"
+
+	for name, tc := range map[string]struct{ raw, want string }{
+		"mixin, empty map":   {mixin + "providesFrom: {}\n", "providesFrom is for kind: workload only"},
+		"mixin, null":        {mixin + "providesFrom:\n", "providesFrom is for kind: workload only"},
+		"mixin, merged":      {mixin + "<<: {providesFrom: {}}\n", "providesFrom is for kind: workload only"},
+		"mixin, merged null": {mixin + "<<: {providesFrom: }\n", "providesFrom is for kind: workload only"},
+		"set, empty map":     {set + "providesFrom: {}\n", "a set builds none"},
+		"set, null":          {set + "providesFrom:\n", "a set builds none"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, err := Decode([]byte(tc.raw))
+			require.NoError(t, err)
+			_, err = ValidateDeclarations([]byte(tc.raw), d)
+			require.ErrorContains(t, err, tc.want)
+			// Once, however the field was spelled.
+			require.Equal(t, 1, strings.Count(err.Error(), tc.want), "%v", err)
+		})
+	}
+
+	// On a workload an empty field asks for nothing, and is dropped at
+	// publish like a full one.
+	for _, body := range []string{"providesFrom: {}\n", "providesFrom:\n"} {
+		raw := []byte(workload + body)
+		d, err := Decode(raw)
+		require.NoError(t, err)
+		_, err = ValidateDeclarations(raw, d)
+		require.NoError(t, err)
+		out, err := WithoutProvidesFrom(raw)
+		require.NoError(t, err)
+		require.NotContains(t, string(out), "providesFrom")
+	}
+
+	// A descriptor with no such field is untouched by any of this.
+	plain := []byte(mixin)
+	d, err := Decode(plain)
+	require.NoError(t, err)
+	_, err = ValidateDeclarations(plain, d)
+	require.NoError(t, err)
+}

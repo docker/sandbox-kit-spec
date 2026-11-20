@@ -1339,7 +1339,8 @@ shipped.
   content, and **MUST** be refused on a mixin or a set. A mixin's layers
   are a delta, where a package database is not an inventory
   ([§9.6](#96-derived-provides)); a set builds nothing, and the workload
-  it lists already stated what it carries.
+  it lists already stated what it carries. The field is refused there
+  for being written, empty or not.
 - Publishing **MUST** fail unless exactly one installed package lists <!-- tck: SPEC-v3 §9.7/owned-by-one-package -->
   the path: it fails when the path does not exist, is a directory, is
   listed by more than one package, or is listed by none. The lists are

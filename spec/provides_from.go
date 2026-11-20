@@ -36,16 +36,15 @@ const maxProvidesFromLinks = 16
 // than saying it after.
 func validateProvidesFrom(d *Descriptor) error {
 	var errs ValidationErrors
-	if len(d.ProvidesFrom) == 0 {
+	// Present, not populated: `providesFrom: {}` on a mixin asks the
+	// same thing of a filesystem that cannot answer it, and the schema
+	// refuses the key there whatever is under it. A nil map is a field
+	// that was not written, or was written with nothing after it;
+	// ValidateRaw tells those two apart from the bytes.
+	if d.ProvidesFrom == nil {
 		return nil
 	}
-	switch {
-	case len(d.Kits) > 0:
-		errs.add(fieldErrorf("providesFrom", "providesFrom reads the filesystem this kit builds, and a set builds none: its content is the kits it lists, and the workload among them already states what it carries"))
-	case d.Kind != KindWorkload:
-		errs.add(fieldErrorf("providesFrom", "providesFrom is for kind: %s only: a %s's layers are a delta, where a package database is whatever the recipe happened to rewrite rather than an inventory", KindWorkload, d.Kind))
-	}
-
+	errs.add(validateProvidesFromKind(d))
 	errs.add(RequireDistinctProvidesFrom(d, d.ProvidesFrom))
 	seen := map[string]string{}
 	for _, name := range slices.Sorted(maps.Keys(d.ProvidesFrom)) {
@@ -73,6 +72,29 @@ func validateProvidesFrom(d *Descriptor) error {
 		}
 	}
 	return errs.err()
+}
+
+// validateProvidesFromKind holds the field to the kinds that have a
+// filesystem to read: a workload that builds its own content.
+func validateProvidesFromKind(d *Descriptor) error {
+	switch {
+	case len(d.Kits) > 0:
+		return fieldErrorf("providesFrom", "providesFrom reads the filesystem this kit builds, and a set builds none: its content is the kits it lists, and the workload among them already states what it carries")
+	case d.Kind != KindWorkload:
+		return fieldErrorf("providesFrom", "providesFrom is for kind: %s only: a %s's layers are a delta, where a package database is whatever the recipe happened to rewrite rather than an inventory", KindWorkload, d.Kind)
+	}
+	return nil
+}
+
+// validateRawProvidesFrom applies the kind rule to a field the struct
+// cannot show: a bare `providesFrom:` decodes to a nil map, exactly
+// like no field at all, and only the bytes say it was written. With
+// any other spelling Validate has already judged it.
+func validateRawProvidesFrom(raw []byte, d *Descriptor) error {
+	if d.ProvidesFrom != nil || !carriesProvidesFrom(raw) {
+		return nil
+	}
+	return validateProvidesFromKind(d)
 }
 
 // RequireDistinctProvidesFrom refuses a providesFrom key that names a
