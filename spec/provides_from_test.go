@@ -292,3 +292,153 @@ build: |
 	_, err = ValidatePublished(raw, d)
 	require.ErrorContains(t, err, "published descriptor still carries providesFrom")
 }
+
+// A merge key hands the root mapping another mapping's keys, so the
+// field can reach a descriptor without being written at the top level.
+// Publishing has to remove it from wherever it came, and leave the rest
+// of what was merged in place.
+func TestWithoutProvidesFromReachesMergedMappings(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\n"
+	const tail = "build: |\n  FROM scratch\n"
+	for name, tc := range map[string]struct {
+		body        string
+		displayName string
+		keeps       string
+	}{
+		"inline": {
+			body:        "<<: {providesFrom: {python: /usr/bin/python3}, displayName: Merged}\n",
+			displayName: "Merged",
+		},
+		"inline with nothing else": {
+			body: "<<: {providesFrom: {python: /usr/bin/python3}}\n",
+		},
+		"sequence": {
+			body:        "<<: [{providesFrom: {python: /usr/bin/python3}}, {displayName: Second}]\n",
+			displayName: "Second",
+		},
+		"nested": {
+			body:        "<<: {displayName: Outer, <<: {providesFrom: {python: /usr/bin/python3}}}\n",
+			displayName: "Outer",
+		},
+		"beside the plain spelling": {
+			body:        "providesFrom: {ssh: /usr/bin/ssh}\n<<: {providesFrom: {python: /usr/bin/python3}, displayName: Merged}\n",
+			displayName: "Merged",
+		},
+		// The anchored mapping is a capability's config, which is not
+		// this rewrite's to change: the root merges a copy without the
+		// field and the config keeps every key it had.
+		"alias to a mapping defined elsewhere": {
+			body: "capabilities:\n  - type: com.example/thing@1\n    config: &shared\n      providesFrom: {python: /usr/bin/python3}\n      displayName: Shared\n" +
+				"<<: *shared\n",
+			displayName: "Shared",
+			keeps:       "/usr/bin/python3",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			authored := []byte(head + tc.body + tail)
+			d, err := Decode(authored)
+			require.NoError(t, err)
+			require.NotEmpty(t, d.ProvidesFrom, "the case must reach the field through the merge")
+
+			out, err := WithoutProvidesFrom(authored)
+			require.NoError(t, err)
+			pd, err := Decode(out)
+			require.NoError(t, err, "%s", out)
+			require.Empty(t, pd.ProvidesFrom, "%s", out)
+			require.Equal(t, tc.displayName, pd.DisplayName, "what was merged beside the field stays merged")
+			require.Equal(t, "FROM scratch\n", pd.Build)
+			_, err = ValidatePublished(out, pd)
+			require.NoError(t, err, "%s", out)
+			if tc.keeps != "" {
+				require.Contains(t, string(out), tc.keeps)
+				require.Len(t, pd.Capabilities, 1)
+			}
+		})
+	}
+}
+
+// Removing the field removes any anchor defined under it. An alias
+// elsewhere would then name nothing and the document would stop
+// parsing, so each one is given a copy of what it pointed at.
+func TestWithoutProvidesFromKeepsAliasesIntoWhatItRemoves(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\n"
+	const tail = "build: |\n  FROM scratch\n"
+
+	scalar := []byte(head + "providesFrom: {python: &command /usr/bin/python3}\ndescription: *command\n" + tail)
+	out, err := WithoutProvidesFrom(scalar)
+	require.NoError(t, err)
+	d, err := Decode(out)
+	require.NoError(t, err, "%s", out)
+	require.Empty(t, d.ProvidesFrom)
+	require.Equal(t, "/usr/bin/python3", d.Description)
+	require.NotContains(t, string(out), "*command")
+	_, err = ValidatePublished(out, d)
+	require.NoError(t, err)
+
+	// The whole value anchored, and used twice more: once as a config,
+	// once through an alias nested in another config.
+	whole := []byte(head + "providesFrom: &paths\n  python: &py /usr/bin/python3\n  ssh: /usr/bin/ssh\n" +
+		"capabilities:\n  - type: com.example/a@1\n    config: *paths\n  - type: com.example/b@1\n    config: {interpreter: *py, all: *paths}\n" + tail)
+	out, err = WithoutProvidesFrom(whole)
+	require.NoError(t, err)
+	d, err = Decode(out)
+	require.NoError(t, err, "%s", out)
+	require.Empty(t, d.ProvidesFrom)
+	require.Len(t, d.Capabilities, 2)
+	paths := map[string]any{"python": "/usr/bin/python3", "ssh": "/usr/bin/ssh"}
+	require.Equal(t, paths, d.Capabilities[0].Config)
+	require.Equal(t, map[string]any{"interpreter": "/usr/bin/python3", "all": paths}, d.Capabilities[1].Config)
+
+	// The other direction needs nothing: an alias inside the field,
+	// to an anchor that stays, simply goes with the field.
+	inward := []byte(head + "description: &text /usr/bin/python3\nprovidesFrom: {python: *text}\n" + tail)
+	out, err = WithoutProvidesFrom(inward)
+	require.NoError(t, err)
+	d, err = Decode(out)
+	require.NoError(t, err, "%s", out)
+	require.Empty(t, d.ProvidesFrom)
+	require.Equal(t, "/usr/bin/python3", d.Description)
+}
+
+// The published rule is that the key is absent, not that it is empty:
+// a reader built before the field refuses the key whatever is under it,
+// and an empty map or a null decodes exactly like no field at all.
+func TestPublishedRefusesProvidesFromInAnySpelling(t *testing.T) {
+	const yamlHead = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\n"
+	for name, raw := range map[string]string{
+		"entries":        yamlHead + "providesFrom: {python: /usr/bin/python3}\n",
+		"empty map":      yamlHead + "providesFrom: {}\n",
+		"null":           yamlHead + "providesFrom:\n",
+		"merged":         yamlHead + "<<: {providesFrom: {python: /usr/bin/python3}}\n",
+		"merged empty":   yamlHead + "<<: {providesFrom: {}}\n",
+		"json":           `{"schemaVersion":"3","kind":"workload","version":"1.0.0","providesFrom":{}}`,
+		"json null":      `{"schemaVersion":"3","kind":"workload","version":"1.0.0","providesFrom":null}`,
+		"quoted the key": yamlHead + "\"providesFrom\": {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, err := Decode([]byte(raw))
+			require.NoError(t, err)
+			_, err = ValidatePublished([]byte(raw), d)
+			require.ErrorContains(t, err, "published descriptor still carries providesFrom")
+
+			// And publishing's own rewrite clears every one of them.
+			out, err := WithoutProvidesFrom([]byte(raw))
+			require.NoError(t, err)
+			pd, err := Decode(out)
+			require.NoError(t, err, "%s", out)
+			_, err = ValidatePublished(out, pd)
+			require.NoError(t, err, "%s", out)
+		})
+	}
+
+	// A descriptor that never had the field is not caught by the word
+	// appearing somewhere else in it.
+	elsewhere := []byte(yamlHead + "description: see providesFrom in the docs\ncapabilities:\n  - type: com.example/a@1\n    config: {providesFrom: {x: /y}}\n")
+	d, err := Decode(elsewhere)
+	require.NoError(t, err)
+	_, err = ValidatePublished(elsewhere, d)
+	require.NoError(t, err)
+	out, err := WithoutProvidesFrom(elsewhere)
+	require.NoError(t, err)
+	require.Equal(t, string(elsewhere), string(out))
+}

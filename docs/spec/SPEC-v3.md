@@ -1371,7 +1371,10 @@ shipped.
   instruction to the build, and what it produced is in `provides`. This
   is also what lets the field exist under `schemaVersion: "3"`: decoding
   is strict, so a runtime built before this field would refuse a
-  published Kit that carried it.
+  published Kit that carried it. The rule is about the key, so an empty
+  or null `providesFrom` is as much a violation as a full one, and
+  publishing removes the field wherever the document's root gets it
+  from — a YAML merge key included.
 
 A stated entry is an ordinary `provides` entry once published. It is the
 workload's to provide, so [§5.3](#53-resolution-semantics-consumer-contract)'s
