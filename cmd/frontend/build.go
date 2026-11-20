@@ -1049,6 +1049,21 @@ func withDerivedProvides(published []byte, derived []string) ([]byte, *spec.Desc
 		// A kit that declared none still carries what its filesystem
 		// holds, so the field is created rather than skipped.
 		provides = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		// No key on the root is not the same as no entries: a merge
+		// key can hand the root a provides list from another mapping,
+		// and a key created here would override that list rather than
+		// extend it. So the new list starts from what the descriptor
+		// decodes to, which is the author's entries wherever they were
+		// written — and leaves the merged mapping alone, since
+		// something else may share it.
+		inherited, err := spec.Decode(published)
+		if err != nil {
+			return nil, nil, fmt.Errorf("published descriptor no longer decodes: %w", err)
+		}
+		for _, entry := range inherited.Provides {
+			provides.Content = append(provides.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: entry})
+		}
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "provides"}, provides)
 	case provides.Kind == yaml.ScalarNode && provides.Tag == "!!null":

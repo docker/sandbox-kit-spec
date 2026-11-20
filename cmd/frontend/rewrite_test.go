@@ -172,3 +172,40 @@ capabilities:
 	require.Equal(t, "./always.md", d.Capabilities[0].Config["contentFile"])
 	require.Equal(t, "/staged/maybe.md", d.Capabilities[1].Group.Capabilities[0].Config["contentFile"])
 }
+
+// A merge key can supply provides, and then the root mapping has no
+// provides key of its own. Creating one for the derived entries would
+// override the inherited list, so the author's entries are carried into
+// the list that is created.
+func TestDerivedProvidesKeepWhatAMergeKeyProvides(t *testing.T) {
+	published := []byte(`schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+<<: {provides: ["agent@1.0.0"], displayName: Merged}
+`)
+
+	out, pd, err := withDerivedProvides(published, []string{"python@3.14.10", "deb/bash@5.2.37"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"agent@1.0.0", "python@3.14.10", "deb/bash@5.2.37"}, pd.Provides)
+	require.Equal(t, "Merged", pd.DisplayName, "the rest of what was merged is untouched")
+
+	fromBytes, err := spec.Decode(out)
+	require.NoError(t, err)
+	require.Equal(t, pd.Provides, fromBytes.Provides)
+
+	// An anchored mapping merged by alias is not edited: whatever else
+	// refers to it still sees the list it had.
+	shared := []byte(`schemaVersion: "3"
+kind: workload
+version: "1.0.0"
+capabilities:
+  - type: com.example/thing@1
+    config: &shared
+      provides: ["agent@1.0.0"]
+<<: *shared
+`)
+	_, pd, err = withDerivedProvides(shared, []string{"deb/bash@5.2.37"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"agent@1.0.0", "deb/bash@5.2.37"}, pd.Provides)
+	require.Equal(t, map[string]any{"provides": []any{"agent@1.0.0"}}, pd.Capabilities[0].Config)
+}
