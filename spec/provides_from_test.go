@@ -595,3 +595,87 @@ func TestProvidesFromPathsResolvesDirectoryLinks(t *testing.T) {
 		require.ErrorContains(t, err, want)
 	}
 }
+
+// Resolution has to end at the file that is actually there. Two ways of
+// reading a path as text end somewhere else, and each of them states
+// the version of a package that does not own the file.
+func TestProvidesFromPathsEndsAtTheRealFile(t *testing.T) {
+	status := func(packages ...string) string {
+		var out []string
+		for i := 0; i+1 < len(packages); i += 2 {
+			out = append(out, "Package: "+packages[i]+"\nStatus: install ok installed\nArchitecture: arm64\nVersion: "+packages[i+1]+"\n")
+		}
+		return strings.Join(out, "\n")
+	}
+
+	// A list can hold a path from before a directory on it became a
+	// link. The file there now is another package's.
+	stale := fakeImage{
+		DpkgStatusPath:                status("old", "1.0-1", "new", "2.0-1"),
+		DpkgInfoDir + "/old.list":     "/opt/app/current/bin/tool\n",
+		DpkgInfoDir + "/new.list":     "/opt/app/release-2/bin/tool\n",
+		"/opt/app/release-2/bin/tool": "elf",
+		"/opt/app/current":            "-> release-2",
+	}
+	got, err := ProvidesFromPaths(context.Background(), map[string]string{"tool": "/opt/app/current/bin/tool"}, one(stale))
+	require.NoError(t, err)
+	require.Equal(t, []string{"tool@2.0"}, got, "the owner of the real file, not of the spelling")
+
+	// ".." after a linked directory is that directory's parent. Read as
+	// text, sub/../real-tool is the neighbour of sub; in the image it
+	// is the neighbour of wherever sub leads.
+	climb := fakeImage{
+		DpkgStatusPath:             status("near", "1.0-1", "far", "2.0-1"),
+		DpkgInfoDir + "/near.list": "/opt/app/bin/real-tool\n",
+		DpkgInfoDir + "/far.list":  "/srv/real-tool\n",
+		"/opt/app/bin/real-tool":   "elf",
+		"/srv/real-tool":           "elf",
+		"/srv/other/keep":          "x",
+		"/opt/app/bin/sub":         "-> /srv/other",
+		"/opt/app/bin/tool":        "-> sub/../real-tool",
+		"/opt/app/bin/dotted":      "-> ./sub/./../real-tool",
+		// The same shape in a directory link rather than a file link.
+		"/opt/app/via":          "-> bin/sub/..",
+		"/opt/app/bin/up":       "-> ..",
+		"/opt/app/bin/updir":    "-> sub/..",
+		"/opt/app/bin/straight": "-> ../bin/real-tool",
+	}
+	got, err = ProvidesFromPaths(context.Background(), map[string]string{
+		"tool":     "/opt/app/bin/tool",
+		"dotted":   "/opt/app/bin/dotted",
+		"via":      "/opt/app/via/real-tool",
+		"straight": "/opt/app/bin/straight",
+	}, one(climb))
+	require.NoError(t, err)
+	require.Equal(t, []string{"dotted@2.0", "straight@1.0", "tool@2.0", "via@2.0"}, got)
+
+	for _, file := range []string{"/opt/app/bin/up", "/opt/app/bin/updir"} {
+		_, err = ProvidesFromPaths(context.Background(), map[string]string{"x": file}, one(climb))
+		require.ErrorContains(t, err, "is a directory", "%s leads to a directory", file)
+	}
+}
+
+// A top-level link is an alias for the directory it finally reaches,
+// worked out the same way: through as many links as it takes, with ".."
+// meaning the parent of what was reached.
+func TestProvidesFromPathsResolvesTopLevelAliasesFully(t *testing.T) {
+	image := fakeImage{
+		"/bin":                     "-> compat/../usr/bin",
+		"/compat":                  "-> srv/elsewhere",
+		"/srv/elsewhere/keep":      "x",
+		"/srv/usr/bin/tool":        "elf",
+		"/usr/bin/tool":            "elf",
+		"/dangling":                "-> nowhere",
+		DpkgStatusPath:             "Package: tool\nStatus: install ok installed\nArchitecture: arm64\nVersion: 1.2.3-1\n\nPackage: other\nStatus: install ok installed\nArchitecture: arm64\nVersion: 9.9-1\n",
+		DpkgInfoDir + "/tool.list": "/bin/tool\n",
+		// What reading /bin's target as text would have reached.
+		DpkgInfoDir + "/other.list": "/usr/bin/tool\n/dangling/thing\n",
+	}
+	got, err := ProvidesFromPaths(context.Background(), map[string]string{
+		"recorded": "/bin/tool",
+		"real":     "/srv/usr/bin/tool",
+		"textual":  "/usr/bin/tool",
+	}, one(image))
+	require.NoError(t, err)
+	require.Equal(t, []string{"real@1.2.3", "recorded@1.2.3", "textual@9.9"}, got)
+}

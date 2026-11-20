@@ -511,15 +511,21 @@ func readFileOwners(ctx context.Context, files ImageFiles) (*fileOwners, error) 
 	if err != nil {
 		return nil, fmt.Errorf("read /: %w", err)
 	}
+	o.dirs["/"] = root
 	for _, e := range root {
 		if e.Link == "" {
 			continue
 		}
-		target := e.Link
-		if !path.IsAbs(target) {
-			target = path.Join("/", target)
+		// To the directory the link really leads to, however many
+		// links that takes, so one substitution is the whole answer. A
+		// link that leads nowhere is no alias for anything.
+		target, reached, err := o.realDirectory(ctx, []string{e.Name})
+		if err != nil {
+			return nil, err
 		}
-		o.aliases["/"+e.Name] = path.Clean(target)
+		if reached {
+			o.aliases["/"+e.Name] = target
+		}
 	}
 
 	found := false
@@ -692,29 +698,19 @@ func (o *fileOwners) own(file, key string) {
 	o.owners[file][key] = true
 }
 
-// canonical rewrites a path through top-level symbolic links, so the
-// spellings a merged-/usr system gives one file compare equal.
+// canonical rewrites a recorded path through a top-level symbolic link,
+// so the spellings a merged-/usr system gives one file compare equal.
 //
-// For as long as the result starts at another such link, since one can
-// lead to the next: with /bin pointing at compat/bin and /compat at
-// usr, /bin/sh is /usr/bin/sh, and stopping after the first step would
-// index a recorded /bin/sh where a requested /usr/bin/sh never looks.
-// Recorded and requested paths both come through here, so whatever it
-// settles on, they settle on the same thing.
+// One substitution is enough, because an alias already names the
+// directory its link finally reaches: with /bin pointing at compat/bin
+// and /compat at usr, the alias for /bin is /usr/bin.
 func (o *fileOwners) canonical(file string) string {
 	file = path.Clean(file)
-	current := file
-	for range maxProvidesFromLinks {
-		rest := strings.TrimPrefix(current, "/")
-		top, tail, nested := strings.Cut(rest, "/")
-		target, aliased := o.aliases["/"+top]
-		if !aliased || !nested {
-			return current
-		}
-		current = path.Join(target, tail)
+	rest := strings.TrimPrefix(file, "/")
+	top, tail, nested := strings.Cut(rest, "/")
+	if target, aliased := o.aliases["/"+top]; aliased && nested {
+		return path.Join(target, tail)
 	}
-	// Links that lead in a circle name no file. The path is left as it
-	// was written, and the lookup reports it as one nothing owns.
 	return file
 }
 
@@ -726,13 +722,17 @@ func (o *fileOwners) canonical(file string) string {
 // for that link; a link nothing owns was made by a recipe or by
 // update-alternatives, and what it leads to is the thing installed.
 //
-// A path is looked up under two spellings. As written is how a package
-// may have recorded it. With every directory on the way resolved is how
-// a package recorded the file it really is: /usr/lib/jvm/default/bin/java
-// is installed as /usr/lib/jvm/java-21/bin/java when default is a link,
-// and asking for the first must find the owner of the second.
+// The owner is looked up where the file really is: with every directory
+// on the way resolved, /usr/lib/jvm/default/bin/java is the file a
+// package installed as /usr/lib/jvm/java-21/bin/java. That spelling
+// comes first because it names the file that is actually there. A list
+// can still hold the path as it was written — a record from before the
+// directory became a link — and taking that one would state the version
+// of a package whose file this no longer is. The written spelling is
+// the fallback, for a package that ships into a linked directory and
+// records the path that way.
 func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
-	current := path.Clean(file)
+	current := file
 	for range maxProvidesFromLinks {
 		resolved, err := o.resolveDirectories(ctx, current)
 		if err != nil {
@@ -743,7 +743,7 @@ func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 			return "", err
 		}
 		if !present {
-			if current != path.Clean(file) {
+			if current != file {
 				return "", fmt.Errorf("%s leads to %s, which does not exist in the image", file, current)
 			}
 			return "", fmt.Errorf("%s does not exist in the image", file)
@@ -751,9 +751,12 @@ func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 		if entry.Dir {
 			return "", fmt.Errorf("%s is a directory; name a file a package installs, such as the command itself", current)
 		}
-		owners := o.owners[o.canonical(current)]
-		if len(owners) == 0 {
-			owners = o.owners[resolved]
+		owners := o.owners[resolved]
+		// Only a spelling with nothing to collapse can be compared as
+		// text: a link target may climb with "..", and what that means
+		// depends on the directories before it.
+		if len(owners) == 0 && current == path.Clean(current) {
+			owners = o.owners[o.canonical(current)]
 		}
 		if len(owners) > 0 {
 			return o.ownerVersion(file, owners)
@@ -761,13 +764,14 @@ func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 		if entry.Link == "" {
 			return "", fmt.Errorf("%s belongs to no installed package; a file a recipe placed has no package to take a version from, so state its version in provides", current)
 		}
-		// Relative to where the link really is, which is what the
-		// kernel resolves it against.
+		// Relative to where the link really is, and left as written:
+		// resolveDirectories walks it a component at a time, which is
+		// the only reading under which sub/../tool means the parent of
+		// wherever sub leads rather than the directory sub is in.
 		current = entry.Link
 		if !path.IsAbs(current) {
-			current = path.Join(path.Dir(resolved), current)
+			current = path.Dir(resolved) + "/" + current
 		}
-		current = path.Clean(current)
 	}
 	return "", fmt.Errorf("%s leads through more than %d symbolic links", file, maxProvidesFromLinks)
 }
@@ -777,49 +781,79 @@ func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 // component is left alone: whether the file itself is a link is the
 // caller's question.
 //
+// file is read a component at a time and never cleaned as text, so a
+// ".." is the parent of the directory actually reached.
+//
 // Only requested paths come through here. Doing the same for every path
 // a package recorded would mean a directory read per directory in the
 // image, so recorded paths are compared as recorded, through top-level
-// links only — which is why version tries a path as written first.
+// links only.
 func (o *fileOwners) resolveDirectories(ctx context.Context, file string) (string, error) {
-	file = path.Clean(file)
-	dir, base := path.Split(file)
-	pending := strings.FieldsFunc(dir, func(r rune) bool { return r == '/' })
+	parts := strings.Split(file, "/")
+	for len(parts) > 0 && (parts[len(parts)-1] == "" || parts[len(parts)-1] == ".") {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) == 0 {
+		return "/", nil
+	}
+	base := parts[len(parts)-1]
+	if base == ".." {
+		// The path names a directory. Resolve all of it; the caller
+		// reports what it finds there.
+		parts, base = append(parts, "."), ""
+	}
+	// When a component is not there, or directory links lead in a
+	// circle, no file is reached: dir is then as far as the walk got,
+	// and the caller finds nothing at the path and says so.
+	dir, _, err := o.realDirectory(ctx, parts[:len(parts)-1])
+	if err != nil {
+		return "", err
+	}
+	return path.Join(dir, base), nil
+}
+
+// realDirectory walks components from the root and returns the
+// directory they name with every symbolic link on the way followed,
+// the last one included.
+//
+// reached is false when a component does not exist or the links lead in
+// a circle; the path returned then is as far as the walk got with the
+// rest appended, which names nothing in the image.
+func (o *fileOwners) realDirectory(ctx context.Context, parts []string) (dir string, reached bool, err error) {
+	pending := append([]string(nil), parts...)
 	resolved := "/"
 	links := 0
 	for len(pending) > 0 {
 		part := pending[0]
 		pending = pending[1:]
-		if part == ".." {
-			// A link target may climb; the path itself is clean.
+		switch part {
+		case "", ".":
+			continue
+		case "..":
 			resolved = path.Dir(resolved)
 			continue
 		}
 		candidate := path.Join(resolved, part)
 		entry, present, err := o.entry(ctx, candidate)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if !present {
-			// Nothing further to resolve. The caller finds the file
-			// missing and says so.
-			return path.Join(append([]string{candidate}, append(pending, base)...)...), nil
+			return path.Join(append([]string{candidate}, pending...)...), false, nil
 		}
 		if entry.Link == "" {
 			resolved = candidate
 			continue
 		}
 		if links++; links > maxProvidesFromLinks {
-			// Directory links that lead in a circle reach no file.
-			return file, nil
+			return path.Join(append([]string{candidate}, pending...)...), false, nil
 		}
-		target := strings.FieldsFunc(entry.Link, func(r rune) bool { return r == '/' })
 		if path.IsAbs(entry.Link) {
 			resolved = "/"
 		}
-		pending = append(target, pending...)
+		pending = append(strings.Split(entry.Link, "/"), pending...)
 	}
-	return path.Join(resolved, base), nil
+	return resolved, true, nil
 }
 
 func (o *fileOwners) ownerVersion(file string, owners map[string]bool) (string, error) {
