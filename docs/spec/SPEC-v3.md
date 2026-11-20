@@ -1364,13 +1364,16 @@ shipped.
   that installed the file where it really is. Paths are resolved the
   way the system resolves them, a component at a time, so `..` in a
   link's target is the parent of the directory reached and not of the
-  one written. The owner of the file where it really is comes first;
-  the path as written is consulted only when nothing owns that, since
-  a list can hold a spelling from before a directory became a link.
-  What a package recorded is compared as recorded, through top-level
-  directories that are themselves links, each followed to wherever it
-  finally leads: `/bin/sh` and `/usr/bin/sh` name one file on a
-  merged-`/usr` system whichever of them the package recorded.
+  one written, and a path the system could not open — through a
+  component that is missing, or a file where a directory has to be —
+  names no file whatever follows. The owner of the file where it really
+  is comes first; the path as written is consulted only when nothing
+  owns that, since a list can hold a spelling from before a directory
+  became a link. What a package recorded is compared as recorded,
+  through top-level directories that are themselves links, each
+  followed to wherever it finally leads: `/bin/sh` and `/usr/bin/sh`
+  name one file on a merged-`/usr` system whichever of them the package
+  recorded.
 - The version **MUST** be the owner's version under <!-- tck: SPEC-v3 §9.7/version-is-the-owners -->
   [§9.6](#96-derived-provides)'s rule, and publishing **MUST** fail
   when that rule names none — a prerelease, or one package recorded at

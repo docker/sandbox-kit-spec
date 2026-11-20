@@ -734,13 +734,20 @@ func (o *fileOwners) canonical(file string) string {
 func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 	current := file
 	for range maxProvidesFromLinks {
-		resolved, err := o.resolveDirectories(ctx, current)
+		resolved, reached, err := o.resolveDirectories(ctx, current)
 		if err != nil {
 			return "", err
 		}
-		entry, present, err := o.entry(ctx, resolved)
-		if err != nil {
-			return "", err
+		// A walk that did not get there names no file, and nothing is
+		// looked up for it. What is left of the path is not a path: a
+		// ".." after a component that is missing would otherwise step
+		// back out of the hole and land on a file that is there.
+		var entry ImageEntry
+		present := false
+		if reached {
+			if entry, present, err = o.entry(ctx, resolved); err != nil {
+				return "", err
+			}
 		}
 		if !present {
 			if current != file {
@@ -784,41 +791,39 @@ func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 // file is read a component at a time and never cleaned as text, so a
 // ".." is the parent of the directory actually reached.
 //
+// reached is false when the directories do not lead anywhere, and the
+// path returned then means nothing.
+//
 // Only requested paths come through here. Doing the same for every path
 // a package recorded would mean a directory read per directory in the
 // image, so recorded paths are compared as recorded, through top-level
 // links only.
-func (o *fileOwners) resolveDirectories(ctx context.Context, file string) (string, error) {
+func (o *fileOwners) resolveDirectories(ctx context.Context, file string) (resolved string, reached bool, err error) {
 	parts := strings.Split(file, "/")
-	for len(parts) > 0 && (parts[len(parts)-1] == "" || parts[len(parts)-1] == ".") {
-		parts = parts[:len(parts)-1]
+	// A path that ends in a slash, a "." or a ".." can only name a
+	// directory, so all of it is walked as one: a file with a slash
+	// after it is refused, as the system refuses it, and a directory
+	// is handed back for the caller to say that it is one.
+	if last := parts[len(parts)-1]; last == "" || last == "." || last == ".." {
+		return o.realDirectory(ctx, parts)
 	}
-	if len(parts) == 0 {
-		return "/", nil
+	dir, reached, err := o.realDirectory(ctx, parts[:len(parts)-1])
+	if err != nil || !reached {
+		return "", false, err
 	}
-	base := parts[len(parts)-1]
-	if base == ".." {
-		// The path names a directory. Resolve all of it; the caller
-		// reports what it finds there.
-		parts, base = append(parts, "."), ""
-	}
-	// When a component is not there, or directory links lead in a
-	// circle, no file is reached: dir is then as far as the walk got,
-	// and the caller finds nothing at the path and says so.
-	dir, _, err := o.realDirectory(ctx, parts[:len(parts)-1])
-	if err != nil {
-		return "", err
-	}
-	return path.Join(dir, base), nil
+	return path.Join(dir, parts[len(parts)-1]), true, nil
 }
 
 // realDirectory walks components from the root and returns the
 // directory they name with every symbolic link on the way followed,
 // the last one included.
 //
-// reached is false when a component does not exist or the links lead in
-// a circle; the path returned then is as far as the walk got with the
-// rest appended, which names nothing in the image.
+// reached is false when the walk cannot be completed the way the
+// system would complete it: a component does not exist, a component is
+// a file where a directory has to be, or the links lead in a circle.
+// Nothing is returned for the path then. Stopping is the point — the
+// components still pending are not a remainder to append, since a ".."
+// among them would be taken from somewhere the walk never got to.
 func (o *fileOwners) realDirectory(ctx context.Context, parts []string) (dir string, reached bool, err error) {
 	pending := append([]string(nil), parts...)
 	resolved := "/"
@@ -838,20 +843,24 @@ func (o *fileOwners) realDirectory(ctx context.Context, parts []string) (dir str
 		if err != nil {
 			return "", false, err
 		}
-		if !present {
-			return path.Join(append([]string{candidate}, pending...)...), false, nil
-		}
-		if entry.Link == "" {
+		switch {
+		case !present:
+			return "", false, nil
+		case entry.Link != "":
+			if links++; links > maxProvidesFromLinks {
+				return "", false, nil
+			}
+			if path.IsAbs(entry.Link) {
+				resolved = "/"
+			}
+			pending = append(strings.Split(entry.Link, "/"), pending...)
+		case !entry.Dir:
+			// A file cannot be walked through, and the system refuses
+			// the path whatever comes after it.
+			return "", false, nil
+		default:
 			resolved = candidate
-			continue
 		}
-		if links++; links > maxProvidesFromLinks {
-			return path.Join(append([]string{candidate}, pending...)...), false, nil
-		}
-		if path.IsAbs(entry.Link) {
-			resolved = "/"
-		}
-		pending = append(strings.Split(entry.Link, "/"), pending...)
 	}
 	return resolved, true, nil
 }

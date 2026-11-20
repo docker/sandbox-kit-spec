@@ -679,3 +679,48 @@ func TestProvidesFromPathsResolvesTopLevelAliasesFully(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"real@1.2.3", "recorded@1.2.3", "textual@9.9"}, got)
 }
+
+// A walk that cannot be completed names no file. The components left
+// over are not a path to fall back on: a ".." among them would step out
+// of a directory that was never entered and land on a file that exists.
+func TestProvidesFromPathsRefusesAWalkThatDoesNotArrive(t *testing.T) {
+	image := fakeImage{
+		DpkgStatusPath:             "Package: tool\nStatus: install ok installed\nArchitecture: arm64\nVersion: 1.2.3-1\n",
+		DpkgInfoDir + "/tool.list": "/opt/tool\n/opt/dir/inner\n",
+		"/opt/tool":                "elf",
+		"/opt/dir/inner":           "elf",
+		"/opt/plain":               "a regular file",
+		"/opt/missing-then-up":     "-> missing/../tool",
+		"/opt/file-then-up":        "-> plain/../tool",
+		"/opt/file-then-down":      "-> plain/tool",
+		"/opt/deep-missing":        "-> missing/also/../../tool",
+		"/opt/dirlink-missing":     "-> missing/..",
+		"/opt/dirlink-file":        "-> plain/..",
+		"/opt/good":                "-> dir/../tool",
+		"/opt/file-with-slash":     "-> tool/",
+		"/opt/file-with-dot":       "-> tool/.",
+		"/opt/dir-with-slash":      "-> dir/",
+	}
+	for file, want := range map[string]string{
+		"/opt/missing-then-up":      "/opt/missing-then-up leads to /opt/missing/../tool, which does not exist in the image",
+		"/opt/file-then-up":         "/opt/file-then-up leads to /opt/plain/../tool, which does not exist in the image",
+		"/opt/file-then-down":       "/opt/file-then-down leads to /opt/plain/tool, which does not exist in the image",
+		"/opt/deep-missing":         "which does not exist in the image",
+		"/opt/dirlink-missing/tool": "/opt/dirlink-missing/tool does not exist in the image",
+		"/opt/dirlink-file/tool":    "/opt/dirlink-file/tool does not exist in the image",
+		"/opt/plain/tool":           "/opt/plain/tool does not exist in the image",
+		"/opt/missing/tool":         "/opt/missing/tool does not exist in the image",
+		// A slash after a file asks for a directory that is not one.
+		"/opt/file-with-slash": "/opt/file-with-slash leads to /opt/tool/, which does not exist in the image",
+		"/opt/file-with-dot":   "/opt/file-with-dot leads to /opt/tool/., which does not exist in the image",
+		"/opt/dir-with-slash":  "/opt/dir/ is a directory",
+	} {
+		_, err := ProvidesFromPaths(context.Background(), map[string]string{"x": file}, one(image))
+		require.ErrorContains(t, err, want, file)
+	}
+
+	// The same shape through a directory that is there still resolves.
+	got, err := ProvidesFromPaths(context.Background(), map[string]string{"x": "/opt/good"}, one(image))
+	require.NoError(t, err)
+	require.Equal(t, []string{"x@1.2.3"}, got)
+}
