@@ -18,6 +18,8 @@ jobs:
   release:
     name: release kit-tck and frontend
     runs-on: ubuntu-latest
+    outputs:
+      previous-tag: ${{ steps.release-range.outputs.previous-tag }}
     permissions:
       contents: write
       id-token: write
@@ -108,6 +110,38 @@ jobs:
           fi
           FRONTEND_PUSH_OK=1 FRONTEND_PROMOTE_MAJOR="$promote" \
             task frontend:push FRONTEND_VERSION="$version"
+
+      - name: Record GoReleaser changelog base
+        id: release-range
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          metadata = json.loads(Path("dist/metadata.json").read_text())
+          base = metadata["previous_tag"]
+          if metadata["tag"] != os.environ["GITHUB_REF_NAME"] or not re.fullmatch(r"v3\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", base):
+              raise SystemExit("Release metadata has no valid previous v3 tag")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"previous-tag={base}\n")
+          PYCODE
+
+  notes:
+    name: refine published release notes
+    needs: release
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
+    uses: ./.github/workflows/release-notes.yaml
+    with:
+      tag: ${{ github.ref_name }}
+      base: ${{ needs.release.outputs.previous-tag }}
+      publish: true
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DOCKERPUBLICBOT_READ_PAT: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
 
   docs-capabilities:
     name: propose docs capability catalog update

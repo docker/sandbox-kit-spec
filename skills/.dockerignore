@@ -13,3 +13,6 @@ README.md
 .dockerignore
 
 .DS_Store
+
+# Maintainer workflow, not kit-authoring guidance.
+release-notes/

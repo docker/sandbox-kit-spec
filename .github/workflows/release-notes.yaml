@@ -1,0 +1,190 @@
+name: release notes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      base:
+        description: GoReleaser previous_tag from the successful release
+        required: false
+        default: ""
+        type: string
+      publish:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      DOCKERPUBLICBOT_READ_PAT:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published v3 tag (never latest)
+        required: true
+        type: string
+      base:
+        description: Recorded previous tag; optional if published compare link exists
+        required: false
+        type: string
+      publish:
+        description: Publish the validated draft to this existing release
+        default: false
+        type: boolean
+
+permissions: {}
+
+# Covers automatic calls and manual repairs; never cancel an in-flight edit.
+concurrency:
+  group: release-notes-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    if: github.repository == 'docker/sandbox-kit-spec'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      baseline: ${{ steps.baseline.outputs.artifact-id }}
+      draft: ${{ steps.draft.outputs.artifact-id }}
+    env:
+      TAG: ${{ inputs.tag }}
+      BASE: ${{ inputs.base }}
+      APP_NAME: release-notes-${{ github.run_id }}-${{ github.run_attempt }}
+      SBX_NAME: notes-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set isolated workspace path
+        run: echo "AGENT_WORKSPACE=$RUNNER_TEMP/notes-agent" >> "$GITHUB_ENV"
+      - name: Check required credentials
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
+          HUB_USER: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+        run: |
+          test -n "$ANTHROPIC_API_KEY" || { echo '::error::Configure ANTHROPIC_API_KEY for release notes'; exit 1; }
+          test -n "$HUB_TOKEN" && test -n "$HUB_USER" || { echo '::error::DOCKERPUBLICBOT_USERNAME and DOCKERPUBLICBOT_READ_PAT are required for sbx login'; exit 1; }
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to Docker Hub for registry evidence
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          password: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
+      - name: Snapshot release and prefetch public evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release-notes.py collect --tag "$TAG" --base "$BASE" \
+            --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/notes-trusted"
+          mkdir -p "$AGENT_WORKSPACE/output"
+          cp -R "$RUNNER_TEMP/notes-trusted" "$AGENT_WORKSPACE/evidence"
+          cp skills/release-notes/SKILL.md "$AGENT_WORKSPACE/release-notes-skill.md"
+          git clone --no-hardlinks "$GITHUB_WORKSPACE" "$AGENT_WORKSPACE/source"
+      # Uploaded before sbx exists; the model cannot modify this immutable artifact.
+      - name: Save original and evidence
+        id: baseline
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes-baseline-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/notes-trusted/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Install released sbx
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sudo chmod 666 /dev/kvm
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/docker/sbx-releases/releases/latest \
+            | jq -er .tag_name)
+          echo "Using latest stable sbx release: ${VERSION}"
+          mkdir -p "$RUNNER_TEMP/sbx-package"
+          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/docker/sbx-releases/releases/download/${VERSION}/DockerSandboxes-linux.tar.gz" \
+            -o "$RUNNER_TEMP/sbx-package/sbx.tar.gz"
+          tar xzf "$RUNNER_TEMP/sbx-package/sbx.tar.gz" -C "$RUNNER_TEMP/sbx-package"
+          sudo PREFIX="$HOME/.docker/sbx" "$RUNNER_TEMP/sbx-package/docker-sbx/install.sh"
+          echo "$HOME/.docker/sbx/bin" >> "$GITHUB_PATH"
+      - name: Configure isolated sbx credentials
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HUB_TOKEN: ${{ secrets.DOCKERPUBLICBOT_READ_PAT }}
+          HUB_USER: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$HUB_TOKEN" | sbx --app-name "$APP_NAME" login --username "$HUB_USER" --password-stdin
+          printf '%s\n' "$ANTHROPIC_API_KEY" | sbx --app-name "$APP_NAME" secret set anthropic
+      - name: Draft with Claude inside sbx
+        run: bash scripts/draft-release-notes.sh
+      - name: Validate draft and save review diff
+        if: always() && steps.baseline.outcome == 'success'
+        run: |
+          python3 scripts/release-notes.py check --tag "$TAG" \
+            --trusted "$RUNNER_TEMP/notes-trusted" --output "$AGENT_WORKSPACE/output"
+      - name: Save draft and diagnostics
+        id: draft
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes-draft-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/notes-trusted/agent-output/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove sandbox
+        if: always()
+        run: |
+          if command -v sbx >/dev/null; then
+            sbx --app-name "$APP_NAME" rm --force "$SBX_NAME" || true
+            sbx --app-name "$APP_NAME" logout --yes || true
+          fi
+
+  publish:
+    if: inputs.publish
+    needs: draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      # A fresh runner: never execute a helper from the agent's writable mount.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.draft.outputs.baseline }}
+          path: ${{ runner.temp }}/baseline
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.draft.outputs.draft }}
+          path: ${{ runner.temp }}/draft
+          merge-multiple: true
+      - name: Compare, publish, and verify existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release-notes.py check --tag "$TAG" --publish \
+            --trusted "$RUNNER_TEMP/baseline" --output "$RUNNER_TEMP/draft"
+      - name: Save publication result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes-publication-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/baseline/
+          retention-days: 14
