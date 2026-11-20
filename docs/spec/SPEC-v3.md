@@ -1359,10 +1359,13 @@ shipped.
   judged the same way. A package that ships `python3` as a link is the
   answer for that link, while a link nothing owns was made by a recipe
   or by `update-alternatives`, and what it leads to is the thing
-  installed. Paths are compared through top-level directories that are
-  themselves links, each followed to wherever it finally leads, so
-  `/bin/sh` and `/usr/bin/sh` name one file on a merged-`/usr` system
-  whichever of them the package recorded.
+  installed. A directory on the way to the file that is a link is
+  followed too, so `/usr/lib/jvm/default/bin/java` finds the package
+  that installed the file where it really is. What a package recorded
+  is compared as recorded, through top-level directories that are
+  themselves links, each followed to wherever it finally leads: `/bin/sh`
+  and `/usr/bin/sh` name one file on a merged-`/usr` system whichever
+  of them the package recorded.
 - The version **MUST** be the owner's version under <!-- tck: SPEC-v3 §9.7/version-is-the-owners -->
   [§9.6](#96-derived-provides)'s rule, and publishing **MUST** fail
   when that rule names none — a prerelease, or one package recorded at

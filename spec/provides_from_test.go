@@ -523,3 +523,75 @@ func TestProvidesFromPathsFollowsChainedTopLevelLinks(t *testing.T) {
 	_, err = ProvidesFromPaths(context.Background(), map[string]string{"x": "/a/tool"}, one(circle))
 	require.ErrorContains(t, err, "/a/tool does not exist in the image")
 }
+
+// A directory on the way to a file can be a symbolic link — a default
+// JDK, a current release. The package recorded the file where it really
+// is, so the directories of a requested path are resolved before the
+// file lists are consulted.
+func TestProvidesFromPathsResolvesDirectoryLinks(t *testing.T) {
+	image := fakeImage{
+		"/bin": "-> usr/bin",
+		DpkgStatusPath: strings.Join([]string{
+			"Package: jdk\nStatus: install ok installed\nArchitecture: arm64\nVersion: 21.0.9-1\n",
+			"Package: tool\nStatus: install ok installed\nArchitecture: arm64\nVersion: 1.2.3-1\n",
+			"Package: odd\nStatus: install ok installed\nArchitecture: arm64\nVersion: 7.0-1\n",
+		}, "\n"),
+		DpkgInfoDir + "/jdk.list":  "/usr/lib/jvm/java-21/bin/java\n",
+		DpkgInfoDir + "/tool.list": "/opt/tool-1.2/bin/tool\n",
+		// Recorded through a directory link, as a package that ships
+		// into another package's link would be.
+		DpkgInfoDir + "/odd.list":       "/usr/lib/jvm/default/bin/odd\n",
+		"/usr/lib/jvm/java-21/bin/java": "elf",
+		"/usr/lib/jvm/java-21/bin/odd":  "elf",
+		"/usr/lib/jvm/default":          "-> java-21",
+		"/usr/lib/jvm/absolute":         "-> /usr/lib/jvm/default",
+		"/opt/tool-1.2/bin/tool":        "elf",
+		"/opt/tool/current":             "-> ../tool-1.2",
+		"/opt/tool/README":              "text",
+		// An alternatives-style link in a directory reached through a
+		// link: its relative target is relative to the real directory.
+		"/usr/lib/jvm/java-21/bin/jvm": "-> java",
+		"/usr/bin/java":                "-> /usr/lib/jvm/absolute/bin/jvm",
+		"/opt/loop/a":                  "-> b",
+		"/opt/loop/b":                  "-> a",
+	}
+	_, err := ProvidesFromPaths(context.Background(), map[string]string{
+		"real":      "/usr/lib/jvm/java-21/bin/java",
+		"default":   "/usr/lib/jvm/default/bin/java",
+		"chained":   "/usr/lib/jvm/absolute/bin/java",
+		"climbing":  "/opt/tool/current/bin/tool",
+		"command":   "/bin/java",
+		"as-listed": "/usr/lib/jvm/default/bin/odd",
+		"listed":    "/usr/lib/jvm/java-21/bin/odd",
+	}, one(image))
+	require.ErrorContains(t, err, "providesFrom.listed on linux/arm64: /usr/lib/jvm/java-21/bin/odd belongs to no installed package",
+		"a recorded path is compared as recorded: only the spelling the package used finds it")
+
+	got, err := ProvidesFromPaths(context.Background(), map[string]string{
+		"real":      "/usr/lib/jvm/java-21/bin/java",
+		"default":   "/usr/lib/jvm/default/bin/java",
+		"chained":   "/usr/lib/jvm/absolute/bin/java",
+		"climbing":  "/opt/tool/current/bin/tool",
+		"command":   "/bin/java",
+		"as-listed": "/usr/lib/jvm/default/bin/odd",
+	}, one(image))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"as-listed@7.0",
+		"chained@21.0.9",
+		"climbing@1.2.3",
+		"command@21.0.9",
+		"default@21.0.9",
+		"real@21.0.9",
+	}, got)
+
+	for file, want := range map[string]string{
+		"/usr/lib/jvm/default/bin/nope": "/usr/lib/jvm/default/bin/nope does not exist in the image",
+		"/usr/lib/jvm/missing/bin/java": "/usr/lib/jvm/missing/bin/java does not exist in the image",
+		"/usr/lib/jvm/default/bin":      "/usr/lib/jvm/default/bin is a directory",
+		"/opt/loop/a/tool":              "/opt/loop/a/tool does not exist in the image",
+	} {
+		_, err := ProvidesFromPaths(context.Background(), map[string]string{"x": file}, one(image))
+		require.ErrorContains(t, err, want)
+	}
+}

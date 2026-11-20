@@ -725,15 +725,25 @@ func (o *fileOwners) canonical(file string) string {
 // that ships a link — python3 pointing at python3.14 — is the answer
 // for that link; a link nothing owns was made by a recipe or by
 // update-alternatives, and what it leads to is the thing installed.
+//
+// A path is looked up under two spellings. As written is how a package
+// may have recorded it. With every directory on the way resolved is how
+// a package recorded the file it really is: /usr/lib/jvm/default/bin/java
+// is installed as /usr/lib/jvm/java-21/bin/java when default is a link,
+// and asking for the first must find the owner of the second.
 func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
-	current := o.canonical(file)
+	current := path.Clean(file)
 	for range maxProvidesFromLinks {
-		entry, present, err := o.entry(ctx, current)
+		resolved, err := o.resolveDirectories(ctx, current)
+		if err != nil {
+			return "", err
+		}
+		entry, present, err := o.entry(ctx, resolved)
 		if err != nil {
 			return "", err
 		}
 		if !present {
-			if current != file {
+			if current != path.Clean(file) {
 				return "", fmt.Errorf("%s leads to %s, which does not exist in the image", file, current)
 			}
 			return "", fmt.Errorf("%s does not exist in the image", file)
@@ -741,19 +751,75 @@ func (o *fileOwners) version(ctx context.Context, file string) (string, error) {
 		if entry.Dir {
 			return "", fmt.Errorf("%s is a directory; name a file a package installs, such as the command itself", current)
 		}
-		if owners := o.owners[current]; len(owners) > 0 {
+		owners := o.owners[o.canonical(current)]
+		if len(owners) == 0 {
+			owners = o.owners[resolved]
+		}
+		if len(owners) > 0 {
 			return o.ownerVersion(file, owners)
 		}
 		if entry.Link == "" {
 			return "", fmt.Errorf("%s belongs to no installed package; a file a recipe placed has no package to take a version from, so state its version in provides", current)
 		}
-		next := entry.Link
-		if !path.IsAbs(next) {
-			next = path.Join(path.Dir(current), next)
+		// Relative to where the link really is, which is what the
+		// kernel resolves it against.
+		current = entry.Link
+		if !path.IsAbs(current) {
+			current = path.Join(path.Dir(resolved), current)
 		}
-		current = o.canonical(next)
+		current = path.Clean(current)
 	}
 	return "", fmt.Errorf("%s leads through more than %d symbolic links", file, maxProvidesFromLinks)
+}
+
+// resolveDirectories returns file with every directory on the way to it
+// that is a symbolic link replaced by where the link leads. The last
+// component is left alone: whether the file itself is a link is the
+// caller's question.
+//
+// Only requested paths come through here. Doing the same for every path
+// a package recorded would mean a directory read per directory in the
+// image, so recorded paths are compared as recorded, through top-level
+// links only — which is why version tries a path as written first.
+func (o *fileOwners) resolveDirectories(ctx context.Context, file string) (string, error) {
+	file = path.Clean(file)
+	dir, base := path.Split(file)
+	pending := strings.FieldsFunc(dir, func(r rune) bool { return r == '/' })
+	resolved := "/"
+	links := 0
+	for len(pending) > 0 {
+		part := pending[0]
+		pending = pending[1:]
+		if part == ".." {
+			// A link target may climb; the path itself is clean.
+			resolved = path.Dir(resolved)
+			continue
+		}
+		candidate := path.Join(resolved, part)
+		entry, present, err := o.entry(ctx, candidate)
+		if err != nil {
+			return "", err
+		}
+		if !present {
+			// Nothing further to resolve. The caller finds the file
+			// missing and says so.
+			return path.Join(append([]string{candidate}, append(pending, base)...)...), nil
+		}
+		if entry.Link == "" {
+			resolved = candidate
+			continue
+		}
+		if links++; links > maxProvidesFromLinks {
+			// Directory links that lead in a circle reach no file.
+			return file, nil
+		}
+		target := strings.FieldsFunc(entry.Link, func(r rune) bool { return r == '/' })
+		if path.IsAbs(entry.Link) {
+			resolved = "/"
+		}
+		pending = append(target, pending...)
+	}
+	return path.Join(resolved, base), nil
 }
 
 func (o *fileOwners) ownerVersion(file string, owners map[string]bool) (string, error) {
