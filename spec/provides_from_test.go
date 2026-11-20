@@ -4,8 +4,10 @@ import (
 	"context"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -844,4 +846,111 @@ func TestProvidesFromKindRuleAppliesToAnEmptyField(t *testing.T) {
 	require.NoError(t, err)
 	_, err = ValidateDeclarations(plain, d)
 	require.NoError(t, err)
+}
+
+// Merges nest, and the decoder follows them however deep they go. The
+// removal and the published-form check have to follow just as far: a
+// walk that gave up at some depth would publish a field every reader
+// still sees.
+func TestProvidesFromIsFoundAtAnyMergeDepth(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\n"
+	const tail = "\nbuild: |\n  FROM scratch\n"
+	nested := func(inner string, depth int) string {
+		return strings.Repeat("<<: {", depth) + inner + strings.Repeat("}", depth)
+	}
+	for _, depth := range []int{1, 31, 32, 33, 40, 300} {
+		for name, inner := range map[string]string{
+			"entries": "providesFrom: {python: /usr/bin/python3}, displayName: Deep",
+			"empty":   "providesFrom: {}, displayName: Deep",
+			"null":    "providesFrom: , displayName: Deep",
+		} {
+			raw := []byte(head + nested(inner, depth) + tail)
+			d, err := Decode(raw)
+			require.NoError(t, err, "%s at depth %d", name, depth)
+			require.Equal(t, "Deep", d.DisplayName)
+
+			_, err = ValidatePublished(raw, d)
+			require.ErrorContains(t, err, "published descriptor still carries providesFrom", "%s at depth %d", name, depth)
+
+			out, err := WithoutProvidesFrom(raw)
+			require.NoError(t, err, "%s at depth %d", name, depth)
+			require.NotContains(t, string(out), "providesFrom", "%s at depth %d", name, depth)
+			pd, err := Decode(out)
+			require.NoError(t, err, "%s at depth %d", name, depth)
+			require.Equal(t, "Deep", pd.DisplayName, "what was merged beside the field stays merged")
+			_, err = ValidatePublished(out, pd)
+			require.NoError(t, err, "%s at depth %d", name, depth)
+		}
+	}
+
+	// The same through a chain of aliases, each mapping merging the one
+	// defined before it. A capability's config is the one place a
+	// descriptor has room to define them.
+	var chain strings.Builder
+	chain.WriteString("capabilities:\n  - type: com.example/thing@1\n    config:\n      m0: &m0 {providesFrom: {python: /usr/bin/python3}, displayName: Chained}\n")
+	const links = 60
+	for i := 1; i <= links; i++ {
+		chain.WriteString("      m" + strconv.Itoa(i) + ": &m" + strconv.Itoa(i) + " {<<: *m" + strconv.Itoa(i-1) + "}\n")
+	}
+	chain.WriteString("<<: *m" + strconv.Itoa(links) + "\n")
+	raw := []byte(head + chain.String() + tail)
+	d, err := Decode(raw)
+	require.NoError(t, err)
+	require.NotEmpty(t, d.ProvidesFrom)
+	out, err := WithoutProvidesFrom(raw)
+	require.NoError(t, err)
+	pd, err := Decode(out)
+	require.NoError(t, err, "%s", out)
+	require.Empty(t, pd.ProvidesFrom)
+	require.Equal(t, "Chained", pd.DisplayName)
+	require.Equal(t, d.Capabilities[0].Config, pd.Capabilities[0].Config, "the config the anchors live in is untouched")
+	_, err = ValidatePublished(out, pd)
+	require.NoError(t, err)
+}
+
+// What does have to be guarded against is a walk that never ends, and
+// one that copies without limit. Neither document can be decoded, so no
+// build reaches the removal with one; a caller that did not decode
+// first gets an answer instead of a hang.
+func TestWithoutProvidesFromEndsOnDocumentsThatReferToThemselves(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\n"
+
+	// An anchor that merges itself in.
+	cyclic := []byte(head + "capabilities:\n  - type: com.example/thing@1\n    config: &self {providesFrom: {python: /usr/bin/python3}, <<: *self}\n<<: *self\n")
+	_, err := Decode(cyclic)
+	require.Error(t, err, "the decoder refuses an anchor that contains itself")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = WithoutProvidesFrom(cyclic)
+		_ = carriesProvidesFrom(cyclic)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("removal did not return for a mapping that merges itself in")
+	}
+
+	// Aliases that fan out: each level merges the one below it twice,
+	// so a copy of the top doubles per level.
+	var fan strings.Builder
+	fan.WriteString("capabilities:\n  - type: com.example/thing@1\n    config:\n      m0: &m0 {providesFrom: {python: /usr/bin/python3}}\n")
+	const levels = 40
+	for i := 1; i <= levels; i++ {
+		fan.WriteString("      m" + strconv.Itoa(i) + ": &m" + strconv.Itoa(i) + " {<<: [*m" + strconv.Itoa(i-1) + ", *m" + strconv.Itoa(i-1) + "]}\n")
+	}
+	fan.WriteString("<<: *m" + strconv.Itoa(levels) + "\n")
+	wide := []byte(head + fan.String())
+	require.True(t, carriesProvidesFrom(wide), "presence is judged once per mapping, however often it is merged")
+	done = make(chan struct{})
+	go func() {
+		defer close(done)
+		_, err = WithoutProvidesFrom(wide)
+	}()
+	select {
+	case <-done:
+		require.ErrorContains(t, err, "too many aliases")
+	case <-time.After(60 * time.Second):
+		t.Fatal("removal did not return for aliases that fan out")
+	}
 }

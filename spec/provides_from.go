@@ -127,10 +127,14 @@ func RequireDistinctProvidesFrom(d *Descriptor, from map[string]string) error {
 // providesFromField is the descriptor key, as an author writes it.
 const providesFromField = "providesFrom"
 
-// maxYAMLIndirection bounds how far a merge key or an alias is followed
-// while looking for the field. YAML admits an anchor that contains its
-// own alias, and a walk with no bound would not return from one.
-const maxYAMLIndirection = 32
+// maxDetachedNodes bounds how many nodes the removal may copy. A merge
+// source reached through an alias is copied before it is edited, and
+// aliases that fan out — each level merging the one below it twice —
+// make that copy double per level. The decoder refuses such a document
+// for excessive aliasing before any build gets this far; this is the
+// same refusal for a caller that did not decode first, in place of
+// memory that runs out.
+const maxDetachedNodes = 1 << 20
 
 // WithoutProvidesFrom returns a descriptor with its providesFrom field
 // removed, for the published form (§9.7).
@@ -144,27 +148,32 @@ const maxYAMLIndirection = 32
 // where it is written at the top level. A YAML merge key hands the root
 // every key of another mapping, so `<<: {providesFrom: …}` decodes to
 // the same descriptor as the plain spelling and has to publish the same
-// way. And the removal takes nothing else with it: an alias elsewhere
-// in the document that points into what is removed is given its own
-// copy first, since an anchor that disappears leaves every alias to it
-// naming nothing and the document no longer parsing.
+// way — at any depth: merges nest, and the decoder follows them as far
+// as they go, so this does too. And the removal takes nothing else with
+// it: an alias elsewhere in the document that points into what is
+// removed is given its own copy first, since an anchor that disappears
+// leaves every alias to it naming nothing and the document no longer
+// parsing.
 func WithoutProvidesFrom(raw []byte) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("reparse descriptor: %w", err)
 	}
 	root := documentRoot(&doc)
-	if root == nil || !mappingCarries(root, providesFromField, 0) {
+	edit := newFieldRemoval(providesFromField)
+	if root == nil || !edit.carries(root) {
 		return raw, nil
 	}
 
 	// Three passes, in this order. What is about to change is found
 	// first and nothing is touched, so that the second pass can copy an
 	// aliased node as the author wrote it; only then is anything removed.
-	edit := &fieldRemoval{field: providesFromField, removed: map[*yaml.Node]bool{}, edited: map[*yaml.Node]bool{}}
-	edit.plan(root, 0)
+	edit.plan(root)
 	edit.detachAliases(&doc)
-	edit.strip(root, 0)
+	edit.strip(root)
+	if edit.copied > maxDetachedNodes {
+		return nil, fmt.Errorf("%s is merged in through too many aliases to be removed; write it as a plain top-level field", providesFromField)
+	}
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
@@ -172,12 +181,13 @@ func WithoutProvidesFrom(raw []byte) ([]byte, error) {
 	}
 	// Parsed once more before it is handed back: this is the document
 	// that gets staged and signed, and a rewrite that left it unreadable
-	// should say so here rather than as a decode failure with no cause.
+	// or left the field in should say so here, with its cause, rather
+	// than as a failure somewhere later in the build.
 	var check yaml.Node
 	if err := yaml.Unmarshal(out, &check); err != nil {
 		return nil, fmt.Errorf("descriptor no longer parses with %s removed: %w", providesFromField, err)
 	}
-	if mappingCarries(documentRoot(&check), providesFromField, 0) {
+	if newFieldRemoval(providesFromField).carries(documentRoot(&check)) {
 		return nil, fmt.Errorf("%s could not be removed from the descriptor; write it as a plain top-level field", providesFromField)
 	}
 	return out, nil
@@ -195,7 +205,7 @@ func carriesProvidesFrom(raw []byte) bool {
 		// Unparseable bytes are another rule's to report.
 		return false
 	}
-	return mappingCarries(documentRoot(&doc), providesFromField, 0)
+	return newFieldRemoval(providesFromField).carries(documentRoot(&doc))
 }
 
 // documentRoot returns the mapping a descriptor document consists of,
@@ -212,15 +222,14 @@ func documentRoot(doc *yaml.Node) *yaml.Node {
 	return root
 }
 
-// aliasTarget follows an alias to the node it names.
+// aliasTarget follows an alias to the node it names. One step is all
+// there is: an alias cannot carry an anchor, so nothing an alias names
+// is itself an alias.
 func aliasTarget(n *yaml.Node) *yaml.Node {
-	for range maxYAMLIndirection {
-		if n == nil || n.Kind != yaml.AliasNode {
-			return n
-		}
-		n = n.Alias
+	if n != nil && n.Kind == yaml.AliasNode {
+		return n.Alias
 	}
-	return nil
+	return n
 }
 
 // isMergeKey reports whether a mapping key is YAML's merge key. Only
@@ -239,32 +248,15 @@ func mergeSources(value *yaml.Node) []*yaml.Node {
 	return []*yaml.Node{value}
 }
 
-// mappingCarries reports whether a mapping has key, directly or through
-// any mapping it merges in.
-func mappingCarries(m *yaml.Node, key string, depth int) bool {
-	m = aliasTarget(m)
-	if m == nil || m.Kind != yaml.MappingNode || depth > maxYAMLIndirection {
-		return false
-	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		k, v := m.Content[i], m.Content[i+1]
-		if isMergeKey(k) {
-			for _, source := range mergeSources(v) {
-				if mappingCarries(source, key, depth+1) {
-					return true
-				}
-			}
-			continue
-		}
-		if k.Value == key {
-			return true
-		}
-	}
-	return false
-}
-
 // fieldRemoval takes one key out of a mapping and everything the
 // mapping merges in.
+//
+// Nothing here stops at a depth. Merges nest as far as an author nests
+// them and the decoder follows all of it, so a walk that gave up early
+// would leave a field in place that every reader still sees. The one
+// thing that has to be guarded against is a walk that does not end: an
+// anchor may contain an alias to itself, and that is caught by noticing
+// the same node come round again, not by counting.
 type fieldRemoval struct {
 	field string
 	// removed holds every node that leaves the document: the field's
@@ -275,23 +267,91 @@ type fieldRemoval struct {
 	// loses or swaps an element. An alias to one of these would see it
 	// change underneath.
 	edited map[*yaml.Node]bool
+	// carried remembers, for each mapping asked about, whether it has
+	// the field. A mapping merged in many places is judged once, and
+	// one still being judged when it comes round again is a cycle.
+	carried map[*yaml.Node]carryState
+	// expanding holds the anchored mappings whose copies are being
+	// stripped right now, and copying the removed nodes being copied.
+	// Meeting one again means the document refers to itself.
+	expanding map[*yaml.Node]bool
+	copying   map[*yaml.Node]bool
+	// copied counts the nodes detachedCopy has made, against
+	// maxDetachedNodes.
+	copied int
 }
 
-// plan records what strip will remove from m and which shared mappings
-// it will edit, without changing anything.
+type carryState uint8
+
+const (
+	carryUnknown carryState = iota
+	carryJudging
+	carryYes
+	carryNo
+)
+
+func newFieldRemoval(field string) *fieldRemoval {
+	return &fieldRemoval{
+		field:     field,
+		removed:   map[*yaml.Node]bool{},
+		edited:    map[*yaml.Node]bool{},
+		carried:   map[*yaml.Node]carryState{},
+		expanding: map[*yaml.Node]bool{},
+		copying:   map[*yaml.Node]bool{},
+	}
+}
+
+// carries reports whether a mapping has the field, directly or through
+// any mapping it merges in, however far down.
+func (e *fieldRemoval) carries(m *yaml.Node) bool {
+	m = aliasTarget(m)
+	if m == nil || m.Kind != yaml.MappingNode {
+		return false
+	}
+	switch e.carried[m] {
+	case carryYes:
+		return true
+	case carryNo, carryJudging:
+		// Still being judged means this mapping merges itself in. It
+		// contributes nothing it has not already been asked for.
+		return false
+	}
+	e.carried[m] = carryJudging
+	found := false
+	for i := 0; i+1 < len(m.Content) && !found; i += 2 {
+		k, v := m.Content[i], m.Content[i+1]
+		if isMergeKey(k) {
+			for _, source := range mergeSources(v) {
+				if e.carries(source) {
+					found = true
+					break
+				}
+			}
+			continue
+		}
+		found = k.Value == e.field
+	}
+	if found {
+		e.carried[m] = carryYes
+	} else {
+		e.carried[m] = carryNo
+	}
+	return found
+}
+
+// plan records what strip will remove from m and which shared nodes it
+// will edit, without changing anything.
 //
 // A merge source reached through an alias is not recorded for itself:
 // strip works on a copy of it, so the anchored original stays as it was
-// for whatever else refers to it.
-func (e *fieldRemoval) plan(m *yaml.Node, depth int) {
-	if depth > maxYAMLIndirection {
-		return
-	}
+// for whatever else refers to it. Only mappings written in place are
+// descended into, and those form a tree, so this ends.
+func (e *fieldRemoval) plan(m *yaml.Node) {
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		k, v := m.Content[i], m.Content[i+1]
 		if isMergeKey(k) {
 			for _, source := range mergeSources(v) {
-				if !mappingCarries(source, e.field, depth+1) {
+				if !e.carries(source) {
 					continue
 				}
 				// The list of sources is itself a node an alias can
@@ -307,7 +367,7 @@ func (e *fieldRemoval) plan(m *yaml.Node, depth int) {
 				if source.Anchor != "" {
 					e.edited[source] = true
 				}
-				e.plan(source, depth+1)
+				e.plan(source)
 			}
 			continue
 		}
@@ -338,7 +398,7 @@ func (e *fieldRemoval) detachAliases(n *yaml.Node) {
 		if e.removed[n.Alias] || e.edited[n.Alias] {
 			// Onto the alias node itself, so whatever holds it now
 			// holds the copy.
-			*n = *e.detachedCopy(n.Alias, 0)
+			*n = *e.detachedCopy(n.Alias)
 		}
 		return
 	}
@@ -351,27 +411,32 @@ func (e *fieldRemoval) detachAliases(n *yaml.Node) {
 // is copied, since the original keeps its name or is going away, and an
 // alias to a node that is going away is replaced by a copy of that
 // node. An alias to anything that stays is kept as an alias.
-//
-// hops counts the aliases followed to get here, not how deep the tree
-// is: only following an alias can lead back to where the copy started.
-func (e *fieldRemoval) detachedCopy(n *yaml.Node, hops int) *yaml.Node {
-	if n.Kind == yaml.AliasNode && n.Alias != nil && e.removed[n.Alias] && hops < maxYAMLIndirection {
-		return e.detachedCopy(n.Alias, hops+1)
+func (e *fieldRemoval) detachedCopy(n *yaml.Node) *yaml.Node {
+	if n.Kind == yaml.AliasNode && n.Alias != nil && e.removed[n.Alias] && !e.copying[n.Alias] {
+		// Not while that node is itself being copied: a removed anchor
+		// that aliases itself has no finite copy. The alias is left,
+		// and the caller's last parse reports the document for it.
+		return e.detachedCopy(n.Alias)
 	}
+	e.copying[n] = true
+	defer delete(e.copying, n)
 	c := *n
 	c.Anchor = ""
 	c.Content = nil
+	if e.copied++; e.copied > maxDetachedNodes {
+		// Over budget: stop descending. What comes back is incomplete,
+		// and WithoutProvidesFrom refuses the document rather than
+		// return it.
+		return &c
+	}
 	for _, child := range n.Content {
-		c.Content = append(c.Content, e.detachedCopy(child, hops))
+		c.Content = append(c.Content, e.detachedCopy(child))
 	}
 	return &c
 }
 
 // strip removes the field from m and from every mapping m merges in.
-func (e *fieldRemoval) strip(m *yaml.Node, depth int) {
-	if depth > maxYAMLIndirection {
-		return
-	}
+func (e *fieldRemoval) strip(m *yaml.Node) {
 	kept := make([]*yaml.Node, 0, len(m.Content))
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		k, v := m.Content[i], m.Content[i+1]
@@ -379,7 +444,7 @@ func (e *fieldRemoval) strip(m *yaml.Node, depth int) {
 		case isMergeKey(k) && v.Kind == yaml.SequenceNode:
 			sources := make([]*yaml.Node, 0, len(v.Content))
 			for _, source := range v.Content {
-				if source = e.stripSource(source, depth); source != nil {
+				if source = e.stripSource(source); source != nil {
 					sources = append(sources, source)
 				}
 			}
@@ -389,7 +454,7 @@ func (e *fieldRemoval) strip(m *yaml.Node, depth int) {
 				continue
 			}
 		case isMergeKey(k):
-			if v = e.stripSource(v, depth); v == nil {
+			if v = e.stripSource(v); v == nil {
 				continue
 			}
 		case k.Value == e.field:
@@ -402,24 +467,32 @@ func (e *fieldRemoval) strip(m *yaml.Node, depth int) {
 
 // stripSource returns one merge source with the field taken out, or nil
 // when nothing is left of it to merge.
-func (e *fieldRemoval) stripSource(source *yaml.Node, depth int) *yaml.Node {
-	if !mappingCarries(source, e.field, depth+1) {
+func (e *fieldRemoval) stripSource(source *yaml.Node) *yaml.Node {
+	if !e.carries(source) {
 		return source
 	}
 	if source.Kind == yaml.AliasNode {
 		// The anchored mapping belongs to wherever it was defined, and
 		// may be merged or aliased there for reasons of its own, so
 		// the root merges a copy without the field instead.
-		target := aliasTarget(source)
-		if target == nil {
+		target := source.Alias
+		if target == nil || e.expanding[target] {
+			// A mapping that merges itself in. Its copy is already
+			// being stripped further up, and expanding it again here
+			// would never finish.
 			return source
 		}
-		source = e.detachedCopy(target, 0)
+		if e.copied > maxDetachedNodes {
+			return source
+		}
+		e.expanding[target] = true
+		defer delete(e.expanding, target)
+		source = e.detachedCopy(target)
 	}
 	if source.Kind != yaml.MappingNode {
 		return source
 	}
-	e.strip(source, depth+1)
+	e.strip(source)
 	if len(source.Content) == 0 && source.Anchor == "" {
 		return nil
 	}
