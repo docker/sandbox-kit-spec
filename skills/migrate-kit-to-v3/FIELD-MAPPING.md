@@ -195,6 +195,12 @@ workload on `dhi.io/sbx-templates:*` offers `deb/apt`, `deb/jq`,
 `deb/docker-ce`, `deb/git` and hundreds more with nobody authoring them, and a
 mixin may require those names.
 
+A `deb/` name is the distribution's, so it is only as stable as the package:
+`deb/python-3.14` is gone when the base moves to 3.15, and no Alpine workload
+provides it. Where the workload states a tool under a name of its own with
+`providesFrom` (§9.7) — `python`, `node`, `docker-engine` — require that name
+instead, and keep `deb/` for what is Debian by nature, such as `deb/apt`.
+
 **On a multi-platform workload the set is an intersection, not a union.** §9.6
 states an entry only where every published platform agrees on the normalized
 name *and* version, so an architecture-specific package, or one at different

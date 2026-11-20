@@ -164,6 +164,21 @@ type Descriptor struct {
 	// requirable by name states so here.
 	Provides []string `json:"provides,omitempty" yaml:"provides,omitempty"`
 
+	// ProvidesFrom states provides entries whose version the author
+	// does not know: capability name to the absolute path of a file in
+	// the kit's own filesystem. Publishing finds the installed package
+	// that owns the file and states name@<that package's version> in
+	// Provides (§9.7), so a workload can offer `python` at whatever its
+	// base image ships without a release number of its own standing in
+	// for one.
+	//
+	// Authored form only. It is an instruction to the build rather than
+	// a declaration, and the published descriptor carries its result and
+	// not the field: a runtime built before this field existed decodes
+	// strictly, and would refuse a published kit for a key that has
+	// nothing left to tell it.
+	ProvidesFrom map[string]string `json:"providesFrom,omitempty" yaml:"providesFrom,omitempty"`
+
 	// Requires lists capabilities that must be satisfied by the resolved
 	// set, as "name" or "name <op> version" (comma-AND'd constraints;
 	// ops: >=, >, <=, <, =). Capability names resolve to nothing and

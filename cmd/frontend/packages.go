@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/containerd/platforms"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
 
 	"github.com/docker/sandbox-kit-spec/v3/spec"
@@ -52,4 +54,53 @@ func derivedProvides(ctx context.Context, refs []gwclient.Reference) ([]string, 
 		out = append(out, spec.DerivedProvides(db.Namespace, listings)...)
 	}
 	return out, nil
+}
+
+// statedProvides resolves the kit's providesFrom declaration against
+// every platform's filesystem (§9.7): each path to the installed package
+// that owns it, and each name to that package's version.
+func statedProvides(ctx context.Context, from map[string]string, builds []platformBuild) ([]string, error) {
+	if len(from) == 0 {
+		return nil, nil
+	}
+	files := make([]spec.PlatformFiles, 0, len(builds))
+	for _, b := range builds {
+		p := spec.PlatformFiles{Platform: platforms.FormatAll(platformOrDefault(b.platform))}
+		if b.ref != nil {
+			p.Files = imageFiles{ref: b.ref}
+		}
+		files = append(files, p)
+	}
+	return spec.ProvidesFromPaths(ctx, from, files)
+}
+
+// imageFiles reads a solved filesystem for the spec package, which
+// knows what to look for and not what a BuildKit reference is.
+type imageFiles struct{ ref gwclient.Reference }
+
+func (f imageFiles) ReadFile(ctx context.Context, name string) ([]byte, bool, error) {
+	return readImageFile(ctx, f.ref, name)
+}
+
+// ReadDir lists a directory through the gateway, which walks it without
+// following its entries: a symbolic link arrives with its target, which
+// is the one thing StatFile cannot say — it resolves the whole path and
+// answers for wherever that ends.
+func (f imageFiles) ReadDir(ctx context.Context, name string) ([]spec.ImageEntry, bool, error) {
+	stats, err := f.ref.ReadDir(ctx, gwclient.ReadDirRequest{Path: name})
+	if err != nil {
+		if isNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	entries := make([]spec.ImageEntry, 0, len(stats))
+	for _, st := range stats {
+		entries = append(entries, spec.ImageEntry{
+			Name: st.Path,
+			Dir:  os.FileMode(st.Mode).IsDir(),
+			Link: st.Linkname,
+		})
+	}
+	return entries, true, nil
 }

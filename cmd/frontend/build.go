@@ -106,6 +106,13 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 	if err != nil {
 		return nil, withYAMLSource(err, filename, src.descriptor)
 	}
+	// providesFrom is an instruction to this build, kept on d until the
+	// filesystems it names exist. The published form never carries it
+	// (§9.7), so it leaves here, before anything judges that form.
+	published, err = spec.WithoutProvidesFrom(published)
+	if err != nil {
+		return nil, withYAMLSource(err, filename, src.descriptor)
+	}
 
 	content := commentContent
 	switch {
@@ -243,6 +250,12 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 		if err := spec.RequireAuthoredProvides(pd); err != nil {
 			return nil, withYAMLSource(err, filename, src.descriptor)
 		}
+		// On the expanded form for the same reason: a provides entry
+		// whose name came out of an arg can only now be seen to state
+		// a capability providesFrom states too.
+		if err := spec.RequireDistinctProvidesFrom(pd, d.ProvidesFrom); err != nil {
+			return nil, withYAMLSource(err, filename, src.descriptor)
+		}
 	}
 
 	res := gwclient.NewResult()
@@ -308,6 +321,13 @@ func Build(ctx context.Context, c gwclient.Client) (*gwclient.Result, error) {
 		if err != nil {
 			return nil, err
 		}
+		// What the author asked for by name stands ahead of the
+		// inventory nobody asked for entry by entry.
+		stated, err := statedProvides(ctx, d.ProvidesFrom, builds)
+		if err != nil {
+			return nil, withYAMLSource(err, filename, src.descriptor)
+		}
+		derived = append(stated, derived...)
 		if len(derived) > 0 {
 			published, pd, err = withDerivedProvides(published, derived)
 			if err != nil {

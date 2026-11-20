@@ -10,6 +10,22 @@ version: "24.04"
 
 # Package provides are derived from the image's dpkg database. The Kit's
 # release version is not a claim about the installed Docker version.
+#
+# Those entries carry Ubuntu's package names, so the engine is
+# deb/docker-ce here and something else on another base. The tools a
+# mixin is likely to ask a base for are also stated under names that do
+# not depend on the distribution: each line names the command, and
+# publishing states the name at the version of the package that installed
+# it (§9.7). The field itself is not published.
+providesFrom:
+  bash: /usr/bin/bash
+  curl: /usr/bin/curl
+  docker: /usr/bin/docker
+  docker-buildx: /usr/libexec/docker/cli-plugins/docker-buildx
+  docker-compose: /usr/libexec/docker/cli-plugins/docker-compose
+  docker-engine: /usr/bin/dockerd
+  git: /usr/bin/git
+
 capabilities:
   - type: com.docker.sandbox/sbx@1
 

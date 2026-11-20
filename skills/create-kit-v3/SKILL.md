@@ -230,6 +230,32 @@ publish: `RequireVersionedProvides` fails the build. Pin the version, or drop
 the provide — a kit with no `provides` publishes fine, and offering nothing
 matchable is honest when the kit cannot know what it installed.
 
+**A workload states the tools its base ships with `providesFrom`.** You do
+not know what version of Python the base image carries, and `deb/python-3.14`
+is a name that moves at the next minor and that no Alpine base will ever
+provide. Name the command and let publishing find the version:
+
+```yaml
+kind: workload
+providesFrom:
+  python: /usr/bin/python3
+  ssh: /usr/bin/ssh
+```
+
+Publishing looks up the installed package that owns each file and states
+`python@3.14.10`, `ssh@10.0` in `provides`; the field itself is not published
+(§9.7). It reads dpkg's and apk's file lists, so it is workload-only, and it
+fails the build for a path that is absent, a directory, or owned by no
+package — a binary your recipe downloaded still takes the build-phase
+`version` arg above. Check a path before you list it:
+
+```sh
+docker run --rm <base> sh -c 'grep -lx /usr/bin/python3 /var/lib/dpkg/info/*.list'
+```
+
+Do not state a name a mixin exists to provide. One name has one provider
+(§5.3), so a workload that states `gh` stops composing with the `gh` kit.
+
 **`requires` is a closed-set check**: a name nothing in the composition
 provides makes your kit refuse to compose *anywhere*, which is worse than
 saying nothing. It constrains the composed **runtime** set, not your builder —
@@ -478,7 +504,8 @@ varies, keep the rest exact and vary only that part:
 
 - [SPEC-v3.md](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/SPEC-v3.md)
   — the grammar. §3 authoring forms, §5 provides/requires, §6 args,
-  §7 capabilities, §9.6 derived provides.
+  §7 capabilities, §9.6 derived provides, §9.7 provides stated from a
+  path.
 - [capability pages](https://github.com/docker/sandbox-kit-spec/tree/main/docs/spec/capabilities/com.docker.sandbox)
   — normative per type.
 - [examples](https://github.com/docker/sandbox-kit-spec/tree/main/examples) —

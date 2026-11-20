@@ -142,6 +142,17 @@ new field; runtimes that previously loaded all `@2` mixin guidance inline
 need the matching draft implementation, even when the field is omitted.
 `agent-context@1` and `schemaVersion` are unchanged.
 
+The authored-only `providesFrom` field
+([SPEC-v3 §9.7](docs/spec/SPEC-v3.md#97-provides-stated-from-a-path))
+is a top-level addition made in place under the same draft-stage
+latitude, approved by maintainer @cdupuis's instruction to implement it.
+Publishing replaces the field with ordinary `provides` entries and
+drops it, so published descriptors keep their shape: readers of
+published Kits, runtimes included, need no change. A frontend or other
+reader of authored descriptors built before the field refuses a
+descriptor that uses it. `schemaVersion` and every capability version
+are unchanged.
+
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new

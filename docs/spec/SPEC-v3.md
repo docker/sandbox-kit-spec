@@ -252,6 +252,7 @@ iconUrl: https://…          # optional. Image shown in catalogs and pickers.
 version: "1.4.2"            # optional. Fallback version; see below.
 licenses: [Apache-2.0]      # optional. SPDX identifiers.
 provides: []                # optional. §5.
+providesFrom: {}            # optional. §9.7. Authored form only.
 requires: []                # optional. §5.
 integrates: []              # optional. §5.
 conflicts: []               # optional. §5.
@@ -273,6 +274,7 @@ kits: []                    # optional. §3.4. Exclusive with build, dockerfile.
 | `iconUrl` | string | optional. Absolute **https** URL to an image representing the Kit in catalogs and pickers. Display metadata, self-asserted like `displayName`. The scheme is constrained because a consumer fetches and renders this rather than merely displaying it: `javascript:`, `data:`, and `file:` are refused, and plain `http:` is refused so a rendered icon is not attacker-swappable in transit. Referenced rather than staged into a layer, because the surfaces that want an icon hold the manifest and not the layers — an icon a consumer had to pull the Kit to see would arrive after the moment it existed to inform. No `org.opencontainers.image.*` annotation is emitted for it: OCI defines no icon key, and the descriptor annotation already carries the field. |
 | `version` | string | optional. Version-shaped ([§5.2](#52-versions)), or a build-phase arg reference expanded at publish. See below. |
 | `licenses` | list\<string\> | optional. SHOULD be SPDX identifiers. | <!-- tck: SPEC-v3 §4/licenses-spdx -->
+| `providesFrom` | map\<string, string\> | optional. Capability name to the absolute path of a file in the Kit's own filesystem; publishing states each name at the version of the package that owns the file. Workload only, and absent from the published descriptor. See [§9.7](#97-provides-stated-from-a-path). |
 | `build` | string | optional. Literal Dockerfile text. Exclusive with `dockerfile` and `kits`. |
 | `dockerfile` | string | optional. Relative path inside the descriptor's directory; MUST NOT escape it (that directory is the build context's root). Exclusive with `build` and `kits`. | <!-- tck: SPEC-v3 §4/dockerfile-inside-context -->
 | `kits` | list\<kit\> | optional. The Kits this Kit's content is merged from ([§3.4](#34-kit-set)). Exclusive with `build` and `dockerfile`. |
@@ -315,6 +317,10 @@ conflicts: ["podman"]                           # must be absent from the resolv
   exception is not an author's claim at all — publishing derives an entry
   per installed distribution package, in namespaces reserved for it
   ([§9.6](#96-derived-provides)).
+- A name whose version the author does not know — a tool the base image
+  ships — is stated with `providesFrom` instead, which names the file
+  and leaves the version to publishing
+  ([§9.7](#97-provides-stated-from-a-path)).
 - Arg references are permitted in `provides` (and `version`) only — they are
   expanded at publish ([§9.1](#91-expansion)). `requires`, `integrates`, and
   `conflicts` MUST stay literal: they are what the resolver judges, and a <!-- tck: SPEC-v3 §5/requires-literal -->
@@ -1288,6 +1294,101 @@ Derived entries do not vote on
 archive never agrees on one version, and counting it would leave every
 Kit that named no `version:` with no version annotation at all.
 
+### 9.7 Provides stated from a path
+
+Derived entries are an inventory, and they carry the distribution's
+names: a mixin that needs Python on a Debian workload requires
+`deb/python-3.14`, a name that moves when the base image moves to 3.15
+and that no Alpine workload will ever provide. A name that stays put —
+`python` — is an author's to choose, but its version is not an author's
+to know, and [§9.2](#92-versioned-provides) will not publish it without
+one. Written as `provides: [python]` it takes the `version:` fallback,
+the statement [§9.6](#96-derived-provides) exists to stop.
+
+`providesFrom` states the name and leaves the version to the content:
+
+```yaml
+kind: workload
+provides: ["claude@${{ kit.args.version }}"]   # the author's own
+providesFrom:                                  # the base image's
+  python: /usr/bin/python3
+  ssh: /usr/bin/ssh
+  docker-engine: /usr/bin/dockerd
+```
+
+Each key is a capability name and each value the absolute path of a
+file in the Kit's own filesystem. Publishing finds the installed package
+that owns the file and states `name@version` in `provides`, with that
+package's version as [§9.6](#96-derived-provides) renders it. The Kit
+above publishes `python@3.14.10` beside `deb/python-3.14@3.14.10`, and
+keeps publishing `python` when the package underneath is renamed.
+
+The path names the command rather than the package because the command
+is what a requirer means, and because it is the name that survives:
+`/usr/bin/python3` is there under every Python 3 a base image has
+shipped.
+
+- A key **MUST** be a capability name outside the namespaces <!-- tck: SPEC-v3 §9.7/name-is-authored -->
+  [§5.1](#51-names-and-namespaces) reserves, and **MUST NOT** name a
+  capability the Kit's `provides` also states, in either spelling. A
+  capability has one version, and two entries for it leave a resolver to
+  pick. A value is a literal, absolute, canonical path: arg references
+  are not permitted, since the path names a file in the image and not an
+  input.
+- `providesFrom` applies to a `kind: workload` Kit that builds its own <!-- tck: SPEC-v3 §9.7/workload-only -->
+  content, and **MUST** be refused on a mixin or a set. A mixin's layers
+  are a delta, where a package database is not an inventory
+  ([§9.6](#96-derived-provides)); a set builds nothing, and the workload
+  it lists already stated what it carries.
+- Publishing **MUST** fail unless exactly one installed package lists <!-- tck: SPEC-v3 §9.7/owned-by-one-package -->
+  the path: it fails when the path does not exist, is a directory, is
+  listed by more than one package, or is listed by none. The lists are
+  the ones kept beside the databases [§9.6](#96-derived-provides) reads:
+  `/var/lib/dpkg/info/<package>.list` for dpkg, the `F:` and `R:`
+  records of `/lib/apk/db/installed` for apk. Nothing is stated in
+  place of an entry that could not be resolved: the author asked for it
+  by name, so its absence is a build failure the author sees rather
+  than a capability a consumer finds missing. A file a recipe placed
+  has no package to take a version from, and is stated in `provides`
+  under a build-phase arg as before.
+- Publishing **MUST NOT** follow a symbolic link that a package lists. <!-- tck: SPEC-v3 §9.7/links-followed-when-unowned -->
+  A link no package lists is followed to its target, and the target
+  judged the same way. A package that ships `python3` as a link is the
+  answer for that link, while a link nothing owns was made by a recipe
+  or by `update-alternatives`, and what it leads to is the thing
+  installed. Paths are compared through a top-level directory that is
+  itself a link, so `/bin/sh` and `/usr/bin/sh` name one file on a
+  merged-`/usr` system whichever of them the package recorded.
+- The version **MUST** be the owner's version under <!-- tck: SPEC-v3 §9.7/version-is-the-owners -->
+  [§9.6](#96-derived-provides)'s rule, and publishing **MUST** fail
+  when that rule names none — a prerelease, or one package recorded at
+  two versions. It is never taken from the `version:` fallback.
+- Every platform the Kit publishes **MUST** resolve every path, to one <!-- tck: SPEC-v3 §9.7/agreed-across-platforms -->
+  version, or publishing fails. Derived entries are dropped where
+  platforms disagree because nobody asked for them one by one; these
+  were asked for.
+- The published descriptor **MUST NOT** carry `providesFrom`. It is an <!-- tck: SPEC-v3 §9.7/not-published -->
+  instruction to the build, and what it produced is in `provides`. This
+  is also what lets the field exist under `schemaVersion: "3"`: decoding
+  is strict, so a runtime built before this field would refuse a
+  published Kit that carried it.
+
+A stated entry is an ordinary `provides` entry once published. It is the
+workload's to provide, so [§5.3](#53-resolution-semantics-consumer-contract)'s
+one-provider rule applies to it: a workload that states `gh` no longer
+composes with a mixin that provides `gh`. State the tools a mixin would
+require of a base, and leave a name to the Kit whose purpose is to
+bring it. A stated entry also votes on
+`org.opencontainers.image.version` like any authored one
+([§9.3](#93-annotations)), so a Kit that states several tools names its
+own `version:` if it wants that annotation.
+
+`providesFrom` extends the unfinished schema-3 grammar in place. An
+authored descriptor using it requires a frontend that knows the field;
+an older one refuses it. Published descriptors do not change shape, so
+readers of published Kits are unaffected, and it adds no capability
+version.
+
 ---
 
 ## 10. The OCI layout
@@ -1405,10 +1506,14 @@ The spec library enforces, beyond per-field rules stated above:
   compiles.
 - **raw form**: size budget ([§9.4](#94-size-budget)); every
   `${{ kit.args.* }}` reference names a declared arg.
+- **providesFrom**: workload only, never beside `kits`; keys are
+  capability names outside the reserved namespaces that `provides` does
+  not also state; values are literal, absolute, canonical paths
+  ([§9.7](#97-provides-stated-from-a-path)).
 - **published form**: no build-phase references remain; provides are
-  literal and ([§9.2](#92-versioned-provides)) versioned; `kind` is the
-  derived `workload` or `mixin`, never `set`; every listed Kit carries
-  a digest.
+  literal and ([§9.2](#92-versioned-provides)) versioned; `providesFrom`
+  is gone; `kind` is the derived `workload` or `mixin`, never `set`;
+  every listed Kit carries a digest.
 
 Validation collects independent failures in a `ValidationErrors`
 collection, preserving warnings alongside errors. A failed config decode

@@ -61,6 +61,22 @@
       },
       "description": "Capabilities this kit offers, optionally versioned as name@version. Nothing an author offers is provided implicitly. Bare names normalize into the default namespace (gh IS com.docker.kit/gh, like debian is docker.io/library/debian); third parties qualify under their own namespace, which never matches the bare form. The deb/ and apk/ namespaces are reserved: publishing fills them from the package databases in a workload's content, one entry per installed package, so do not author them."
     },
+    "providesFrom": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "pattern": "^(deb|apk)/"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^/.",
+        "not": {
+          "pattern": "\\$\\{\\{"
+        }
+      },
+      "description": "Authored form only, workload only. Capability name to the absolute path of a file in the kit's own filesystem. Publishing finds the installed package that owns the file, states name@<that package's version> in provides, and drops this field, so a published descriptor never carries it. For a tool the base image ships at a version the author does not know: python: /usr/bin/python3. A path no installed package owns, or one whose platforms disagree on the version, fails the build. Paths are literal; arg references are not allowed."
+    },
     "requires": {
       "type": "array",
       "items": {
@@ -210,6 +226,26 @@
         }
       },
       "description": "com.docker.sandbox/sbx@1 is workload-only: a mixin's image config never becomes the composed image's, so the identity it would promise is not the one a host reads."
+    },
+    {
+      "if": {
+        "required": [
+          "providesFrom"
+        ]
+      },
+      "then": {
+        "properties": {
+          "kind": {
+            "const": "workload"
+          }
+        },
+        "not": {
+          "required": [
+            "kits"
+          ]
+        }
+      },
+      "description": "providesFrom reads the filesystem the kit builds: a mixin's layers are a delta, where a package database is no inventory, and a set builds nothing."
     },
     {
       "$ref": "#/definitions/noNul"

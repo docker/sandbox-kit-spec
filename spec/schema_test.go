@@ -769,3 +769,32 @@ func TestAgentContextV2DeliverySchema(t *testing.T) {
 	require.ElementsMatch(t, []any{AgentContextDeliveryProgressive, AgentContextDeliveryInline}, branches[0].(map[string]any)["enum"])
 	assertAcceptsKitArg(t, delivery, "bearing")
 }
+
+// The schema restates two providesFrom rules the validator owns: which
+// kinds may use it, and which namespaces its keys may not be in. Pinned
+// so an editor's verdict and the build's cannot drift.
+func TestProvidesFromSchemaMatchesGrammar(t *testing.T) {
+	schema := loadSchema(t)
+	field := at(t, schema, "properties", "providesFrom")
+	require.Equal(t, "object", field["type"])
+	require.Equal(t, "string", at(t, field, "additionalProperties")["type"])
+
+	reserved := regexp.MustCompile(at(t, field, "propertyNames", "not")["pattern"].(string))
+	for namespace := range reservedNamespaces {
+		require.True(t, reserved.MatchString(namespace+"/bash"), "the schema admits a providesFrom key under %s/", namespace)
+	}
+	require.False(t, reserved.MatchString("bash"))
+	require.False(t, reserved.MatchString("com.example/bash"))
+
+	var rule map[string]any
+	for _, r := range schema["allOf"].([]any) {
+		candidate := r.(map[string]any)
+		ifClause, _ := candidate["if"].(map[string]any)
+		if required, _ := ifClause["required"].([]any); len(required) == 1 && required[0] == "providesFrom" {
+			rule = candidate
+		}
+	}
+	require.NotNil(t, rule, "the schema states no providesFrom rule")
+	require.Equal(t, KindWorkload, at(t, rule, "then", "properties", "kind")["const"])
+	require.Equal(t, []any{"kits"}, at(t, rule, "then", "not")["required"])
+}
