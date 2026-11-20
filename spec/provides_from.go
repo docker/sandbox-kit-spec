@@ -248,18 +248,19 @@ type fieldRemoval struct {
 	// removed holds every node that leaves the document: the field's
 	// key and value, and all that is under the value.
 	removed map[*yaml.Node]bool
-	// edited holds the anchored mappings the field is taken out of in
-	// place. An alias to one of these would see the mapping change
-	// under it.
+	// edited holds the anchored nodes that are changed in place: a
+	// mapping the field is taken out of, or a merge key's sequence that
+	// loses or swaps an element. An alias to one of these would see it
+	// change underneath.
 	edited map[*yaml.Node]bool
 }
 
 // plan records what strip will remove from m and which shared mappings
 // it will edit, without changing anything.
 //
-// A merge source reached through an alias is not recorded: strip works
-// on a copy of it, so the anchored original stays as it was for
-// whatever else refers to it.
+// A merge source reached through an alias is not recorded for itself:
+// strip works on a copy of it, so the anchored original stays as it was
+// for whatever else refers to it.
 func (e *fieldRemoval) plan(m *yaml.Node, depth int) {
 	if depth > maxYAMLIndirection {
 		return
@@ -268,7 +269,17 @@ func (e *fieldRemoval) plan(m *yaml.Node, depth int) {
 		k, v := m.Content[i], m.Content[i+1]
 		if isMergeKey(k) {
 			for _, source := range mergeSources(v) {
-				if source.Kind != yaml.MappingNode || !mappingCarries(source, e.field, depth+1) {
+				if !mappingCarries(source, e.field, depth+1) {
+					continue
+				}
+				// The list of sources is itself a node an alias can
+				// name. Whatever happens to this source — edited where
+				// it stands, replaced by a copy, or dropped — happens
+				// to that list.
+				if v.Kind == yaml.SequenceNode && v.Anchor != "" {
+					e.edited[v] = true
+				}
+				if source.Kind != yaml.MappingNode {
 					continue
 				}
 				if source.Anchor != "" {

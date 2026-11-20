@@ -724,3 +724,76 @@ func TestProvidesFromPathsRefusesAWalkThatDoesNotArrive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"x@1.2.3"}, got)
 }
+
+// Everything the removal changes in place is something an alias can
+// name. Whatever else uses that alias — here a capability's config,
+// which is opaque to this rewrite — has to read what it read before.
+func TestWithoutProvidesFromLeavesSharedNodesAsTheyWere(t *testing.T) {
+	const head = "schemaVersion: \"3\"\nkind: workload\nversion: \"1.0.0\"\n"
+	const tail = "build: |\n  FROM scratch\n"
+	uses := func(alias string) string {
+		return "capabilities:\n  - type: com.example/thing@1\n    config: {uses: *" + alias + "}\n"
+	}
+	paths := map[string]any{"python": "/usr/bin/python3"}
+
+	for name, tc := range map[string]struct {
+		body        string
+		config      any
+		displayName string
+	}{
+		// The sequence a merge key lists its sources in.
+		"anchored merge sequence": {
+			body:        "<<: &shared [{providesFrom: {python: /usr/bin/python3}}, {displayName: Second}]\n" + uses("shared"),
+			config:      []any{map[string]any{"providesFrom": paths}, map[string]any{"displayName": "Second"}},
+			displayName: "Second",
+		},
+		// A source inside an unanchored sequence.
+		"anchored element of a merge sequence": {
+			body:        "<<: [&shared {providesFrom: {python: /usr/bin/python3}, displayName: First}, {description: Second}]\n" + uses("shared"),
+			config:      map[string]any{"providesFrom": paths, "displayName": "First"},
+			displayName: "First",
+		},
+		// A single anchored source.
+		"anchored merge mapping": {
+			body:        "<<: &shared {providesFrom: {python: /usr/bin/python3}, displayName: Only}\n" + uses("shared"),
+			config:      map[string]any{"providesFrom": paths, "displayName": "Only"},
+			displayName: "Only",
+		},
+		// The field reaches the anchored mapping through a merge of its
+		// own, so the mapping is edited one level further in.
+		"anchored mapping with a nested merge": {
+			body:        "<<: &shared {displayName: Outer, <<: {providesFrom: {python: /usr/bin/python3}}}\n" + uses("shared"),
+			config:      map[string]any{"providesFrom": paths, "displayName": "Outer"},
+			displayName: "Outer",
+		},
+		// An anchored sequence whose only source goes away entirely.
+		"anchored sequence left empty": {
+			body:   "<<: &shared [{providesFrom: {python: /usr/bin/python3}}]\n" + uses("shared"),
+			config: []any{map[string]any{"providesFrom": paths}},
+		},
+		// The field's own value.
+		"anchored value": {
+			body:   "providesFrom: &shared {python: /usr/bin/python3}\n" + uses("shared"),
+			config: paths,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			authored := []byte(head + tc.body + tail)
+			before, err := Decode(authored)
+			require.NoError(t, err)
+			require.NotEmpty(t, before.ProvidesFrom)
+			require.Equal(t, map[string]any{"uses": tc.config}, before.Capabilities[0].Config, "the case is not what it says")
+
+			out, err := WithoutProvidesFrom(authored)
+			require.NoError(t, err)
+			after, err := Decode(out)
+			require.NoError(t, err, "%s", out)
+			require.Empty(t, after.ProvidesFrom, "%s", out)
+			require.Equal(t, before.Capabilities[0].Config, after.Capabilities[0].Config,
+				"the config reads what it read before:\n%s", out)
+			require.Equal(t, tc.displayName, after.DisplayName)
+			_, err = ValidatePublished(out, after)
+			require.NoError(t, err, "%s", out)
+		})
+	}
+}
