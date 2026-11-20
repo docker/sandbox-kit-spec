@@ -63,7 +63,7 @@ func debianImage() fakeImage {
 			"Package: bash\nStatus: install ok installed\nVersion: 5.2.37-2+dhi1\n",
 			"Package: gone\nStatus: deinstall ok config-files\nVersion: 1.0-1\n",
 			"Package: pre\nStatus: install ok installed\nVersion: 2.0~rc1-1\n",
-			"Package: libfoo\nStatus: install ok installed\nVersion: 1.2.3-1\n",
+			"Package: libfoo\nStatus: install ok installed\nArchitecture: arm64\nMulti-Arch: same\nVersion: 1.2.3-1\n",
 			"Package: libbar\nStatus: install ok installed\nVersion: 4.5.6-1\n",
 		}, "\n"),
 		DpkgInfoDir + "/python-3.14-minimal.list": "/.\n/usr\n/usr/bin\n/usr/bin/python3.14\n/usr/bin/python3\n",
@@ -441,4 +441,85 @@ func TestPublishedRefusesProvidesFromInAnySpelling(t *testing.T) {
 	out, err := WithoutProvidesFrom(elsewhere)
 	require.NoError(t, err)
 	require.Equal(t, string(elsewhere), string(out))
+}
+
+// A co-installable package keeps one file list per architecture, and
+// one architecture can be removed while another stays installed. The
+// removed one's list still holds the conffiles it left behind; it must
+// not own them on the strength of the installed one's name.
+func TestProvidesFromPathsJudgesEachArchitecturesList(t *testing.T) {
+	image := fakeImage{
+		DpkgStatusPath: strings.Join([]string{
+			"Package: libfoo\nStatus: install ok installed\nArchitecture: amd64\nMulti-Arch: same\nVersion: 2.0-1\n",
+			"Package: libfoo\nStatus: deinstall ok config-files\nArchitecture: i386\nMulti-Arch: same\nVersion: 1.0-1\n",
+			"Package: libbar\nStatus: install ok installed\nArchitecture: amd64\nMulti-Arch: same\nVersion: 3.1-2\n",
+			"Package: libbar\nStatus: install ok installed\nArchitecture: i386\nMulti-Arch: same\nVersion: 3.1-2\n",
+			"Package: plain\nStatus: install ok installed\nArchitecture: amd64\nVersion: 4.2-1\n",
+		}, "\n"),
+		DpkgInfoDir + "/libfoo:amd64.list": "/usr/lib/x86_64-linux-gnu/libfoo.so.2\n",
+		DpkgInfoDir + "/libfoo:i386.list":  "/etc/libfoo-i386.conf\n",
+		DpkgInfoDir + "/libbar:amd64.list": "/usr/lib/x86_64-linux-gnu/libbar.so.3\n/usr/share/doc/libbar/copyright\n",
+		DpkgInfoDir + "/libbar:i386.list":  "/usr/lib/i386-linux-gnu/libbar.so.3\n/usr/share/doc/libbar/copyright\n",
+		// A list named without an architecture belongs to the package
+		// of that name, whatever it is installed for.
+		DpkgInfoDir + "/plain.list": "/usr/bin/plain\n",
+		// Named for an architecture the package is not installed for.
+		DpkgInfoDir + "/plain:i386.list":        "/usr/bin/plain32\n",
+		"/usr/lib/x86_64-linux-gnu/libfoo.so.2": "elf",
+		"/etc/libfoo-i386.conf":                 "conf",
+		"/usr/lib/x86_64-linux-gnu/libbar.so.3": "elf",
+		"/usr/lib/i386-linux-gnu/libbar.so.3":   "elf",
+		"/usr/share/doc/libbar/copyright":       "text",
+		"/usr/bin/plain":                        "elf",
+		"/usr/bin/plain32":                      "elf",
+	}
+
+	got, err := ProvidesFromPaths(context.Background(), map[string]string{
+		"foo":     "/usr/lib/x86_64-linux-gnu/libfoo.so.2",
+		"bar":     "/usr/lib/i386-linux-gnu/libbar.so.3",
+		"bar-doc": "/usr/share/doc/libbar/copyright",
+		"plain":   "/usr/bin/plain",
+	}, one(image))
+	require.NoError(t, err)
+	require.Equal(t, []string{"bar-doc@3.1", "bar@3.1", "foo@2.0", "plain@4.2"}, got,
+		"a file both architectures of one package list has one owner")
+
+	for _, file := range []string{"/etc/libfoo-i386.conf", "/usr/bin/plain32"} {
+		_, err = ProvidesFromPaths(context.Background(), map[string]string{"x": file}, one(image))
+		require.ErrorContains(t, err, file+" belongs to no installed package")
+	}
+}
+
+// One top-level link can lead to another. A path a package recorded and
+// a path an author wrote have to end up spelled the same way however
+// many links stand between them and the file.
+func TestProvidesFromPathsFollowsChainedTopLevelLinks(t *testing.T) {
+	image := fakeImage{
+		"/bin":                     "-> compat/bin",
+		"/compat":                  "-> usr",
+		"/sbin":                    "-> /bin",
+		DpkgStatusPath:             "Package: tool\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.2.3-1\n",
+		DpkgInfoDir + "/tool.list": "/bin/tool\n/sbin/admin\n",
+		"/usr/bin/tool":            "elf",
+		"/usr/bin/admin":           "elf",
+	}
+	got, err := ProvidesFromPaths(context.Background(), map[string]string{
+		"direct":   "/usr/bin/tool",
+		"recorded": "/bin/tool",
+		"middle":   "/compat/bin/tool",
+		"twice":    "/sbin/admin",
+	}, one(image))
+	require.NoError(t, err)
+	require.Equal(t, []string{"direct@1.2.3", "middle@1.2.3", "recorded@1.2.3", "twice@1.2.3"}, got)
+
+	// Links that lead in a circle reach no file. The lookup ends, and
+	// says the path does not exist rather than never returning.
+	circle := fakeImage{
+		"/a":                       "-> b",
+		"/b":                       "-> a",
+		DpkgStatusPath:             "Package: tool\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.2.3-1\n",
+		DpkgInfoDir + "/tool.list": "/a/tool\n",
+	}
+	_, err = ProvidesFromPaths(context.Background(), map[string]string{"x": "/a/tool"}, one(circle))
+	require.ErrorContains(t, err, "/a/tool does not exist in the image")
 }

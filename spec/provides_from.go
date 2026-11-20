@@ -549,7 +549,7 @@ func readFileOwners(ctx context.Context, files ImageFiles) (*fileOwners, error) 
 		}
 		switch db.Namespace {
 		case DebNamespace:
-			err = o.readDpkgLists(ctx)
+			err = o.readDpkgLists(ctx, body)
 		case ApkNamespace:
 			err = o.readApkFiles(body)
 		}
@@ -568,7 +568,11 @@ func readFileOwners(ctx context.Context, files ImageFiles) (*fileOwners, error) 
 // Files rather than `dpkg -S`, because an image need not carry dpkg to
 // carry its database: one assembled from packages keeps the lists
 // without the tool that wrote them.
-func (o *fileOwners) readDpkgLists(ctx context.Context) error {
+func (o *fileOwners) readDpkgLists(ctx context.Context, status []byte) error {
+	installed, err := dpkgInstalledArchitectures(status)
+	if err != nil {
+		return fmt.Errorf("%s: %w", DpkgStatusPath, err)
+	}
 	entries, present, err := o.files.ReadDir(ctx, DpkgInfoDir)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", DpkgInfoDir, err)
@@ -581,16 +585,22 @@ func (o *fileOwners) readDpkgLists(ctx context.Context) error {
 		if !isList || e.Dir {
 			continue
 		}
-		// A multiarch list is <package>:<arch>.list; the architecture
-		// is not part of the name the status file knows it by.
-		name, _, _ := strings.Cut(stem, ":")
-		key := DebNamespace + "/" + name
 		// A list outlives its package: a removed one keeps the
 		// conffiles it left behind. Only what the status file calls
-		// installed owns anything.
-		if _, installed := o.versions[key]; !installed {
+		// installed owns anything, and that is judged for the package
+		// the list is actually named for. A co-installable package has
+		// one list per architecture, <package>:<arch>.list, and one of
+		// them can be removed while another stays: the list of the
+		// removed one must not pass for the installed one's because
+		// they share a name.
+		name, arch, qualified := strings.Cut(stem, ":")
+		architectures, known := installed[name]
+		if !known || (qualified && !architectures[arch]) {
 			continue
 		}
+		// The architecture is part of which package this is, not of
+		// the name a capability is stated under.
+		key := DebNamespace + "/" + name
 		list := path.Join(DpkgInfoDir, e.Name)
 		body, present, err := o.files.ReadFile(ctx, list)
 		if err != nil {
@@ -606,6 +616,25 @@ func (o *fileOwners) readDpkgLists(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// dpkgInstalledArchitectures maps each installed package name to the
+// architectures it is installed for. [ReadDpkgStatus] folds those into
+// one name, which is all a derived entry needs; choosing a file list
+// needs to know which of them a list belongs to.
+func dpkgInstalledArchitectures(status []byte) (map[string]map[string]bool, error) {
+	installed := map[string]map[string]bool{}
+	err := eachStanza(bytes.NewReader(status), func(fields map[string]string) {
+		name := fields["package"]
+		if name == "" || !dpkgInstalled(fields) {
+			return
+		}
+		if installed[name] == nil {
+			installed[name] = map[string]bool{}
+		}
+		installed[name][fields["architecture"]] = true
+	}, dpkgField)
+	return installed, err
 }
 
 // readApkFiles reads the file lists apk keeps inside its installed
@@ -663,15 +692,29 @@ func (o *fileOwners) own(file, key string) {
 	o.owners[file][key] = true
 }
 
-// canonical rewrites a path through a top-level symbolic link, so the
-// two spellings a merged-/usr system gives one file compare equal.
+// canonical rewrites a path through top-level symbolic links, so the
+// spellings a merged-/usr system gives one file compare equal.
+//
+// For as long as the result starts at another such link, since one can
+// lead to the next: with /bin pointing at compat/bin and /compat at
+// usr, /bin/sh is /usr/bin/sh, and stopping after the first step would
+// index a recorded /bin/sh where a requested /usr/bin/sh never looks.
+// Recorded and requested paths both come through here, so whatever it
+// settles on, they settle on the same thing.
 func (o *fileOwners) canonical(file string) string {
 	file = path.Clean(file)
-	rest := strings.TrimPrefix(file, "/")
-	top, tail, nested := strings.Cut(rest, "/")
-	if target, aliased := o.aliases["/"+top]; aliased && nested {
-		return path.Join(target, tail)
+	current := file
+	for range maxProvidesFromLinks {
+		rest := strings.TrimPrefix(current, "/")
+		top, tail, nested := strings.Cut(rest, "/")
+		target, aliased := o.aliases["/"+top]
+		if !aliased || !nested {
+			return current
+		}
+		current = path.Join(target, tail)
 	}
+	// Links that lead in a circle name no file. The path is left as it
+	// was written, and the lookup reports it as one nothing owns.
 	return file
 }
 

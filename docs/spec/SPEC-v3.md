@@ -1345,20 +1345,24 @@ shipped.
   listed by more than one package, or is listed by none. The lists are
   the ones kept beside the databases [§9.6](#96-derived-provides) reads:
   `/var/lib/dpkg/info/<package>.list` for dpkg, the `F:` and `R:`
-  records of `/lib/apk/db/installed` for apk. Nothing is stated in
-  place of an entry that could not be resolved: the author asked for it
-  by name, so its absence is a build failure the author sees rather
-  than a capability a consumer finds missing. A file a recipe placed
-  has no package to take a version from, and is stated in `provides`
-  under a build-phase arg as before.
+  records of `/lib/apk/db/installed` for apk. A list can outlive its
+  package — a removed package keeps the configuration files it left,
+  and so does one removed architecture of a package another
+  architecture still has installed — and such a list owns nothing.
+  Nothing is stated in place of an entry that could not be resolved:
+  the author asked for it by name, so its absence is a build failure
+  the author sees rather than a capability a consumer finds missing. A
+  file a recipe placed has no package to take a version from, and is
+  stated in `provides` under a build-phase arg as before.
 - Publishing **MUST NOT** follow a symbolic link that a package lists. <!-- tck: SPEC-v3 §9.7/links-followed-when-unowned -->
   A link no package lists is followed to its target, and the target
   judged the same way. A package that ships `python3` as a link is the
   answer for that link, while a link nothing owns was made by a recipe
   or by `update-alternatives`, and what it leads to is the thing
-  installed. Paths are compared through a top-level directory that is
-  itself a link, so `/bin/sh` and `/usr/bin/sh` name one file on a
-  merged-`/usr` system whichever of them the package recorded.
+  installed. Paths are compared through top-level directories that are
+  themselves links, each followed to wherever it finally leads, so
+  `/bin/sh` and `/usr/bin/sh` name one file on a merged-`/usr` system
+  whichever of them the package recorded.
 - The version **MUST** be the owner's version under <!-- tck: SPEC-v3 §9.7/version-is-the-owners -->
   [§9.6](#96-derived-provides)'s rule, and publishing **MUST** fail
   when that rule names none — a prerelease, or one package recorded at
