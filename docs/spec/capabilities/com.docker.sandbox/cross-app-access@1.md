@@ -82,7 +82,11 @@ A conforming runtime:
   any other credential the runtime holds for the application.
 - **MUST** request the grant for exactly the declared `issuer` as its <!-- tck: cross-app-access@1/grant-bound -->
   audience and the declared `resource`, and for no scope outside the
-  declared `scopes`.
+  declared `scopes`. An identity provider whose connection to the
+  application names no resource answers `invalid_target`; the runtime
+  then requests the grant for the issuer alone and asks the
+  authorization server to bind the access token to the declared
+  `resource` when it redeems the grant.
 - **MUST** redeem the grant only at the token endpoint published in the <!-- tck: cross-app-access@1/redeemed-at-issuer -->
   declared issuer's authorization server metadata, after checking that
   the metadata names that issuer.
