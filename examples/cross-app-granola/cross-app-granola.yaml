@@ -55,13 +55,14 @@ capabilities:
   # secret. The one scope admits the token to the MCP server; what it
   # may do there is the workspace's setting, not a scope.
   #
-  # No resource: an identity provider connected to Granola refuses a
-  # grant request that names one.
+  # The resource binds the token to the MCP server, which refuses one
+  # issued for the authorization server's default audience.
   - type: com.docker.sandbox/cross-app-access@1
     description: Use the Granola MCP server as the signed-in person
     config:
       name: granola
       issuer: https://mcp-auth.granola.ai
+      resource: https://mcp.granola.ai/mcp
       scopes:
         - mcp
       inject:
