@@ -132,7 +132,7 @@ func installPhaseScoped(fixture string) func(context.Context, *Env) []report.Fin
 	}
 }
 
-var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
+var checks = append(append(append(gitIdentityChecks, hostMountChecks...), clipboardChecks...), []check{
 	{requirement: "sbx@1/environment-provided", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironment(ctx, e, "") }},
 	{requirement: "sbx@1/environment-process", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentProcess(ctx, e, "") }},
 	{requirement: "sbx@1/environment-process-none", capability: capSbx, run: func(ctx context.Context, e *Env) []report.Finding { return sbxEnvironmentProcess(ctx, e, "none") }},
@@ -227,6 +227,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capability: capAutoRestart, fixture: "auto-restart"},
 				{capability: capOpenURL, fixture: "open-url"},
 				{capability: capKVM, fixture: "kvm"},
+				{capability: capClipboard, fixture: fixtureClipboard},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},
 				{capability: capDockerAuth, fixture: "docker-auth"},
 				{capLifecycle, fixtureHooks, false},

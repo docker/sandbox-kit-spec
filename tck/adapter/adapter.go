@@ -68,6 +68,10 @@ type CreateOptions struct {
 	// OpenURLBudget reserves this many immediate attempts using sandbox-local
 	// runtime limiter state. It is valid only with OpenURLIsolated.
 	OpenURLBudget int
+	// ClipboardIsolated names a suite-owned directory the runtime binds as
+	// this sandbox's host clipboard, through its real helpers and dispatch
+	// path, instead of the user's clipboard.
+	ClipboardIsolated string
 	// DockerAuthConfig supplies suite-owned credential bindings and HTTPS
 	// endpoint routing for registry-auth observations, never guest config.
 	DockerAuthConfig string
@@ -136,6 +140,9 @@ func (a *Adapter) Create(ctx context.Context, kits []string, opts CreateOptions)
 	}
 	if opts.OpenURLBudget > 0 {
 		argv = append(argv, "--open-url-budget", strconv.Itoa(opts.OpenURLBudget))
+	}
+	if opts.ClipboardIsolated != "" {
+		argv = append(argv, "--clipboard-isolated", opts.ClipboardIsolated)
 	}
 	if opts.DockerAuthConfig != "" {
 		argv = append(argv, "--docker-auth-config", opts.DockerAuthConfig)

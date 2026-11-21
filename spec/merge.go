@@ -444,7 +444,8 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // Instance-shaped types union on their own key. Policy-shaped types
 // admit one entry, so each has a rule for what several contributors
 // asking at once means: network policies union, lifecycle hooks
-// concatenate, the engine starts if any asker wants it, and the types
+// concatenate, the engine starts if any asker wants it, clipboard
+// filters union per direction, and the types
 // that describe the whole sandbox rather than a grant to it (resources,
 // agent-sessions, agent-interactive-sessions) admit one author, because
 // two different answers cannot both be the sandbox's.
@@ -572,6 +573,9 @@ type capabilityMerge struct {
 	// contribution's storage claims the engine store it owns.
 	docker *keyed
 
+	// clipboard is the union of every contributor's clipboard@1 filters.
+	clipboard *clipboardAsk
+
 	interactiveSessions *keyed
 	newSession          []string
 	newSessionFrom      string
@@ -697,6 +701,9 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 
 	case CapabilityDockerd:
 		return m.addDockerd(reference, n)
+
+	case CapabilityClipboard:
+		return m.addClipboard(reference, n)
 	}
 
 	// Instance-shaped entries reconcile on their type's key. Some
@@ -1033,6 +1040,9 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 
 	if m.resources != nil {
 		out = append(out, m.resources.capability)
+	}
+	if m.clipboard != nil {
+		out = append(out, m.clipboard.merged())
 	}
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)

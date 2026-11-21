@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Host clipboard, screenshots in and text out
+capabilities:
+  - type: com.docker.sandbox/clipboard@1
+    config:
+      read: [image/*]
+      write: [text/*]

@@ -161,7 +161,7 @@ func KnownCapabilities() []string {
 	return []string{CapabilityDockerAuth, CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort, CapabilityUSBDevice, CapabilityResources,
 		CapabilityPrivileged, CapabilityKVM, CapabilityDockerd, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentSessionsV2, CapabilityAgentInteractiveSessions, CapabilityACP,
-		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilityGitIdentity, CapabilityKitRegistry}
+		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilityClipboard, CapabilityGitIdentity, CapabilityKitRegistry}
 }
 
 // SelectionRecord identifies an original item and its evaluated members.
@@ -548,6 +548,13 @@ func contributionsNeedDeferredMerge(contributions []Contribution) bool {
 			// their requests separate until create expands the values:
 			// instance keys and equivalence cannot judge placeholders.
 			if (item.Type == CapabilityVolume || item.Type == CapabilityHostMount || item.Type == CapabilityHostPort) && capabilityIsParameterized(item) {
+				return true
+			}
+			// A re-exported clipboard filter entry is a placeholder, not a
+			// media type: the union would judge it as one, and
+			// canonicalizing it would fold the reference's case into
+			// another arg's name.
+			if item.Type == CapabilityClipboard && capabilityIsParameterized(item) {
 				return true
 			}
 			// A port's family is reconciled, not keyed, so a placeholder

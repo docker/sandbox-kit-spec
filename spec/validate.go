@@ -510,6 +510,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLongRunning:              true,
 	CapabilityAutoRestart:              true,
 	CapabilityOpenURL:                  true,
+	CapabilityClipboard:                true,
 }
 
 // deref unwraps pointer and interface layers, the way JSON marshaling
@@ -1173,6 +1174,11 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 			c.errs.add(configErrorf(path, i, err))
 			return false
 		}
+	case CapabilityClipboard:
+		if err := validateClipboardNeed(path, i, n); err != nil {
+			c.errs.add(err)
+			return false
+		}
 	case CapabilityResources:
 		var r Resources
 		if err := DecodeCapabilityConfig(n, &r); err != nil {
@@ -1651,6 +1657,9 @@ func validatePresenceRules(path string, i int, n Capability) error {
 	}
 	if n.Type == CapabilityAgentSkill {
 		return validateParameterizedSkillSource(path, n)
+	}
+	if n.Type == CapabilityClipboard {
+		return validateParameterizedClipboard(path, i, n)
 	}
 	if n.Type != CapabilityAgentContext {
 		return errs.err()

@@ -475,6 +475,19 @@ into the Kit. Only HTTP/HTTPS navigation is granted, on the provider
 host rather than the CLI client. Browser traffic is not sandbox egress.
 Use `optional: true` if printing the URL is a sufficient fallback.
 
+### clipboard@1
+
+For host clipboard access, request `com.docker.sandbox/clipboard@1`.
+Without config the sandbox has a normal clipboard: every media type in
+both directions. The runtime supplies the helpers (`wl-paste`, `xclip`,
+`xsel`, and `pbpaste` to read; `wl-copy`, `xclip`, `xsel`, `pbcopy`,
+and `clip.exe` to write); remove any clipboard shims or helper packages
+the old Kit installed. To narrow it, list the media types per
+direction, such as `read: [image/*]` for screenshot paste and
+`write: [text/*]` for copying answers out; `[]` turns a direction off,
+and turning both off is invalid. Filters requested by different Kits
+union. Use `optional: true` when the agent works without a clipboard.
+
 ### auto-restart@1
 
 For a service that needs to resume after host or runtime recovery, add a

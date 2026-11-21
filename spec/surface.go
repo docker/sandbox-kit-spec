@@ -72,6 +72,12 @@ type Surface struct {
 	USB              []string `json:"usb,omitempty"`
 	Privileged       bool     `json:"privileged,omitempty"`
 
+	// Clipboard holds the host clipboard grant as "<direction> <pattern>"
+	// entries, such as "read */*" or "write text/plain". Kept apart from
+	// Services so the gate compares them by containment: narrowing a
+	// filter is not a widening, and a config digest could not tell.
+	Clipboard []string `json:"clipboard,omitempty"`
+
 	// Services holds one entry per requested runtime-provided service:
 	// the type string, with a digest of the config when one is present,
 	// so a config change moves the surface the way any widening does.
@@ -185,6 +191,13 @@ func SurfaceOf(d *Descriptor) Surface {
 			}
 		case CapabilityPrivileged:
 			s.Privileged = true
+		case CapabilityClipboard:
+			var c Clipboard
+			if err := DecodeCapabilityConfig(n, &c); err != nil {
+				s.Services = append(s.Services, capabilitySurfaceEntry(n))
+				continue
+			}
+			s.Clipboard = append(s.Clipboard, clipboardSurface(c)...)
 		case CapabilityDockerd:
 			// The engine needs privileged@1's elevation and brings
 			// persistent storage at its store, so it surfaces as
@@ -231,6 +244,7 @@ func SurfaceOf(d *Descriptor) Surface {
 	s.Ports = normalized(s.Ports)
 	s.HostPorts = normalized(s.HostPorts)
 	s.USB = normalized(s.USB)
+	s.Clipboard = normalized(s.Clipboard)
 	s.Services = normalized(s.Services)
 	return s
 }
@@ -366,6 +380,7 @@ func DiffWidenings(granted, candidate Surface) []Widening {
 	add("ports", missingFrom(granted.Ports, candidate.Ports))
 	add("hostPorts", missingFrom(granted.HostPorts, candidate.HostPorts))
 	add("usb", missingFrom(granted.USB, candidate.USB))
+	add("clipboard", clipboardWidenings(granted.Clipboard, candidate.Clipboard))
 	if !granted.Privileged && candidate.Privileged {
 		out = append(out, Widening{Category: "privileged", Detail: "requests privileged execution"})
 	}

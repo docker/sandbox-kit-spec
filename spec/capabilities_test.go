@@ -182,6 +182,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityUSBDevice, s: "1d6b", config: map[string]any{"vendorId": ref, "productId": "0002"}, field: "productId"},
 		{typ: CapabilityResources, s: "2", config: map[string]any{"cpu": ref, "memory": "1G"}, field: "memory"},
 		{typ: CapabilityDockerd, s: "false", config: map[string]any{"autoStart": ref}, field: "autoStart"},
+		{typ: CapabilityClipboard, s: "image/png", config: map[string]any{"read": []any{ref}, "write": []any{"text/plain"}}, field: "write"},
 		{typ: CapabilityLifecycle, s: "ready", config: map[string]any{"startup": []any{map[string]any{"command": "echo " + ref}}}, field: "startup"},
 		{typ: CapabilityAgentContext, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content"},
 		{typ: CapabilityAgentContextV2, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content"},
