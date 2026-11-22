@@ -503,6 +503,10 @@ const (
 	// absent — the host may refuse.
 	CapabilityPrivileged = "com.docker.sandbox/privileged@1"
 
+	// CapabilityKVM requests usable KVM and vhost-vsock devices for inner VMs.
+	// Hardware virtualization is a separate grant from container elevation.
+	CapabilityKVM = "com.docker.sandbox/kvm@1"
+
 	// CapabilityDockerd requests a Docker Engine; config decodes to
 	// Dockerd. The engine needs the same elevation privileged@1 asks for,
 	// so it counts as privileged on the permission surface. It owns

@@ -28,6 +28,7 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // judges several statements, and one statement is often judged from
 // several angles.
 var covers = map[string][]string{
+	"kvm@1/grant-transition":                      {"kvm@1/withdrawal"},
 	"sbx@1/environment-hooks-internal":            {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
 	"sbx@1/environment-process-none":              {"sbx@1/environment-authoritative"},
 	"sbx@1/environment-provided":                  {"sbx@1/environment-authoritative", "sbx@1/identity-consistent", "sbx@1/workspace-at-workdir"},
@@ -139,6 +140,7 @@ var kitCovers = map[string][]string{
 		"agent-skill@1/source-literal",
 		"long-running@1/no-config",
 		"auto-restart@1/no-config",
+		"kvm@1/no-config",
 		"open-url@1/no-config",
 		"dockerd@1/engine-store-owned",
 		"git-identity@1/no-config",
@@ -209,6 +211,13 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
+	"kvm@1/required-preflight": "a refused create returns no sandbox ID, and the adapter has no failed-create effect trace to observe whether hooks or the workload ran before refusal",
+	// The adapter can change Kit contributions through recreation. It has no
+	// in-place grant update, policy revocation, or explicit operator KVM grant
+	// control; those portions of the transition and contributor duties remain
+	// outside the observations credited to the checks above.
+	"kvm@1/widening-gates":   "permission projection and widening diffs are judged by the spec package KVM surface tests; approval UX is not exposed by the adapter",
+	"kvm@1/explicit-consent": "the adapter has no user-consent interaction or default-choice observation",
 	// Stop/start drives a sandbox boot, not host or runtime recovery. The
 	// adapter protocol has no recovery operation, so it cannot judge whether
 	// automatic restart or an explicit stop survives that boundary.

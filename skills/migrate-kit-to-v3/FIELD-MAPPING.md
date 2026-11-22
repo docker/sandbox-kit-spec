@@ -450,6 +450,22 @@ legacy fallback, and differing explicit destinations each get a profile,
 so two agent mixins can share a sandbox. Tool mixins
 carry `contentFile` or `content` alone. Staged bodies keep their paths.
 
+### kvm@1
+
+For hardware-accelerated Linux VMs inside the sandbox, request
+`com.docker.sandbox/kvm@1` without `config`. This replaces an out-of-band
+nested-virtualization prerequisite in the Kit contract. The runtime
+supplies usable `/dev/kvm` and `/dev/vhost-vsock` for the image user and
+configures VM nesting where necessary. The host can refuse when its
+hardware, hypervisor, or policy cannot provide access.
+
+Keep it required when the tool cannot work without virtualization.
+`privileged@1` and `dockerd@1` do not include this grant. The request does
+not install the VM tool, start its daemon, supply FUSE, or provide storage,
+credentials, or egress. Declare those prerequisites separately when
+needed. Changing nested VM mode may require sandbox recreation, including
+when withdrawing the final grant.
+
 ### open-url@1
 
 For host browser navigation, request `com.docker.sandbox/open-url@1`
