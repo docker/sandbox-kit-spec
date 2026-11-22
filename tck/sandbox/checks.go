@@ -225,6 +225,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capability: capLongRunning, fixture: fixtureLongRunning},
 				{capability: capAutoRestart, fixture: "auto-restart"},
 				{capability: capOpenURL, fixture: "open-url"},
+				{capability: capKVM, fixture: "kvm"},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},
 				{capability: capDockerAuth, fixture: "docker-auth"},
 				{capLifecycle, fixtureHooks, false},

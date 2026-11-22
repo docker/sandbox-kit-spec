@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/kvm@1",
+  "description": "KVM and vhost-vsock access for inner virtual machines takes no config. This schema rejects every config value, including empty and null values.",
+  "not": {}
+}

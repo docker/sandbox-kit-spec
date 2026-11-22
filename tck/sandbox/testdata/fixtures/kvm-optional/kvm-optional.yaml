@@ -1,0 +1,6 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+capabilities:
+  - type: com.docker.sandbox/kvm@1
+    optional: true

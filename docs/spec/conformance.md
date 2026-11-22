@@ -165,6 +165,18 @@ a block volume from an ordinary directory;
 recreate is the observation that can, and the suite verifies the layer was
 really discarded before crediting anything to the volume.
 
+For `kvm@1`, recreation with replacement references exercises addition,
+withdrawal, and removal of one of two Kit contributors. For the KVM
+fixtures, the adapter **MUST** withhold explicit operator virtualization grants so
+rejected optional requests and removal of the final Kit contributor can
+be judged without an independent grant masking their effects. The probes
+run as the image user and exercise both kernel device APIs; a readable device node alone
+is insufficient. A deliberate required refusal is reported as a skip by
+positive hardware checks, never as proof of usable nesting. The adapter
+has no failed-create effect trace, in-place grant update, policy-revocation
+operation, or explicit operator KVM grant control. Preflight side effects
+and those grant-change paths remain unobserved.
+
 An adapter claiming `volume@1` **MUST** support `create --name`, changed
 composition re-create, `volume-paths`, `volume-storage`, and `volume-rm`.
 The suite uses fresh names within the adapter's owner scope. Both

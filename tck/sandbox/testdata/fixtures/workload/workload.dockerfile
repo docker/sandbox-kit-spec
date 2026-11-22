@@ -152,6 +152,9 @@ PRIV
 # itself.
 COPY --chmod=0755 kit-tck-ssh-agent.py /usr/local/bin/kit-tck-ssh-agent
 
+# Device opens alone do not prove nesting. The probe exercises both kernel APIs.
+COPY --chmod=0755 kit-tck-kvm.py /usr/local/bin/kit-tck-kvm
+
 # A bare `bash` reads stdin, and the contract promises the adapter neither
 # a TTY nor anything on it, so it can exit at EOF — leaving a
 # process-based runtime with an already-stopped sandbox and failing every
@@ -182,6 +185,14 @@ mv /var/tmp/kit-tck-workload-credential.tmp /var/tmp/kit-tck-workload-credential
 printf '%s' "${SSH_AUTH_SOCK:-}" > /var/tmp/kit-tck-workload-ssh-sock
 kit-tck-ssh-agent observe > /var/tmp/kit-tck-workload-ssh-sock-proof.tmp 2>&1 || true
 mv /var/tmp/kit-tck-workload-ssh-sock-proof.tmp /var/tmp/kit-tck-workload-ssh-sock-proof
+# Preserve the entrypoint observation separately from later exec access.
+# Other fixtures omit KVM, so an unavailable device records failure without
+# preventing those workloads from starting.
+if kit-tck-kvm all > /var/tmp/kit-tck-workload-kvm.tmp 2>&1; then
+  mv /var/tmp/kit-tck-workload-kvm.tmp /var/tmp/kit-tck-workload-kvm
+else
+  rm -f /var/tmp/kit-tck-workload-kvm.tmp
+fi
 exec sleep infinity
 ENTRY
 

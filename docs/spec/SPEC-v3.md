@@ -645,7 +645,7 @@ serialization. An empty string is equivalent to an omitted label.
 declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
-`dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
+`kvm@1`, `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
 `agent-interactive-sessions@1`, `lifecycle@1`, `sbx@1`, `long-running@1`,
 `auto-restart@1`, `open-url@1`,
 `git-identity@1`.
@@ -926,6 +926,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/usb-device@1` | [usb-device@1](capabilities/com.docker.sandbox/usb-device@1.md) | instance |
 | `com.docker.sandbox/resources@1` | [resources@1](capabilities/com.docker.sandbox/resources@1.md) | singleton |
 | `com.docker.sandbox/privileged@1` | [privileged@1](capabilities/com.docker.sandbox/privileged@1.md) | singleton, config-less |
+| `com.docker.sandbox/kvm@1` | [kvm@1](capabilities/com.docker.sandbox/kvm@1.md) | singleton, config-less |
 | `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
 | `com.docker.sandbox/open-url@1` | [open-url@1](capabilities/com.docker.sandbox/open-url@1.md) | singleton, config-less |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
@@ -992,6 +993,9 @@ a Kit's surface in the lock and diff a candidate's against it:
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
+- `kvm@1` contributes its type to the service surface. Hardware
+  virtualization access is independent of container elevation, so
+  `privileged@1` and `dockerd@1` do not include this grant.
 - `dockerd@1` sets the privileged bit and the storage path
   `/var/lib/docker` rather than a service entry: the engine needs
   `privileged@1`'s elevation, and its store is persistent storage, as a
@@ -1509,8 +1513,8 @@ The spec library enforces, beyond per-field rules stated above:
 - **capabilities**: type matches
   `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$`;
   singleton and dedup arity per [§7.1](#71-arity); config-less types
-  (`privileged@1`, `kit-registry@1`, `sbx@1`, `long-running@1`, `auto-restart@1`,
-  `git-identity@1`) reject any
+  (`privileged@1`, `kvm@1`, `kit-registry@1`, `sbx@1`, `long-running@1`,
+  `auto-restart@1`, `git-identity@1`) reject any
   config; well-known configs decode strictly (unknown keys are errors)
   and pass their per-type rules
   (see the capability pages); **cross-entry**: every credential inject

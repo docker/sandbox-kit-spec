@@ -499,6 +499,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityNetworkPolicyV2:          true,
 	CapabilityResources:                true,
 	CapabilityPrivileged:               true,
+	CapabilityKVM:                      true,
 	CapabilityDockerd:                  true,
 	CapabilityKitRegistry:              true,
 	CapabilityAgentSessions:            true,
@@ -591,6 +592,7 @@ func argvContains(argv []string, sub string) bool {
 var configlessCapabilities = map[string]bool{
 	CapabilityGitIdentity: true,
 	CapabilityPrivileged:  true,
+	CapabilityKVM:         true,
 	CapabilityKitRegistry: true,
 	CapabilitySbx:         true,
 	CapabilityLongRunning: true,

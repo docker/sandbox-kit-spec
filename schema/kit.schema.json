@@ -592,6 +592,25 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/kvm@1"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/kvm@1.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/dockerd@1"
               }
             },

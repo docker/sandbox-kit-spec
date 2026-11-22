@@ -72,7 +72,7 @@ func allCapabilityTypes() []string {
 	return []string{
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort,
-		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityDockerd, CapabilityKitRegistry,
+		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKVM, CapabilityDockerd, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
 	}
