@@ -53,7 +53,7 @@ if verb == "create":
         accepted = True
     if broken == "accepts-required-unclaimed":
         accepted = True
-    required = has_request(fixtures) and "kvm-optional" not in fixtures
+    required = any(f in ("kvm", "kvm-second", "kvm-hooks") for f in fixtures)
     if required and not accepted:
         print("refusing: " + ("unavailable capability" if broken == "kvm-refusal-omits-type" else capability), file=sys.stderr)
         sys.exit(2)
@@ -103,6 +103,8 @@ elif verb == "start":
 elif verb == "stop":
     pass
 elif verb == "recreate":
+    if broken == "kvm-recreate-noop":
+        sys.exit(0)
     fixtures, _ = inputs(args)
     accepted = has_request(fixtures)
     if broken in ("kvm-refuses-transition", "kvm-refuses-corrupts-grant", "kvm-refuses-corrupts-selection"):
@@ -145,7 +147,10 @@ elif verb == "exec":
             print("unavailable:" + mode + ":device unavailable or ioctl refused", file=sys.stderr)
             sys.exit(3)
         print("usable")
-    elif args[0] == "rm" and args[1:] == ["-f", "/var/tmp/kit-tck-kvm-hook", "/var/tmp/kit-tck-workload-kvm"]:
+    elif args[0] == "rm" and args[1:] in (
+        ["-f", "/var/tmp/kit-tck-workload-kvm"],
+        ["-f", "/var/tmp/kit-tck-kvm-hook", "/var/tmp/kit-tck-workload-kvm"],
+    ):
         data["startup"] = False
         save()
     elif args[0] == "cat" and args[1] in ("/var/tmp/kit-tck-kvm-hook", "/var/tmp/kit-tck-workload-kvm"):

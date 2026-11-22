@@ -82,3 +82,45 @@ func TestKVMRequiredUnclaimedIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// KVM startup is observable through the workload even when the runtime
+// implements no hook capability. Requiring lifecycle would hide late access.
+func TestKVMBeforeStartupWithoutLifecycle(t *testing.T) {
+	for _, broken := range []string{"", "kvm-late-access", "kvm-restart-late-access"} {
+		t.Run(broken, func(t *testing.T) {
+			a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+			a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capKVM, "KIT_TCK_FAKE_BROKEN=" + broken}
+			for _, c := range checks {
+				if c.requirement != "kvm@1/before-startup" {
+					continue
+				}
+				rep, err := runChecks(t.Context(), &Env{Adapter: a, Fixtures: Fixtures(FixtureDir)}, []check{c})
+				require.NoError(t, err)
+				if broken == "" {
+					require.Empty(t, rep.Findings, "KVM-only startup must be judged rather than skipped")
+				} else {
+					require.Contains(t, failedRequirements(rep), c.requirement, "late access must fail without lifecycle support")
+				}
+				return
+			}
+			t.Fatal("KVM startup check is missing")
+		})
+	}
+}
+
+// An optional contributor cannot weaken a required request supplied by
+// another Kit, regardless of composition order.
+func TestKVMFakeRequiredContributorWins(t *testing.T) {
+	for _, required := range []string{"kvm", "kvm-second", "kvm-hooks"} {
+		for _, refs := range [][]string{{required, "kvm-optional"}, {"kvm-optional", required}} {
+			t.Run(strings.Join(refs, "+"), func(t *testing.T) {
+				a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+				a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + capKVM, "KIT_TCK_FAKE_BROKEN="}
+				_, err := a.Create(t.Context(), refs, adapter.CreateOptions{RejectCapabilities: []string{capKVM}})
+				var refused *adapter.RefusedError
+				require.ErrorAs(t, err, &refused)
+				require.Contains(t, refused.Detail, capKVM)
+			})
+		}
+	}
+}

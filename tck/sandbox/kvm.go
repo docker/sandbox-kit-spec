@@ -55,7 +55,15 @@ func kvmDevices(ctx context.Context, e *Env) []report.Finding {
 }
 
 func kvmBeforeStartup(ctx context.Context, e *Env) []report.Finding {
-	id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, "kvm-hooks"}, nil)
+	// Workload startup is observable without hook support. Only add the
+	// hook fixture and its capture when the runtime claims lifecycle.
+	fixture := "kvm"
+	records := []string{"/var/tmp/kit-tck-workload-kvm"}
+	if e.claims(capLifecycle) {
+		fixture = "kvm-hooks"
+		records = append([]string{"/var/tmp/kit-tck-kvm-hook"}, records...)
+	}
+	id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixture}, nil)
 	defer cleanup()
 	if findings := kvmCreateFinding(err); len(findings) > 0 {
 		return findings
@@ -64,7 +72,7 @@ func kvmBeforeStartup(ctx context.Context, e *Env) []report.Finding {
 		if boot > 0 {
 			// Captures survive stop/start. Remove them so the next boot must
 			// prove access before its own hooks and workload execute.
-			if _, finding := execOutput(ctx, e, id, "rm", "-f", "/var/tmp/kit-tck-kvm-hook", "/var/tmp/kit-tck-workload-kvm"); finding != nil {
+			if _, finding := execOutput(ctx, e, id, append([]string{"rm", "-f"}, records...)...); finding != nil {
 				return []report.Finding{*finding}
 			}
 			if err = e.Adapter.Stop(ctx, id); err != nil {
@@ -77,7 +85,7 @@ func kvmBeforeStartup(ctx context.Context, e *Env) []report.Finding {
 		// A running container can precede its entrypoint's atomic publication.
 		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		for _, record := range []string{"/var/tmp/kit-tck-kvm-hook", "/var/tmp/kit-tck-workload-kvm"} {
+		for _, record := range records {
 			for {
 				got, finding := execOutput(waitCtx, e, id, "cat", record)
 				if finding == nil {
@@ -244,6 +252,18 @@ func kvmIndependent(ctx context.Context, e *Env) []report.Finding {
 	if errors.As(err, &refused) && !reflect.DeepEqual(before, after) {
 		return []report.Finding{report.Failf("refused contributor removal altered the previous composition: before=%+v after=%+v", before, after)}
 	}
+	if err == nil {
+		// Continued access alone also fits a recreation that ignored the
+		// replacement composition. Credit removal only after observing it.
+		hasSource := func(kit string) bool {
+			return slices.ContainsFunc(after.Selection.Selected, func(record spec.SelectionRecord) bool {
+				return record.Source != nil && (record.Source.Kit == kit || record.Source.Kit == e.Fixtures(kit))
+			})
+		}
+		if hasSource("kvm") || !hasSource("kvm-second") {
+			return []report.Finding{report.Failf("successful recreation did not replace the KVM contributors: %+v", after.Selection)}
+		}
+	}
 	if !slices.Contains(after.Surface.Services, capKVM) {
 		return []report.Finding{report.Failf("removing one contributor withdrew the remaining KVM grant: %+v", after.Surface)}
 	}
@@ -259,7 +279,7 @@ func kvmIndependent(ctx context.Context, e *Env) []report.Finding {
 func init() {
 	checks = append(checks,
 		check{requirement: "kvm@1/devices-usable", capability: capKVM, run: kvmDevices},
-		check{requirement: "kvm@1/before-startup", capability: capKVM, needs: []string{capLifecycle}, run: kvmBeforeStartup},
+		check{requirement: "kvm@1/before-startup", capability: capKVM, run: kvmBeforeStartup},
 		check{requirement: "kvm@1/required-unsatisfiable-refused", capability: capKVM, run: kvmRequiredRefused},
 		check{requirement: "kvm@1/optional-unavailable-skipped", capability: capKVM, run: kvmOptionalSkipped},
 		check{requirement: "kvm@1/restart", capability: capKVM, run: kvmRestart},

@@ -235,6 +235,7 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"kvm-recreate-noop":                                        {"kvm@1/independent-grants"},
 	"kvm-probe-crashes":                                        {"kvm@1/optional-unavailable-skipped", "kvm@1/grant-transition"},
 	"kvm-refuses-corrupts-selection":                           {"kvm@1/grant-transition", "kvm@1/independent-grants"},
 	"kvm-missing":                                              {"kvm@1/devices-usable"},
