@@ -41,12 +41,7 @@ def has_request(fixtures):
     return any(f in ("kvm", "kvm-second", "kvm-hooks", "kvm-optional") for f in fixtures)
 
 
-def save():
-    record.write_text(json.dumps(data))
-
-
-if verb == "create":
-    fixtures, rejected = inputs(args)
+def select_request(fixtures, rejected):
     supported = capability in claims.split(",")
     accepted = has_request(fixtures) and supported and capability not in rejected
     if broken == "kvm-ignores-required-rejection" and supported:
@@ -60,6 +55,16 @@ if verb == "create":
     if "kvm-optional" in fixtures and not accepted and broken == "kvm-refuses-optional":
         print("refusing: " + capability, file=sys.stderr)
         sys.exit(2)
+    return accepted
+
+
+def save():
+    record.write_text(json.dumps(data))
+
+
+if verb == "create":
+    fixtures, rejected = inputs(args)
+    accepted = select_request(fixtures, rejected)
     identity = "kvm-" + uuid.uuid4().hex
     record = root / (identity + ".json")
     data = {"fixtures": fixtures, "accepted": accepted, "access": accepted, "startup": accepted, "rejected": rejected}
@@ -106,7 +111,10 @@ elif verb == "recreate":
     if broken == "kvm-recreate-noop":
         sys.exit(0)
     fixtures, _ = inputs(args)
-    accepted = has_request(fixtures)
+    fixtures = fixtures or data["fixtures"]
+    # A refused replacement leaves the current composition and grants intact.
+    # Future policy is separate from those grants until recreation succeeds.
+    accepted = select_request(fixtures, data["rejected"])
     if broken in ("kvm-refuses-transition", "kvm-refuses-corrupts-grant", "kvm-refuses-corrupts-selection"):
         if broken == "kvm-refuses-corrupts-grant":
             data["access"] = not data["access"]
@@ -121,6 +129,7 @@ elif verb == "recreate":
     data["fixtures"] = fixtures
     data["accepted"] = accepted
     data["access"] = accepted
+    data["startup"] = accepted and broken != "kvm-late-access"
     if broken in ("kvm-retains-withdrawn", "kvm-retains-withdrawn-vsock") and not accepted:
         data["access"] = previous
     if broken == "kvm-addition-unusable" and accepted:

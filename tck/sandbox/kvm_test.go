@@ -124,3 +124,88 @@ func TestKVMFakeRequiredContributorWins(t *testing.T) {
 		}
 	}
 }
+
+// Recreation must use future policy while a refusal keeps the current
+// composition and grants. Exercise the protocol rather than the state file.
+func TestKVMFakeRecreateSelection(t *testing.T) {
+	for _, unavailable := range []string{"unclaimed", "create-rejection", "changed-policy"} {
+		for _, refs := range [][]string{
+			{"kvm"}, {"kvm-second"}, {"kvm-hooks"},
+			{"kvm", "kvm-optional"}, {"kvm-optional", "kvm"},
+			{"kvm-second", "kvm-optional"}, {"kvm-optional", "kvm-second"},
+			{"kvm-hooks", "kvm-optional"}, {"kvm-optional", "kvm-hooks"},
+			{"kvm-optional"}, nil,
+		} {
+			t.Run(unavailable+"/"+strings.Join(refs, "+"), func(t *testing.T) {
+				claims := capKVM
+				if unavailable == "unclaimed" {
+					claims = groupVolume
+					// The fake's empty claim override means its default claims.
+				}
+				a := adapter.New(filepath.Join("testdata", "fake-adapter"))
+				a.Env = []string{"KIT_TCK_FAKE_STATE=" + t.TempDir(), "KIT_TCK_FAKE_CLAIMS=" + claims, "KIT_TCK_FAKE_BROKEN="}
+				opts := adapter.CreateOptions{}
+				if unavailable == "create-rejection" {
+					opts.RejectCapabilities = []string{capKVM}
+				}
+				id, err := a.Create(t.Context(), []string{"kvm-optional"}, opts)
+				require.NoError(t, err)
+				if unavailable == "changed-policy" {
+					require.NoError(t, a.RejectCapabilities(t.Context(), id, capKVM))
+				}
+				before, err := a.Selection(t.Context(), id)
+				require.NoError(t, err)
+				wasAccepted := unavailable == "changed-policy"
+				assertAccess := func(accepted bool) {
+					t.Helper()
+					for _, mode := range []string{"kvm", "vsock"} {
+						result, execErr := a.Exec(t.Context(), id, "kit-tck-kvm", mode)
+						require.NoError(t, execErr)
+						if accepted {
+							require.Zero(t, result.ExitCode, "%s: %s", mode, result.Stderr)
+						} else {
+							require.Equal(t, 3, result.ExitCode, "%s must remain unavailable", mode)
+						}
+					}
+				}
+				assertAccess(wasAccepted)
+				err = a.RecreateWith(t.Context(), id, refs, nil)
+				optional := len(refs) == 0 || len(refs) == 1 && refs[0] == "kvm-optional"
+				if optional {
+					require.NoError(t, err)
+				} else {
+					var refused *adapter.RefusedError
+					require.ErrorAs(t, err, &refused)
+					require.Contains(t, refused.Detail, capKVM)
+				}
+				after, err := a.Selection(t.Context(), id)
+				require.NoError(t, err)
+				if optional {
+					require.Empty(t, after.Selection.Selected)
+					require.Len(t, after.Selection.Skipped, 1)
+					require.Equal(t, "kvm-optional", after.Selection.Skipped[0].Source.Kit)
+					require.Equal(t, []string{"capabilities[0]"}, after.Selection.Skipped[0].Rejected)
+					require.Empty(t, after.Surface.Services)
+					assertAccess(false)
+				} else {
+					require.Equal(t, before, after, "refusal must preserve the effective composition")
+					assertAccess(wasAccepted)
+				}
+				if unavailable != "unclaimed" {
+					require.NoError(t, a.RejectCapabilities(t.Context(), id))
+					require.NoError(t, a.Recreate(t.Context(), id))
+					restored, err := a.Selection(t.Context(), id)
+					require.NoError(t, err)
+					require.Len(t, restored.Selection.Selected, 1)
+					require.Equal(t, "kvm-optional", restored.Selection.Selected[0].Source.Kit)
+					require.Empty(t, restored.Selection.Skipped)
+					require.Equal(t, []string{capKVM}, restored.Surface.Services)
+					assertAccess(true)
+					result, err := a.Exec(t.Context(), id, "cat", "/var/tmp/kit-tck-workload-kvm")
+					require.NoError(t, err)
+					require.Zero(t, result.ExitCode, "recreation must grant access before startup")
+				}
+			})
+		}
+	}
+}
