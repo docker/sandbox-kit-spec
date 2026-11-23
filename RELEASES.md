@@ -257,16 +257,18 @@ generates the same files from the tag, attaches both to the GitHub
 release, includes them in `checksums.txt`, and places the notes in the
 release description.
 
-After a release, an optional workflow job proposes the catalog table
-update in `docker/docs`; it never edits that repository's working tree
-in this checkout. The job runs only for the latest published release
-and only when `DOCS_SYNC_APP_ID` (a repository variable) and
-`DOCS_SYNC_APP_PRIVATE_KEY` (a repository secret) are configured. The
-job skips the docs sync if either credential is missing. Runs for
-different releases share one concurrency group so they cannot race while
-checking the latest release and updating the docs branch. The GitHub App
-must be installed on `docker/docs` with contents and pull request write
-access. The updater changes the capability catalog table and owns the
+The `docker/docs` workflow `.github/workflows/sync-sandbox-kit-spec.yml`
+checks daily and on manual dispatch for a published catalog. It verifies
+the catalog against the release checksum and uses the updater from the
+matching specification tag. The workflow uses the docs repository's
+`GITHUB_TOKEN`, so no cross-repository GitHub App credentials are needed.
+GitHub Actions must be permitted to create pull requests in `docker/docs`.
+Generated pull requests are drafts until Docker Sandboxes adopts the
+specification. Because pull requests created with `GITHUB_TOKEN` do not
+trigger pull request workflows, a maintainer must close and reopen the
+pull request to start CI.
+
+The updater changes the capability catalog table and owns the
 `## Capability descriptions` section immediately below it. Paired HTML
 markers bound the generated section so later releases can refresh its
 prose without touching surrounding docs. A missing or malformed marker,
