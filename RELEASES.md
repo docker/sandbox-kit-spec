@@ -258,9 +258,10 @@ release, includes them in `checksums.txt`, and places the notes in the
 release description.
 
 The `docker/docs` workflow `.github/workflows/sync-sandbox-kit-spec.yml`
-checks daily and on manual dispatch for a published catalog. It verifies
-the catalog against the release checksum and uses the updater from the
-matching specification tag. The workflow uses the docs repository's
+checks daily and on manual dispatch for a published catalog. It downloads
+and verifies the JSON against the release checksum, then vendors the
+unchanged bytes as `data/sandbox_kit_capabilities.json`. Its draft pull
+request changes only that catalog. The workflow uses the docs repository's
 `GITHUB_TOKEN`, so no cross-repository GitHub App credentials are needed.
 GitHub Actions must be permitted to create pull requests in `docker/docs`.
 Generated pull requests are drafts until Docker Sandboxes adopts the
@@ -268,17 +269,14 @@ specification. Because pull requests created with `GITHUB_TOKEN` do not
 trigger pull request workflows, a maintainer must close and reopen the
 pull request to start CI.
 
-The updater changes the capability catalog table and owns the
-`## Capability descriptions` section immediately below it. Paired HTML
-markers bound the generated section so later releases can refresh its
-prose without touching surrounding docs. A missing or malformed marker,
-or an unmarked descriptions heading, stops the update for human review.
-Newly listed docs types receive `Not verified` status because the
-catalog does not establish runtime support. If an existing docs support
-row is absent from the catalog, the updater stops for human review; it
-does not remove the row or erase historical runtime claims. Runtime
-support and restrictions remain owned by `docker/docs` and must be
-verified there.
+A Hugo inline shortcode joins the catalog with docs-owned runtime support
+and restrictions in `data/sandbox_kit_support.json`. It renders one
+section per capability with its description, local and cloud support,
+restrictions, and specification link. Newly listed types receive
+`Not verified` status because the catalog does not establish runtime
+support. Existing support claims remain owned by `docker/docs`; a known
+support entry missing from the catalog requires human review rather than
+being dropped.
 
 ## Conformance suites and releases
 
