@@ -613,8 +613,12 @@ capability off mixins.
 Add it where the v2 kit's `testdata/tck.yaml` recorded a working
 non-interactive invocation in `promptArgs`. Translate it into the verb
 tails: `promptArgs: ["-p"]` → `prompt: ["-p", "{{.Prompt}}"]`, plus
-`continue` and `resume` where the agent supports them. `list` is a complete
-command whose stdout contains one resumable ID per line, most recent first.
+`continue` and `resume` where the agent supports them. Each verb runs one
+prompt headlessly, so `continue` and `resume` reference `{{.Prompt}}` too
+(`["-p", "--continue", "{{.Prompt}}"]`), and `resume` also
+`{{.SessionID}}`; without the headless flag they often open the TUI.
+`list` is a complete command whose stdout contains one resumable ID per
+line, most recent first.
 Where `promptArgs` was deliberately omitted, omit the capability — do not
 invent flags.
 

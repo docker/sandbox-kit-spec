@@ -1190,9 +1190,16 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		// The placeholder is the verb's whole point: a prompt verb
 		// that never receives the prompt (or a resume that never
 		// names the session) runs the agent with the caller's input
-		// silently discarded.
-		if len(a.Prompt) > 0 && !argvContains(a.Prompt, SessionPromptPlaceholder) {
-			c.errs.add(fieldErrorf(path+".config.prompt", "capabilities[%d]: prompt must reference %s", i, SessionPromptPlaceholder))
+		// silently discarded. Every headless verb carries a prompt:
+		// without a person at the terminal, reopening a session with
+		// nothing to say to it is not an operation.
+		for _, verb := range []struct {
+			name string
+			argv []string
+		}{{"prompt", a.Prompt}, {"resume", a.Resume}, {"continue", a.Continue}} {
+			if len(verb.argv) > 0 && !argvContains(verb.argv, SessionPromptPlaceholder) {
+				c.errs.add(fieldErrorf(path+".config."+verb.name, "capabilities[%d]: %s must reference %s", i, verb.name, SessionPromptPlaceholder))
+			}
 		}
 		if len(a.Resume) > 0 && !argvContains(a.Resume, SessionIDPlaceholder) {
 			c.errs.add(fieldErrorf(path+".config.resume", "capabilities[%d]: resume must reference %s", i, SessionIDPlaceholder))

@@ -115,16 +115,18 @@ capabilities:
 
   # The session control surface: how a harness drives claude without a
   # human at the terminal. Argv tails append to the entrypoint the way
-  # user args do; the host substitutes the placeholders. list is a
-  # complete command: the Agent SDK's listSessions, minus background
-  # agents (those come from `claude agents`), emitting resumable session
-  # ids one per line, most recent first.
+  # user args do; the host substitutes the placeholders. Every verb runs
+  # one prompt under -p, which is what keeps continue and resume
+  # headless: without it they open the TUI. list is a complete command:
+  # the Agent SDK's listSessions, minus background agents (those come
+  # from `claude agents`), emitting resumable session ids one per line,
+  # most recent first.
   - type: com.docker.sandbox/agent-sessions@1
     description: Drive claude sessions programmatically
     config:
       prompt: ["-p", "--", "{{.Prompt}}"]
-      continue: ["--continue"]
-      resume: ["--resume", "{{.SessionID}}"]
+      continue: ["-p", "--continue", "--", "{{.Prompt}}"]
+      resume: ["-p", "--resume", "{{.SessionID}}", "--", "{{.Prompt}}"]
       list: ["node", "/opt/claude-sessions/interactive-sessions.mjs"]
 
   # The interactive twin of the block above: the same agent's TUI verbs,

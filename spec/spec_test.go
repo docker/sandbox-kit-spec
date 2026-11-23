@@ -407,9 +407,9 @@ func TestValidateRecipe(t *testing.T) {
 }
 
 // The agent-sessions declaration: argv verbs decode through the
-// accessor, a verbless entry is refused, and the prompt/resume verbs
-// must carry their placeholder — a verb that silently discards the
-// caller's input is the failure mode the rule exists for.
+// accessor, a verbless entry is refused, and every verb must carry the
+// prompt (resume the session id too) — a verb that silently discards
+// the caller's input is the failure mode the rule exists for.
 func TestAgentSessionsNeed(t *testing.T) {
 	base := `# syntax=docker/sandbox-kit:3
 schemaVersion: "3"
@@ -419,16 +419,16 @@ capabilities:
   - type: com.docker.sandbox/agent-sessions@1
     config:
       prompt: ["-p", "{{.Prompt}}"]
-      resume: ["--resume", "{{.SessionID}}"]
-      continue: ["--continue"]
+      resume: ["-p", "--resume", "{{.SessionID}}", "{{.Prompt}}"]
+      continue: ["-p", "--continue", "{{.Prompt}}"]
       list: [sh, -c, "ls sessions"]
 `
 	d := decodeValid(t, base)
 	sessions, err := AgentSessionsOf(d.Capabilities)
 	require.NoError(t, err)
 	require.Equal(t, []string{"-p", "{{.Prompt}}"}, sessions.Prompt)
-	require.Equal(t, []string{"--resume", "{{.SessionID}}"}, sessions.Resume)
-	require.Equal(t, []string{"--continue"}, sessions.Continue)
+	require.Equal(t, []string{"-p", "--resume", "{{.SessionID}}", "{{.Prompt}}"}, sessions.Resume)
+	require.Equal(t, []string{"-p", "--continue", "{{.Prompt}}"}, sessions.Continue)
 	require.Equal(t, CommandLine{"sh", "-c", "ls sessions"}, sessions.List)
 
 	cases := map[string]string{
@@ -446,6 +446,11 @@ capabilities:
     config:
       resume: ["--resume"]
 `,
+		"resume without session id": `
+  - type: com.docker.sandbox/agent-sessions@1
+    config:
+      resume: ["-p", "--resume", "{{.Prompt}}"]
+`,
 		"unknown config key": `
   - type: com.docker.sandbox/agent-sessions@1
     config:
@@ -457,7 +462,7 @@ capabilities:
       prompt: ["-p", "{{.Prompt}}"]
   - type: com.docker.sandbox/agent-sessions@1
     config:
-      continue: ["--continue"]
+      continue: ["--continue", "{{.Prompt}}"]
 `,
 	}
 	for name, needs := range cases {
@@ -467,6 +472,22 @@ capabilities:
 			require.NoError(t, err)
 			_, err = Validate(d)
 			require.Error(t, err)
+		})
+	}
+
+	// Reopening a session headlessly is one prompt in it, so resume and
+	// continue are refused for the missing prompt by name: resume's
+	// session id alone does not satisfy the rule.
+	for verb, tail := range map[string]string{
+		"resume":   `["--resume", "{{.SessionID}}"]`,
+		"continue": `["--continue"]`,
+	} {
+		t.Run(verb+" without prompt", func(t *testing.T) {
+			y := "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:\n  - type: com.docker.sandbox/agent-sessions@1\n    config:\n      " + verb + ": " + tail + "\n"
+			d, err := Decode([]byte(y))
+			require.NoError(t, err)
+			_, err = Validate(d)
+			require.ErrorContains(t, err, verb+" must reference "+SessionPromptPlaceholder)
 		})
 	}
 
@@ -850,7 +871,7 @@ func TestAgentInteractiveSessionsListMatchesAgentSessions(t *testing.T) {
 		{"string and list spellings of one command", headless(`list: "a b"`) + interactive(`list: [sh, -c, "a b"]`), true},
 		{"both strings", headless(`list: "a b"`) + interactive(`list: "a b"`), true},
 		{"list on the headless side only", headless(`list: [ls, ids]`) + interactive(`continue: [--continue]`), true},
-		{"list on the interactive side only", headless(`continue: [--continue]`) + interactive(`list: [ls, ids]`), true},
+		{"list on the interactive side only", headless(`continue: [--continue, "{{.Prompt}}"]`) + interactive(`list: [ls, ids]`), true},
 		{"different lists", headless(`list: [ls, ids]`) + interactive(`list: [ls, all]`), false},
 		{"different strings", headless(`list: "a b"`) + interactive(`list: "a c"`), false},
 	}

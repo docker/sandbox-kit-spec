@@ -1,8 +1,8 @@
 # `com.docker.sandbox/agent-sessions@1`
 
 How to run the workload's agent headlessly inside the sandbox. This
-capability describes commands to run a prompt, resume or continue a
-session, and list past sessions.
+capability describes commands to run a prompt in a new, a named, or the
+most recent session, and to list past sessions.
 
 - **Shape**: singleton. The commands describe the workload's agent.
 - **Permission surface**: **no**.
@@ -19,17 +19,24 @@ the same command, and validation rejects a mismatch.
 - type: com.docker.sandbox/agent-sessions@1
   config:
     prompt: [-p, "{{.Prompt}}"]
-    resume: [--resume, "{{.SessionID}}"]
-    continue: [--continue]
+    resume: [-p, --resume, "{{.SessionID}}", "{{.Prompt}}"]
+    continue: [-p, --continue, "{{.Prompt}}"]
     list: [sh, -c, "claude-sessions --format ids"]
 ```
 
 | Field | Type | Rules |
 |---|---|---|
 | `prompt` | list\<string\> | Argv **tail** appended to the workload's launch command; runs one prompt headlessly. MUST reference `{{.Prompt}}`. | <!-- tck: agent-sessions@1/prompt-placeholder-required -->
-| `resume` | list\<string\> | Argv tail; reopens a named session. MUST reference `{{.SessionID}}`. | <!-- tck: agent-sessions@1/session-id-placeholder-required -->
-| `continue` | list\<string\> | Argv tail; reopens the most recent session. No placeholder. |
+| `resume` | list\<string\> | Argv tail; runs one prompt headlessly in a named session. MUST reference `{{.SessionID}}`. | <!-- tck: agent-sessions@1/session-id-placeholder-required -->
+| `continue` | list\<string\> | Argv tail; runs one prompt headlessly in the most recent session. |
 | `list` | string \| list | A **complete command** whose stdout enumerates resumable session ids, one per line, most recent first. A string runs via `sh -c`; a list supplies exec argv. |
+
+`resume` and `continue` **MUST** also reference `{{.Prompt}}`. With no <!-- tck: agent-sessions@1/resume-continue-prompt-placeholder-required -->
+person at the terminal, a headless invocation is one prompt: reopening a
+session with nothing to say to it is not an operation, and a tail
+without the prompt would run the agent with the caller's input silently
+discarded. [agent-interactive-sessions@1](agent-interactive-sessions@1.md)
+is where a session is reopened without one.
 
 Every verb is optional. An absent verb means the agent has no such
 operation. A declaration with no verbs is invalid.
@@ -47,6 +54,13 @@ resumable session ids, one per line, most recent first. These ids feed
 
 An absent verb **MUST** be surfaced as "operation unsupported". <!-- tck: agent-sessions@1/absent-verb-unsupported -->
 Only declared verbs supply invocation arguments.
+
+A host **MUST** refuse to invoke `prompt`, `resume`, or `continue` <!-- tck: agent-sessions@1/prompt-required-at-invocation -->
+without a non-empty prompt from the caller, reporting an error rather
+than substituting an empty `{{.Prompt}}`. Every headless verb exists to
+deliver a prompt, so an invocation without one has nothing to run, and
+what an agent does with an empty argument is its own: some fail, some
+wait on stdin.
 
 The declaration **MUST NOT** contribute to the permission surface; it <!-- tck: agent-sessions@1/declaration-grants-nothing -->
 only describes how to launch the agent already installed in the sandbox.

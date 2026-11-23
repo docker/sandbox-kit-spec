@@ -434,6 +434,48 @@ func keys(m map[string]string) []string {
 	return out
 }
 
+// agent-sessions reads an empty tail as absent, so each verb's schema
+// admits [] and otherwise requires the placeholders the validator does:
+// every verb the prompt, resume the session id as well.
+func TestAgentSessionsSchemaPlaceholders(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentSessions))
+	require.Equal(t, false, schema["additionalProperties"])
+	require.EqualValues(t, 1, schema["minProperties"], "{} must fail: no verbs")
+
+	defs := at(t, schema, "definitions")
+	for def, placeholder := range map[string]string{"referencesPrompt": SessionPromptPlaceholder, "referencesSessionID": SessionIDPlaceholder} {
+		anyOf := at(t, defs, def)["anyOf"].([]any)
+		pattern := regexp.MustCompile(anyOf[0].(map[string]any)["pattern"].(string))
+		// An element that still references a kit arg is judged after
+		// expansion, as the validator defers a parameterized entry.
+		require.Contains(t, anyOf[1].(map[string]any)["$ref"], "kit-arg.schema.json#/definitions/bearing")
+		require.True(t, pattern.MatchString("--flag="+placeholder), "%s: a placeholder inside a token counts", def)
+		require.False(t, pattern.MatchString("--flag"), "%s: a tail without it fails", def)
+	}
+
+	// required names the definitions a non-empty tail must contain.
+	required := func(verb string) []string {
+		prop := at(t, schema, "properties", verb)
+		require.Equal(t, "array", prop["type"])
+		branches := prop["anyOf"].([]any)
+		require.Len(t, branches, 2)
+		require.EqualValues(t, 0, branches[0].(map[string]any)["maxItems"], "%s: [] reads as absent", verb)
+		rest := branches[1].(map[string]any)
+		all, ok := rest["allOf"].([]any)
+		if !ok {
+			all = []any{rest}
+		}
+		var refs []string
+		for _, c := range all {
+			refs = append(refs, at(t, c.(map[string]any), "contains")["$ref"].(string))
+		}
+		return refs
+	}
+	require.Equal(t, []string{"#/definitions/referencesPrompt"}, required("prompt"))
+	require.Equal(t, []string{"#/definitions/referencesPrompt"}, required("continue"))
+	require.ElementsMatch(t, []string{"#/definitions/referencesSessionID", "#/definitions/referencesPrompt"}, required("resume"))
+}
+
 // The tests here read the schema's structure rather than run a validator,
 // so each pin is the keyword that makes the case pass or fail: a verb that
 // must carry a placeholder cannot be empty, an empty tail is a verb for

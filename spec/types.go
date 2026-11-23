@@ -1028,13 +1028,14 @@ const (
 
 // AgentSessions is CapabilityAgentSessions's config. Prompt, Resume, and
 // Continue are argv tails appended to the workload's launch command the
-// way user-supplied args are: Prompt runs one prompt non-interactively
-// and must reference {{.Prompt}}; Resume reopens a named session and
-// must reference {{.SessionID}}; Continue reopens the most recent
-// session. List is a complete command whose stdout enumerates resumable
-// session ids, one per line, most recent first. Every verb is optional
-// — an absent verb means the agent has no such operation — but a
-// declaration with no verbs at all says nothing and is invalid.
+// way user-supplied args are, and each runs one prompt non-interactively,
+// so each must reference {{.Prompt}}: Prompt in a new session, Resume in
+// a named session (and must also reference {{.SessionID}}), Continue in
+// the most recent session. List is a complete command whose stdout
+// enumerates resumable session ids, one per line, most recent first.
+// Every verb is optional — an absent verb means the agent has no such
+// operation — but a declaration with no verbs at all says nothing and is
+// invalid.
 type AgentSessions struct {
 	Prompt   []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Resume   []string    `json:"resume,omitempty" yaml:"resume,omitempty"`
