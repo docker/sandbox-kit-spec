@@ -44,6 +44,7 @@ func TestGPUValidation(t *testing.T) {
 		{map[string]any{"driver": strings.Repeat("a", 254) + "/gpu"}, "capabilities[0].config.driver"},
 		{map[string]any{"driver": "nvidia.com/" + strings.Repeat("g", 64)}, "capabilities[0].config.driver"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": nil}, "capabilities[0].config.devices"},
+		{map[string]any{"driver": GPUDriverNVIDIA, "devices": (*string)(nil)}, "capabilities[0].config.devices"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": "0"}, "capabilities[0].config.devices"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": "01"}, "capabilities[0].config.devices"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": "two"}, "capabilities[0].config.devices"},
