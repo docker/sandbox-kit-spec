@@ -64,6 +64,45 @@ stale binary:
 task kit:dev KIT=hello
 ```
 
+`task frontend:dev` builds the frontend alone under a fresh tag and
+prints the `# syntax=` line to paste into a descriptor. To build the
+image under its public name instead, run
+`docker build -t docker/sandbox-kit:3 .`: a local build resolves an
+image under that tag from the local store without pulling from a
+registry. `task frontend:push` publishes, and refuses to run unless
+`FRONTEND_PUSH_OK=1` is set; [RELEASES.md](../RELEASES.md#frontend-image)
+has the tag and promotion policy.
+
+## Repository layout
+
+- `docs/spec/SPEC-v3.md`: the normative specification. It covers the
+  descriptor grammar and the OCI layout, and has one page per well-known
+  capability type describing what a supporting runtime must do.
+- `spec/`: descriptor types, strict decoding, validation, arg expansion,
+  and capability/version parsing. Import it as
+  `github.com/docker/sandbox-kit-spec/v3/spec`. This package is the single
+  source of truth for the grammar, and the Docker Sandboxes runtime
+  imports it to read published Kits.
+- `schema/kit.schema.json`: the descriptor grammar as a JSON Schema, for
+  validation and completion in editors (see
+  [Editor support](../docs/building-kits.md#editor-support)). The Go
+  validator is still the validator of record.
+- `schema/capabilities/`: one schema file per well-known capability
+  type, named after the type (`com.docker.sandbox/volume@1.schema.json`).
+  The `@version` in a need type names an addressable config schema, and
+  these files are those schemas. Each type owns its config shape, and
+  `kit.schema.json` references them. Config-less types (`privileged@1`,
+  `kit-registry@1`) reject any config value. The author of a
+  host-specific type publishes the equivalent under their own namespace.
+- `cmd/frontend/`: the BuildKit gateway frontend that the descriptor's
+  first line, `# syntax=docker/sandbox-kit:3`, dispatches to. It is a
+  separate Go module so library consumers don't pull in BuildKit
+  dependencies.
+- `tck/` and `cmd/kit-tck/`: the conformance suites and their CLI.
+- `skills/`: agent skills, not tied to any one agent tool, for writing a
+  v3 Kit and migrating a v2 one. [skills/README.md](../skills/README.md)
+  explains how to wire them into an agent.
+
 ## Changing the grammar
 
 The descriptor grammar has four representations that must move together,
