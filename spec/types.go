@@ -495,7 +495,7 @@ const (
 	// to USBDevice. Instance-shaped.
 	CapabilityUSBDevice = "com.docker.sandbox/usb-device@1"
 
-	// CapabilityResources constrains CPU, memory, and GPU; config decodes to
+	// CapabilityResources constrains CPU and memory; config decodes to
 	// Resources.
 	CapabilityResources = "com.docker.sandbox/resources@1"
 
@@ -1040,7 +1040,6 @@ type Clipboard struct {
 type Resources struct {
 	CPU    float64 `json:"cpu,omitempty" yaml:"cpu,omitempty"`
 	Memory string  `json:"memory,omitempty" yaml:"memory,omitempty"`
-	GPU    string  `json:"gpu,omitempty" yaml:"gpu,omitempty"`
 }
 
 // Drivers the gpu@1 page documents. Any other <dns-domain>/<name> is

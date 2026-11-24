@@ -450,6 +450,17 @@ legacy fallback, and differing explicit destinations each get a profile,
 so two agent mixins can share a sandbox. Tool mixins
 carry `contentFile` or `content` alone. Staged bodies keep their paths.
 
+### gpu@1
+
+A GPU request is `com.docker.sandbox/gpu@1`, not a `resources@1` field:
+`resources.gpu` no longer decodes. `driver` is required and names the GPU
+interface the image is built for, which the old selector never said:
+`nvidia.com/gpu` for a CUDA image, `mesa3d.org/venus` for a Vulkan image
+using Mesa Venus. An old `gpu: "all"` or a count becomes `devices` with the
+same value; any other selector (a device index or address) has no
+equivalent, because which host GPU serves the sandbox is the operator's
+choice. The request is permission surface, so adding it gates.
+
 ### kvm@1
 
 For hardware-accelerated Linux VMs inside the sandbox, request
@@ -691,7 +702,7 @@ combines the sources while honoring access bounds and collision rules.
 
 ### Do not add on speculation
 
-`privileged@1`, `resources@1`, `kit-registry@1` and `usb-device@1` belong in a
+`privileged@1`, `resources@1`, `gpu@1`, `kit-registry@1` and `usb-device@1` belong in a
 migrated kit only if the v2 kit declared the equivalent. A v2 Dockerfile's
 `LABEL com.docker.sandboxes.start-docker="true"` is the exception: it maps to
 `dockerd@1` (above), and the label stays in the recipe only as a transition

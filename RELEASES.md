@@ -132,6 +132,15 @@ that previously allowed these overrides or supplied only some values
 need to change to match this draft. Descriptor fields, capability config,
 and `schemaVersion` are unchanged.
 
+The in-place removal of `resources@1`'s `gpu` field uses this exception,
+approved by maintainer @cdupuis, who proposed making GPU a first-class
+capability and removing the field from `resources@1`. GPU requests move to
+`gpu@1`, which names the driver the image is built for and is permission
+surface; the removed selector granted GPU access without approval. A
+descriptor that sets `resources.gpu` no longer decodes, and Go consumers
+reading `spec.Resources.GPU` no longer compile; they read `spec.GPUOf`
+instead. `schemaVersion` is unchanged.
+
 The in-place `agent-context@2` delivery addition in
 [issue #878](https://github.com/docker/sbx-releases/issues/878) uses the
 same exception, approved by maintainer @cdupuis. It adds
