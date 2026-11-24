@@ -14,7 +14,11 @@
       "anyOf": [
         {
           "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$",
-          "maxLength": 317
+          "allOf": [
+            {
+              "pattern": "^[^/]{1,253}/[^/]{1,63}$"
+            }
+          ]
         },
         {
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"

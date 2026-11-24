@@ -7,8 +7,12 @@ import (
 )
 
 // gpuDriver is gpu@1's driver grammar: a lowercase DNS name, a slash, and
-// a name. validGPUDriver adds the length limits RE2 cannot count.
-var gpuDriver = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
+// a name. gpuDriverLength bounds each part, the domain to 253 characters
+// and the name to 63; the schema states both patterns.
+var (
+	gpuDriver       = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
+	gpuDriverLength = regexp.MustCompile(`^[^/]{1,253}/[^/]{1,63}$`)
+)
 
 // gpuDevices admits "all", a positive count, or empty for the default. A
 // digit string with a leading zero is refused so a count always reads as
@@ -16,8 +20,7 @@ var gpuDriver = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a
 var gpuDevices = regexp.MustCompile(`^(all|[1-9][0-9]*)?$`)
 
 func validGPUDriver(driver string) bool {
-	domain, name, _ := strings.Cut(driver, "/")
-	return gpuDriver.MatchString(driver) && len(domain) <= 253 && len(name) <= 63
+	return gpuDriver.MatchString(driver) && gpuDriverLength.MatchString(driver)
 }
 
 // gpuSurface is the surface entry for one gpu@1 request: the driver and

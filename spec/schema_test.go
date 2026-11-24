@@ -860,3 +860,25 @@ func TestProvidesFromSchemaMatchesGrammar(t *testing.T) {
 	require.Equal(t, KindWorkload, at(t, rule, "then", "properties", "kind")["const"])
 	require.Equal(t, []any{"kits"}, at(t, rule, "then", "not")["required"])
 }
+
+// The schema bounds the driver's domain and name separately, with the same
+// expression validation compiles, so a schema-valid driver never fails
+// validation on length.
+func TestGPUDriverLengthSchema(t *testing.T) {
+	driver := at(t, loadJSON(t, perTypeSchemaPath(CapabilityGPU)), "properties", "driver")
+	literal := literalOrArgRefBranches(t, driver)[0].(map[string]any)
+	bound := literal["allOf"].([]any)[0].(map[string]any)["pattern"].(string)
+	require.Equal(t, gpuDriverLength.String(), bound)
+	for _, tc := range []struct {
+		driver string
+		valid  bool
+	}{
+		{"nvidia.com/gpu", true},
+		{strings.Repeat("a", 253) + "/gpu", true},
+		{strings.Repeat("a", 254) + "/gpu", false},
+		{"nvidia.com/" + strings.Repeat("g", 63), true},
+		{"nvidia.com/" + strings.Repeat("g", 64), false},
+	} {
+		require.Equal(t, tc.valid, validGPUDriver(tc.driver), "%d-byte driver", len(tc.driver))
+	}
+}
