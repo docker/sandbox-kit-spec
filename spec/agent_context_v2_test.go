@@ -382,7 +382,10 @@ func TestAgentContextV2CompositionCountsSerializedEscapes(t *testing.T) {
 }
 
 func TestAgentContextV2RejectsRepeatedBodiesBeforeAllocatingProfiles(t *testing.T) {
-	// Keep this test serial: the measured operation controls process-wide GC.
+	// Keep JSON scratch-pool reuse on one scheduler P. Disabling GC alone
+	// does not prevent migration from causing another cold-buffer allocation.
+	previousProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previousProcs)
 	for _, character := range []string{"x", "<"} {
 		t.Run(character, func(t *testing.T) {
 			d := &Descriptor{SchemaVersion: SchemaVersion, Kind: KindMixin, Capabilities: []Capability{
