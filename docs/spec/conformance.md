@@ -185,6 +185,18 @@ the other, and a deliberate refusal is never proof of access. The
 suite judges neither the driver stack nor how many GPUs were granted,
 because it cannot assume the host's GPUs.
 
+For `fuse@1`, recreation with replacement references exercises addition,
+withdrawal, and removal of one of two Kit contributors, through the
+`fuse-first`, `fuse-second` and `fuse-absent` fixtures. For those
+fixtures, the adapter **MUST** withhold explicit operator FUSE grants,
+such as a runtime setting that turns FUSE on for every sandbox, so
+removal of the final Kit contributor can be judged without an
+independent grant masking its effect. Withdrawal is observed on
+`/dev/fuse` only, because `privileged@1` and `dockerd@1` also grant
+`CAP_SYS_ADMIN`. The adapter has no in-place grant update,
+policy-revocation operation, or explicit operator FUSE grant control;
+those grant-change paths remain unobserved.
+
 An adapter claiming `volume@1` **MUST** support `create --name`, changed
 composition re-create, `volume-paths`, `volume-storage`, and `volume-rm`.
 The suite uses fresh names within the adapter's owner scope. Both

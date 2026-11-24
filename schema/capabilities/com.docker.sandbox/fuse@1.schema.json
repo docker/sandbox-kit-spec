@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/fuse@1",
+  "description": "The FUSE need takes no config: the request is present or absent, and the host may refuse it. This schema rejects every config value accordingly.",
+  "not": {}
+}

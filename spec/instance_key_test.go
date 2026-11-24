@@ -110,6 +110,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityPrivileged:               AritySingleton,
 		CapabilityGPU:                      AritySingleton,
 		CapabilityKVM:                      AritySingleton,
+		CapabilityFUSE:                     AritySingleton,
 		CapabilityDockerd:                  AritySingleton,
 		CapabilityKitRegistry:              AritySingleton,
 		CapabilityAgentSessions:            AritySingleton,

@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/gpu@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/gpu@1,com.docker.sandbox/fuse@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -49,6 +49,19 @@ if [ "$verb" = create ]; then
   done
 elif [ -f "$state/kvm/${1:-}.json" ]; then
   exec python3 "$kvm_helper" "$state" "$claims" "$broken" "$verb" "$@"
+fi
+
+# FUSE grant changes need the same effective-grant state across recreation.
+fuse_helper="$(dirname "${BASH_SOURCE[0]}")/fuse-fake.py"
+if [ "$verb" = create ]; then
+  for arg in "$@"; do
+    case "${arg##*/}" in
+    fuse-first | fuse-second | fuse-absent)
+      exec python3 "$fuse_helper" "$state" "$claims" "$broken" "$verb" "$@" ;;
+    esac
+  done
+elif [ -f "$state/fuse/${1:-}.json" ]; then
+  exec python3 "$fuse_helper" "$state" "$claims" "$broken" "$verb" "$@"
 fi
 
 # Environment probes keep sandbox identity separate from the adapter handle.
@@ -665,6 +678,7 @@ create)
       *volume*) need="com.docker.sandbox/volume@1" ;;
       *resources*) need="com.docker.sandbox/resources@1" ;;
       *privileged*) need="com.docker.sandbox/privileged@1" ;;
+      *fuse*) need="com.docker.sandbox/fuse@1" ;;
       *skills*) need="com.docker.sandbox/agent-skills@1" ;;
       *port*) need="com.docker.sandbox/port@1" ;;
       *usb-device*) need="com.docker.sandbox/usb-device@1" ;;
@@ -1797,11 +1811,21 @@ exec)
     else echo "yes"; fi
     ;;
   kit-tck-privileged)
-    if [ "$broken" = "ignores-privileged" ]; then echo "no"
+    # FUSE alone runs unelevated; fuse-elevates grants it by elevating.
+    if [ "$broken" != "fuse-elevates" ] && grep -qx fuse "$dir/docker-kits" 2>/dev/null; then echo "no"
+    elif [ "$broken" = "ignores-privileged" ]; then echo "no"
     elif [ "$broken" = "docker-ignores-privilege" ] && [ -f "$dir/docker" ]; then echo "no"
     elif [ "$broken" = "docker-elevates-on-label-only" ] && [ ! -f "$dir/start-docker-label" ]; then echo "no"
     elif [ "$broken" = "docker-manual-ignores-privilege" ] && [ -f "$dir/docker-manual" ]; then echo "no"
     else echo "yes"; fi
+    ;;
+  kit-tck-fuse)
+    if [ "$2" = device ] && [ "$broken" = "ignores-fuse-device" ]; then echo "no"
+    elif [ "$2" = cap ] && [ "$broken" = "drops-fuse-cap" ]; then echo "no"
+    else echo "yes"; fi
+    ;;
+  kit-tck-fuse-mount)
+    if [ "$broken" = "blocks-fuse-mount" ] || [ "$broken" = "isolates-fuse-mount" ]; then echo "no"; else echo "yes"; fi
     ;;
   kit-tck-docker)
     case "$2" in
