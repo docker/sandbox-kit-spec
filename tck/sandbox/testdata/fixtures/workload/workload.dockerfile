@@ -147,20 +147,36 @@ PRIV
 # so the probe opens the nodes gpu@1's driver row names read-write rather
 # than testing for them: for NVIDIA, the control node, every GPU node, and
 # the UVM node when the driver created it; for Venus, every render node.
+# Any character device opens, /dev/null included, so each node must also
+# carry its driver's identity: NVIDIA's fixed major 195 (nvidia-uvm's is
+# assigned at load, so it is read from /proc/devices), and for Venus DRM's
+# major 226 with virtio-gpu as the driver behind the node.
 COPY --chmod=0755 <<'GPU' /usr/local/bin/kit-tck-gpu
 #!/bin/sh
+no() { echo no; exit 0; }
 opens() { [ -c "$1" ] && ( : <> "$1" ) 2>/dev/null; }
+major() { printf '%d' "0x$(stat -L -c %t "$1")"; }
+minor() { printf '%d' "0x$(stat -L -c %T "$1")"; }
+# A missing node leaves its glob literal, which does not open.
+is() { opens "$1" && [ "$(major "$1")" = "$2" ]; }
 case "$1" in
 nvidia.com/gpu)
-  set -- /dev/nvidiactl
-  for dev in /dev/nvidia[0-9]*; do set -- "$@" "$dev"; done
-  [ -e /dev/nvidia-uvm ] && set -- "$@" /dev/nvidia-uvm
-  # Without a GPU node the glob stays literal and does not open.
+  is /dev/nvidiactl 195 || no
+  for dev in /dev/nvidia[0-9]*; do is "$dev" 195 || no; done
+  if [ -e /dev/nvidia-uvm ]; then
+    uvm=$(awk '$2 == "nvidia-uvm" {print $1}' /proc/devices)
+    [ -n "$uvm" ] && is /dev/nvidia-uvm "$uvm" || no
+  fi
   ;;
-mesa3d.org/venus) set -- /dev/dri/renderD* ;;
+mesa3d.org/venus)
+  for dev in /dev/dri/renderD*; do
+    is "$dev" 226 || no
+    driver=$(readlink -f "/sys/dev/char/226:$(minor "$dev")/device/driver" 2>/dev/null)
+    [ "${driver##*/}" = virtio_gpu ] || no
+  done
+  ;;
 *) echo unknown; exit 0 ;;
 esac
-for dev in "$@"; do opens "$dev" || { echo no; exit 0; }; done
 echo yes
 GPU
 
