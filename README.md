@@ -102,13 +102,12 @@ cd examples
 sbx run ./hello --kit ./gh .
 ```
 
-`hello` is the smallest workload Kit: an agent environment with a
-startup hook, guidance, and a network policy. `gh` is a mixin that adds
-the GitHub CLI as a pinned Nix closure. Inside the sandbox,
-`gh --version` works, `/usr/share/sandbox/kit/hello/` holds the published
-`kit.yaml` and the `kit.dockerfile` recipe that produced the content, and
-`/var/log/sbx-kit-startup.log` shows the startup hook's run. With a
-`github` secret set on the host (`sbx secret set github`), `gh api user`
+`hello` is the smallest workload Kit: an agent environment with
+guidance and a network policy. `gh` is a mixin that adds the GitHub CLI
+as a pinned Nix closure. Inside the sandbox, `gh --version` works, and
+`/usr/share/sandbox/kit/hello/` holds the published `kit.yaml` and the
+`kit.dockerfile` recipe that produced the content. With a `github`
+secret set on the host (`sbx secret set github`), `gh api user`
 authenticates through the proxy, and the container only ever sees a
 sentinel token.
 
@@ -153,7 +152,7 @@ check that a descriptor validates.
 `kit-tck validate` checks that an artifact is a conforming Kit.
 `kit-tck runtime` checks that a runtime behaves as the capability pages
 require, through an adapter: an executable, in any language, that
-implements seven verbs.
+implements the [adapter verbs](docs/spec/conformance.md#22-verbs).
 [docs/spec/conformance.md](docs/spec/conformance.md) defines what each
 suite means. Each
 [GitHub Release](https://github.com/docker/sandbox-kit-spec/releases)

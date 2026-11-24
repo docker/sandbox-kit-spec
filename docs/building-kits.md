@@ -19,20 +19,28 @@ yaml-language-server, add a modeline on the descriptor's second line
 
 ## Where a Kit's content comes from
 
-A Kit's content recipe lives in one of three places:
+A Kit pairs its declarations with a content recipe in one of four
+ways ([SPEC-v3 §3](spec/SPEC-v3.md#3-authoring-forms)):
 
-- a companion `<stem>.dockerfile` next to the descriptor
+- a companion `<stem>.dockerfile` next to the `<stem>.yaml` descriptor,
+  or a recipe the descriptor names with a `dockerfile:` field (a path
+  relative to the descriptor's directory)
 - an inline `build:` block in the descriptor with literal Dockerfile
   text (`examples/motd` shows this single-file form)
+- a comment descriptor: a Dockerfile that carries its declarations in a
+  `# kit:` comment block, so one file is both (`examples/gh-comment`)
 - a `kits:` list naming other Kits (`examples/team`, a `kind: set`; see
   [Publishing a set as one Kit](#publishing-a-set-as-one-kit))
 
-They are mutually exclusive. A `kind: mixin` Kit with none of them is
-declaration-only.
+`build:`, `dockerfile:`, and `kits:` are mutually exclusive, and a
+comment descriptor must not declare `build:` or `dockerfile:`, because
+the file already is the recipe. A `dockerfile:` path that does not exist
+is an error. A `kind: mixin` Kit with no recipe is declaration-only.
 
 The frontend finds the companion `claude.dockerfile` by naming
-convention and builds it through `dockerfile.v0`, honoring the
-companion's own `# syntax=` directive if it names a different frontend.
+convention, or the file a `dockerfile:` field names, and builds it
+through `dockerfile.v0`, honoring the companion's own `# syntax=`
+directive if it names a different frontend.
 It then validates the descriptor against the resulting image, stages
 guidance content into the image, and attaches the published descriptor
 as a manifest annotation. A `kind: mixin` descriptor with no companion
@@ -69,11 +77,13 @@ descriptor, so validate the OCI layout with
 `kit-tck validate --layout /tmp/claude-kit-layout 2.1.0`.
 
 Build-phase args are passed by their Kit-arg name and validated before
-the Dockerfile sees them under the declared `buildArg` name:
+the Dockerfile sees them under the declared `buildArg` name. `hello`
+declares `greeting` with `buildArg: GREETING`, and its recipe writes
+`hello ${GREETING}` to `/etc/motd`. From `examples/hello`:
 
 ```sh
-docker buildx build --builder kit-builder . -f gh.yaml \
-  --build-arg version=2.99.0 -t gh-kit:2.99.0 --output type=cacheonly
+docker buildx build --builder kit-builder . -f hello.yaml \
+  --build-arg greeting=there -t hello-kit:dev --output type=cacheonly
 ```
 
 ## Multi-platform builds
