@@ -70,8 +70,10 @@ image under its public name instead, run
 `docker build -t docker/sandbox-kit:3 .`: a local build resolves an
 image under that tag from the local store without pulling from a
 registry. `task frontend:push` publishes, and refuses to run unless
-`FRONTEND_PUSH_OK=1` is set; [RELEASES.md](../RELEASES.md#frontend-image)
-has the tag and promotion policy.
+`FRONTEND_PUSH_OK` is set to a nonempty value. Any nonempty value
+passes, `0` included, so use `FRONTEND_PUSH_OK=1`.
+[RELEASES.md](../RELEASES.md#frontend-image) has the tag and promotion
+policy.
 
 ## Repository layout
 
