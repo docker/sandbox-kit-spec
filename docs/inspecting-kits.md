@@ -130,8 +130,9 @@ kit-tck inspect docker.io/sbx/neovim:latest --descriptor
 
 Look for `sourceUrl`. This reads manifest metadata without downloading
 the Kit's layers. To inspect a particular platform, add
-`--platform linux/amd64`. See the [README](../README.md#conformance) for
-the conformance tools and their other inspection options.
+`--platform linux/amd64`. See [Checking a Kit with
+kit-tck](building-kits.md#checking-a-kit-with-kit-tck) for the
+conformance tools and their other inspection options.
 
 Generic registry tools can read the source annotation too. For example,
 with [regctl](https://regclient.org/cli/regctl/) and `jq` installed:
