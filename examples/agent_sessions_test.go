@@ -74,17 +74,23 @@ func requireExampleTool(t *testing.T, name string) string {
 func TestAgentSessionPromptIsHeadless(t *testing.T) {
 	for kit, prefix := range map[string]string{"claude": "-p", "codex": "exec"} {
 		t.Run(kit, func(t *testing.T) {
-			sessions, err := spec.AgentSessionsOf(exampleDescriptor(t, kit).Capabilities)
+			sessions, err := spec.AgentSessionsV2Of(exampleDescriptor(t, kit).Capabilities)
 			require.NoError(t, err)
 			require.NotNil(t, sessions)
 			require.Equal(t, []string{prefix, "--", spec.SessionPromptPlaceholder}, sessions.Prompt)
+			// Without the headless flag, continue and resume open the TUI.
+			require.Equal(t, prefix, sessions.Continue[0])
+			require.Equal(t, prefix, sessions.Resume[0])
 		})
 	}
 	for _, kit := range []string{"claude-mixin", "codex-mixin"} {
 		t.Run(kit, func(t *testing.T) {
-			sessions, err := spec.AgentSessionsOf(exampleDescriptor(t, kit).Capabilities)
-			require.NoError(t, err)
-			require.Nil(t, sessions, "a mixin must leave the workload's session surface alone")
+			capabilities := exampleDescriptor(t, kit).Capabilities
+			for _, of := range []func([]spec.Capability) (*spec.AgentSessions, error){spec.AgentSessionsOf, spec.AgentSessionsV2Of} {
+				sessions, err := of(capabilities)
+				require.NoError(t, err)
+				require.Nil(t, sessions, "a mixin must leave the workload's session surface alone")
+			}
 		})
 	}
 }
@@ -139,7 +145,7 @@ func TestClaudeSessionListEmitsResumableIDs(t *testing.T) {
 
 func TestCodexSessionListEmitsSortedIDsAcrossPages(t *testing.T) {
 	requireExampleTool(t, "jq")
-	sessions, err := spec.AgentSessionsOf(exampleDescriptor(t, "codex").Capabilities)
+	sessions, err := spec.AgentSessionsV2Of(exampleDescriptor(t, "codex").Capabilities)
 	require.NoError(t, err)
 	require.NotNil(t, sessions)
 	root := t.TempDir()

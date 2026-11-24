@@ -153,17 +153,6 @@ reader of authored descriptors built before the field refuses a
 descriptor that uses it. `schemaVersion` and every capability version
 are unchanged.
 
-The in-place `agent-sessions@1` prompt requirement uses the same
-exception, pending maintainer approval. A headless invocation is one
-prompt, so `resume` and `continue` now run one in a named or the most
-recent session and must reference `{{.Prompt}}`, as `prompt` already
-did; a host refuses to invoke any of the three without a non-empty
-prompt. No field is added or renamed, but the permitted values narrow:
-a Kit whose `resume` or `continue` omits `{{.Prompt}}` fails validation,
-and a reader built on this draft refuses an already-published one at
-fetch until it is rebuilt. `agent-interactive-sessions@1`, which reopens
-a session without a prompt, and `schemaVersion` are unchanged.
-
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new

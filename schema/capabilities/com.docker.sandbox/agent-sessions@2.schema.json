@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/agent-sessions@2",
+  "description": "The workload's session control surface: the argv shapes a harness uses to drive the agent. prompt, resume, and continue are argv tails appended to the launch command, and each runs one prompt headlessly, so each must reference {{.Prompt}}; list is a complete command whose stdout enumerates resumable session ids, one per line, most recent first. Every verb is optional, but at least one must be declared. An empty tail reads as absent.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "definitions": {
+    "referencesPrompt": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "\\{\\{\\.Prompt\\}\\}"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    },
+    "referencesSessionID": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "\\{\\{\\.SessionID\\}\\}"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "prompt": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "anyOf": [
+        {
+          "maxItems": 0
+        },
+        {
+          "contains": {
+            "$ref": "#/definitions/referencesPrompt"
+          }
+        }
+      ],
+      "description": "Argv tail that runs one prompt non-interactively in a new session; must reference {{.Prompt}}, which the host substitutes before execution (an element that references a kit arg is judged once the arg is expanded)."
+    },
+    "resume": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "anyOf": [
+        {
+          "maxItems": 0
+        },
+        {
+          "allOf": [
+            {
+              "contains": {
+                "$ref": "#/definitions/referencesSessionID"
+              }
+            },
+            {
+              "contains": {
+                "$ref": "#/definitions/referencesPrompt"
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Argv tail that runs one prompt non-interactively in a named session; must reference both {{.SessionID}} and {{.Prompt}} (an element that references a kit arg is judged once the arg is expanded)."
+    },
+    "continue": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "anyOf": [
+        {
+          "maxItems": 0
+        },
+        {
+          "contains": {
+            "$ref": "#/definitions/referencesPrompt"
+          }
+        }
+      ],
+      "description": "Argv tail that runs one prompt non-interactively in the most recent session; must reference {{.Prompt}} (an element that references a kit arg is judged once the arg is expanded)."
+    },
+    "list": {
+      "description": "Complete command (string run via sh -c, or argv list) whose stdout is one resumable session id per line, most recent first.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  }
+}

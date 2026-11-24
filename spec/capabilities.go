@@ -62,6 +62,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityAgentContextV2:           reflect.TypeFor[AgentContextV2](),
 	CapabilityACP:                      reflect.TypeFor[ACP](),
 	CapabilityAgentSessions:            reflect.TypeFor[AgentSessions](),
+	CapabilityAgentSessionsV2:          reflect.TypeFor[AgentSessions](),
 	CapabilityAgentInteractiveSessions: reflect.TypeFor[AgentInteractiveSessions](),
 }
 
@@ -664,6 +665,24 @@ func AgentContextOf(capabilities []Capability) (*AgentContext, error) {
 func AgentSessionsOf(needs []Capability) (*AgentSessions, error) {
 	for _, n := range needs {
 		if n.Type != CapabilityAgentSessions {
+			continue
+		}
+		var a AgentSessions
+		if err := DecodeCapabilityConfig(n, &a); err != nil {
+			return nil, err
+		}
+		return &a, nil
+	}
+	return nil, nil
+}
+
+// AgentSessionsV2Of returns the agent-sessions@2 declaration's config, or
+// nil when none is declared. It deliberately does not read @1: the two
+// share a config shape, but @1's resume and continue carry no prompt, so
+// a caller treating them as @2's would run a prompt-less tail as one.
+func AgentSessionsV2Of(needs []Capability) (*AgentSessions, error) {
+	for _, n := range needs {
+		if n.Type != CapabilityAgentSessionsV2 {
 			continue
 		}
 		var a AgentSessions

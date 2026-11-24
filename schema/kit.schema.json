@@ -709,6 +709,25 @@
           "if": {
             "properties": {
               "type": {
+                "const": "com.docker.sandbox/agent-sessions@2"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/agent-sessions@2.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "com.docker.sandbox/agent-interactive-sessions@1"
               }
             },

@@ -602,7 +602,7 @@ Add `family: ipv6` when the service listens on IPv6 only, and
 usually does — so the runtime knows binding both host families is safe.
 `transport` says nothing about either: an omitted transport is `tcp`.
 
-### agent-sessions@1
+### agent-sessions@2
 
 Author this capability on the workload kit, whose entrypoint the verbs
 operate. Unlike `sbx@1`, `validate.go` has no kind check, but composition
@@ -618,23 +618,24 @@ prompt headlessly, so `continue` and `resume` reference `{{.Prompt}}` too
 (`["-p", "--continue", "{{.Prompt}}"]`), and `resume` also
 `{{.SessionID}}`; without the headless flag they often open the TUI.
 `list` is a complete command whose stdout contains one resumable ID per
-line, most recent first.
+line, most recent first. Declare `@2`, not `@1`: under `@1`, `continue`
+and `resume` carry no prompt, and a descriptor states one version.
 Where `promptArgs` was deliberately omitted, omit the capability — do not
 invent flags.
 
 ### agent-interactive-sessions@1
 
-The interactive sibling of `agent-sessions@1`: the verb tails a host that puts
+The interactive sibling of `agent-sessions@2`: the verb tails a host that puts
 a person at the terminal launches, run with a terminal attached. An agent whose
 CLI has both a headless and an interactive mode declares **both** capabilities;
-a headless-only agent declares only `agent-sessions@1`. Same rule as there: add
+a headless-only agent declares only `agent-sessions@2`. Same rule as there: add
 only the verbs you have verified against the tool's real CLI (its `--help` or
 official docs), never the verbs a pattern suggests. Fields: `prompt` (must
 reference `{{.Prompt}}`; start a TUI session seeded with a prompt, which is
 usually a positional argument or `-i`, not the headless `-p`), `resume` (must
 reference `{{.SessionID}}`), `continue`, `sessionPicker` and `list`.
 
-Presence is the semantics here, unlike `agent-sessions@1`: a present key means
+Presence is the semantics here, unlike `agent-sessions@2`: a present key means
 supported, an absent key means unsupported, and a present empty list means the
 launch argv alone for `continue`, `newSession` and `sessionPicker` (`prompt` and
 `resume` carry their placeholders, so they are never empty). Leave a verb out
@@ -644,7 +645,7 @@ launch (the launch argv plus `interactive`, or the launch argv alone). When a
 kit states both `newSession` and `lifecycle@1.interactive` they must be the
 same argv, an explicit `[]` included, so a v2 `sandbox.command.interactive`
 becomes `lifecycle@1` `interactive` and `newSession` stays omitted. `list` is the same command as in
-`agent-sessions@1`; repeat it there verbatim, and omit it where the agent has no
+`agent-sessions@2`; repeat it there verbatim, and omit it where the agent has no
 command that prints session ids one per line.
 
 ### Bundled skills
@@ -693,7 +694,7 @@ A workload kit's `-mixin` sibling declares the same credentials, network policy,
 volumes, hooks, args and provides, minus what only the kit that owns the
 environment can carry:
 
-- no `sbx@1`, `agent-sessions@1` or `agent-interactive-sessions@1`; an agent
+- no `sbx@1`, `agent-sessions@2` or `agent-interactive-sessions@1`; an agent
   mixin keeps its explicit
   `agent-context@2` directory and filename, while tool mixins carry bodies only
 - no `ENTRYPOINT` — the base workload's launch command stays, and the user runs
@@ -796,7 +797,7 @@ Before calling a migration done:
 - [ ] the install/runtime phase split loses no host from the v2 list
 - [ ] every mixin declaring a context `filename:` also declares its
       explicit discovery `directory:`
-- [ ] no `sbx@1`, `agent-sessions@1` or `agent-interactive-sessions@1` on a mixin
+- [ ] no `sbx@1`, `agent-sessions@2` or `agent-interactive-sessions@1` on a mixin
 - [ ] a `start-docker` label became `dockerd@1`, with no storage at or under
       `/var/lib/docker` and no hook that only starts `dockerd`; the label and
       `privileged@1` stay only beside an optional `dockerd@1` for older runtimes

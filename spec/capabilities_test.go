@@ -187,6 +187,7 @@ func TestValidateRefusesUnknownKeysInParameterizedEntries(t *testing.T) {
 		{typ: CapabilityAgentContextV2, s: "tabs", config: map[string]any{"content": "Indent with " + ref + "."}, field: "content"},
 		{typ: CapabilityACP, s: "debug", config: map[string]any{"agent": "claude", "command": []any{"claude-acp"}, "env": map[string]any{"LOG": ref}}, field: "env"},
 		{typ: CapabilityAgentSessions, s: "opus", config: map[string]any{"prompt": []any{"--model", ref, "-p", SessionPromptPlaceholder}}, field: "prompt"},
+		{typ: CapabilityAgentSessionsV2, s: "opus", config: map[string]any{"continue": []any{"--model", ref, "-p", "--continue", SessionPromptPlaceholder}}, field: "continue"},
 		{typ: CapabilityAgentInteractiveSessions, s: "opus", config: map[string]any{"newSession": []any{"--model", ref}}, field: "newSession"},
 	}
 	var covered []string

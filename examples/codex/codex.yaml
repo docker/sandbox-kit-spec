@@ -204,8 +204,9 @@ capabilities:
   # entries are argv tails appended to the entrypoint's launch command.
   # Every verb runs one prompt under `exec`; `codex resume` without it
   # is the TUI. With --last, exec resume reads its lone positional as
-  # the prompt rather than a session id.
-  - type: com.docker.sandbox/agent-sessions@1
+  # the prompt rather than a session id. @2, because under @1 resume and
+  # continue carry no prompt.
+  - type: com.docker.sandbox/agent-sessions@2
     config:
       prompt: ["exec", "--", "{{.Prompt}}"]
       resume: ["exec", "resume", "{{.SessionID}}", "--", "{{.Prompt}}"]

@@ -73,7 +73,7 @@ func allCapabilityTypes() []string {
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKVM, CapabilityDockerd, CapabilityKitRegistry,
-		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
+		CapabilityAgentSessions, CapabilityAgentSessionsV2, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
 	}
 }
@@ -434,11 +434,11 @@ func keys(m map[string]string) []string {
 	return out
 }
 
-// agent-sessions reads an empty tail as absent, so each verb's schema
+// agent-sessions@2 reads an empty tail as absent, so each verb's schema
 // admits [] and otherwise requires the placeholders the validator does:
 // every verb the prompt, resume the session id as well.
-func TestAgentSessionsSchemaPlaceholders(t *testing.T) {
-	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentSessions))
+func TestAgentSessionsV2SchemaPlaceholders(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentSessionsV2))
 	require.Equal(t, false, schema["additionalProperties"])
 	require.EqualValues(t, 1, schema["minProperties"], "{} must fail: no verbs")
 

@@ -503,6 +503,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityDockerd:                  true,
 	CapabilityKitRegistry:              true,
 	CapabilityAgentSessions:            true,
+	CapabilityAgentSessionsV2:          true,
 	CapabilityAgentInteractiveSessions: true,
 	CapabilityLifecycle:                true,
 	CapabilitySbx:                      true,
@@ -803,7 +804,7 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 			continue
 		}
 		switch n.Type {
-		case CapabilityAgentSessions:
+		case CapabilityAgentSessions, CapabilityAgentSessionsV2:
 			headlessList, headlessListAt = c.headlessList, i
 		case CapabilityAgentInteractiveSessions:
 			newSession, newSessionAt = c.newSession, i
@@ -822,6 +823,17 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].type", two),
 			"capabilities[%d]: %s cannot be declared beside %s at capabilities[%d]; a descriptor states one network-policy version",
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
+	}
+
+	// Both agent-sessions versions describe the same agent's headless
+	// verbs, and @2 reads resume and continue differently, so a host
+	// given both would have to guess which tails to run.
+	oneSessions, hasOneSessions := seenSingleton[CapabilityAgentSessions]
+	twoSessions, hasTwoSessions := seenSingleton[CapabilityAgentSessionsV2]
+	if hasOneSessions && hasTwoSessions && reported.first(ruleAgentSessionsVersions, checks[twoSessions], checks[oneSessions], noKey) {
+		errs.add(fieldErrorf(fmt.Sprintf("capabilities[%d].type", twoSessions),
+			"capabilities[%d]: %s cannot be declared beside %s at capabilities[%d]; a descriptor states one agent-sessions version",
+			twoSessions, CapabilityAgentSessionsV2, CapabilityAgentSessions, oneSessions))
 	}
 
 	if dockerAt >= 0 && engineStoreAt >= 0 && reported.first(ruleEngineStore, checks[engineStoreAt], checks[dockerAt], noKey) {
@@ -1178,7 +1190,7 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		}
 	case CapabilityACP:
 		c.errs.add(validateACP(path, i, n))
-	case CapabilityAgentSessions:
+	case CapabilityAgentSessions, CapabilityAgentSessionsV2:
 		var a AgentSessions
 		if err := DecodeCapabilityConfig(n, &a); err != nil {
 			c.errs.add(configErrorf(path, i, err))
@@ -1190,13 +1202,20 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		// The placeholder is the verb's whole point: a prompt verb
 		// that never receives the prompt (or a resume that never
 		// names the session) runs the agent with the caller's input
-		// silently discarded. Every headless verb carries a prompt:
-		// without a person at the terminal, reopening a session with
-		// nothing to say to it is not an operation.
-		for _, verb := range []struct {
+		// silently discarded. Under @2 every headless verb carries a
+		// prompt: without a person at the terminal, reopening a
+		// session with nothing to say to it is not an operation. @1
+		// keeps its shipped reading, where resume and continue reopen
+		// one.
+		type promptVerb struct {
 			name string
 			argv []string
-		}{{"prompt", a.Prompt}, {"resume", a.Resume}, {"continue", a.Continue}} {
+		}
+		verbs := []promptVerb{{"prompt", a.Prompt}}
+		if n.Type == CapabilityAgentSessionsV2 {
+			verbs = append(verbs, promptVerb{"resume", a.Resume}, promptVerb{"continue", a.Continue})
+		}
+		for _, verb := range verbs {
 			if len(verb.argv) > 0 && !argvContains(verb.argv, SessionPromptPlaceholder) {
 				c.errs.add(fieldErrorf(path+".config."+verb.name, "capabilities[%d]: %s must reference %s", i, verb.name, SessionPromptPlaceholder))
 			}
@@ -1335,6 +1354,7 @@ const (
 	ruleInteractive           = "interactive"
 	ruleList                  = "list"
 	ruleNetworkPolicyVersions = "network-policy-versions"
+	ruleAgentSessionsVersions = "agent-sessions-versions"
 	ruleEngineStore           = "engine-store"
 )
 

@@ -542,6 +542,12 @@ const (
 	// practice — the agent the verbs drive is the workload's.
 	CapabilityAgentSessions = "com.docker.sandbox/agent-sessions@1"
 
+	// CapabilityAgentSessionsV2 has agent-sessions@1's fields, but every
+	// headless verb runs one prompt: resume and continue run it in a
+	// named or the most recent session rather than reopening one with
+	// nothing to send it. A descriptor states one of the two versions.
+	CapabilityAgentSessionsV2 = "com.docker.sandbox/agent-sessions@2"
+
 	// CapabilityAgentInteractiveSessions is agent-sessions' interactive
 	// sibling: the argv shapes a human-facing host uses to put the agent's
 	// terminal UI in front of a person — start one, seed it with a prompt,
@@ -1028,14 +1034,17 @@ const (
 
 // AgentSessions is CapabilityAgentSessions's config. Prompt, Resume, and
 // Continue are argv tails appended to the workload's launch command the
-// way user-supplied args are, and each runs one prompt non-interactively,
-// so each must reference {{.Prompt}}: Prompt in a new session, Resume in
-// a named session (and must also reference {{.SessionID}}), Continue in
-// the most recent session. List is a complete command whose stdout
-// enumerates resumable session ids, one per line, most recent first.
-// Every verb is optional — an absent verb means the agent has no such
-// operation — but a declaration with no verbs at all says nothing and is
-// invalid.
+// way user-supplied args are: Prompt runs one prompt non-interactively
+// and must reference {{.Prompt}}; Resume reopens a named session and
+// must reference {{.SessionID}}; Continue reopens the most recent
+// session. List is a complete command whose stdout enumerates resumable
+// session ids, one per line, most recent first. Every verb is optional
+// — an absent verb means the agent has no such operation — but a
+// declaration with no verbs at all says nothing and is invalid.
+//
+// CapabilityAgentSessionsV2 has the same config. There, Resume and
+// Continue run one prompt in their session and must also reference
+// {{.Prompt}}.
 type AgentSessions struct {
 	Prompt   []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Resume   []string    `json:"resume,omitempty" yaml:"resume,omitempty"`
