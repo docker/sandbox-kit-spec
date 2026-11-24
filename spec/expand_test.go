@@ -406,6 +406,41 @@ capabilities:
 	}
 }
 
+// A GPU count is a schema string, so a numeric arg value keeps its
+// spelling rather than becoming a number gpu@1 cannot decode.
+func TestExpandArgsKeepsGPUCountText(t *testing.T) {
+	for _, phase := range []string{"build", "create"} {
+		t.Run(phase, func(t *testing.T) {
+			raw := []byte(`schemaVersion: "3"
+kind: mixin
+args:
+  count: {required: true}
+capabilities:
+  - type: com.docker.sandbox/gpu@1
+    config: {driver: nvidia.com/gpu, devices: "${{ kit.args.count }}"}
+`)
+			d, err := Decode(raw)
+			require.NoError(t, err)
+			expand := ExpandCreateArgs
+			if phase == "build" {
+				arg := d.Args["count"]
+				arg.BuildArg = "COUNT"
+				d.Args["count"] = arg
+				expand = ExpandBuildArgs
+			}
+			out, err := expand(raw, d.Args, map[string]string{"count": "2"})
+			require.NoError(t, err)
+			effective, err := Decode(out)
+			require.NoError(t, err)
+			_, err = ValidateExpandedDeclarations(out, effective)
+			require.NoError(t, err)
+			gpu, err := GPUOf(effective.Capabilities)
+			require.NoError(t, err)
+			require.Equal(t, &GPU{Driver: GPUDriverNVIDIA, Devices: "2"}, gpu)
+		})
+	}
+}
+
 func TestExpandBuildArgsUsesMergedCapabilityType(t *testing.T) {
 	volumeConfig := `{path: /cache, size: "${{ kit.args.size }}", mode: "${{ kit.args.mode }}"}`
 	portConfig := `{container: "${{ kit.args.size }}"}`
