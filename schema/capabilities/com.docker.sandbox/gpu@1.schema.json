@@ -22,11 +22,11 @@
       ]
     },
     "devices": {
-      "description": "\"all\" (every GPU of the driver, and at least one) or a positive count. Omission is equivalent to \"all\".",
+      "description": "\"all\" (every GPU of the driver, and at least one) or a positive count. Omission or an empty string is equivalent to \"all\".",
       "type": "string",
       "anyOf": [
         {
-          "pattern": "^(all|[1-9][0-9]*)$"
+          "pattern": "^(all|[1-9][0-9]*)?$"
         },
         {
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"

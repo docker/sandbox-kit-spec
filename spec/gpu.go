@@ -10,9 +10,10 @@ import (
 // a name. validGPUDriver adds the length limits RE2 cannot count.
 var gpuDriver = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
 
-// gpuDevices admits "all" or a positive count. A digit string with a
-// leading zero is refused so a count always reads as one number.
-var gpuDevices = regexp.MustCompile(`^(all|[1-9][0-9]*)$`)
+// gpuDevices admits "all", a positive count, or empty for the default. A
+// digit string with a leading zero is refused so a count always reads as
+// one number.
+var gpuDevices = regexp.MustCompile(`^(all|[1-9][0-9]*)?$`)
 
 func validGPUDriver(driver string) bool {
 	domain, name, _ := strings.Cut(driver, "/")

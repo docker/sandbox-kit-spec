@@ -1201,7 +1201,11 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		if !validGPUDriver(g.Driver) {
 			c.errs.add(fieldErrorf(path+".config.driver", "capabilities[%d]: driver must be <dns-domain>/<name> (for example %s), got %q", i, GPUDriverNVIDIA, g.Driver))
 		}
-		if g.Devices != "" && !gpuDevices.MatchString(g.Devices) {
+		// A null would decode as the omitted default, which the schema
+		// refuses; an empty string is the default, as the page says.
+		if value, stated := n.Config["devices"]; stated && value == nil {
+			c.errs.add(fieldErrorf(path+".config.devices", "capabilities[%d]: devices must be a string; omit it or leave it empty for %q", i, GPUDevicesAll))
+		} else if g.Devices != "" && !gpuDevices.MatchString(g.Devices) {
 			c.errs.add(fieldErrorf(path+".config.devices", "capabilities[%d]: devices must be %q or a positive count, got %q", i, GPUDevicesAll, g.Devices))
 		}
 	case CapabilityACP:

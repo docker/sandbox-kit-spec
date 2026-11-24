@@ -21,7 +21,7 @@ hardware or policy cannot provide them.
 | Field | Type | Rules |
 |---|---|---|
 | `driver` | string | REQUIRED. `<dns-domain>/<name>`: the GPU interface the image's GPU stack is built for. |
-| `devices` | string | optional. `all`, or a positive decimal count with no leading zero (`1`, `2`). Omitted means `all`. |
+| `devices` | string | optional. `all`, or a positive decimal count with no leading zero (`1`, `2`). Omitted or empty means `all`. |
 
 `config` is required, because `driver` is.
 
@@ -33,7 +33,7 @@ or digit, at most 253 characters. The name part starts and ends with a
 letter or digit, may contain `.`, `_` and `-` between, and is at most 63
 characters. There is exactly one `/`.
 
-`devices`, when present, is `all` or a count. `0` and `01` are errors, so
+`devices`, when non-empty, is `all` or a count. `0` and `01` are errors, so
 a count always reads as one number. A device index or address is not a
 count: which host GPU serves the sandbox is the operator's choice.
 
@@ -93,9 +93,10 @@ compatibility.
 ## Composition
 
 One sandbox gets one driver and one count. Requests with the same
-driver and the same effective `devices` collapse; an omitted `devices`
-equals `all`. A required request wins over an optional one. A differing
-driver or count is a composition error naming both contributors.
+driver and the same effective `devices` collapse; an omitted or empty
+`devices` equals `all`. A required request wins over an optional one. A
+differing driver or count is a composition error naming both
+contributors.
 
 ## Gate
 

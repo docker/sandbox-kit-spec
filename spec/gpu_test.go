@@ -20,6 +20,7 @@ func TestGPUValidation(t *testing.T) {
 		{"driver": GPUDriverNVIDIA},
 		{"driver": GPUDriverVenus, "devices": "all"},
 		{"driver": GPUDriverNVIDIA, "devices": "1"},
+		{"driver": GPUDriverNVIDIA, "devices": ""},
 		{"driver": GPUDriverNVIDIA, "devices": "16"},
 		{"driver": "docker.com/asahi"},
 		{"driver": "gpu.example.co.uk/a.b_c-d"},
@@ -42,6 +43,7 @@ func TestGPUValidation(t *testing.T) {
 		{map[string]any{"driver": "nvidia.com/"}, "capabilities[0].config.driver"},
 		{map[string]any{"driver": strings.Repeat("a", 254) + "/gpu"}, "capabilities[0].config.driver"},
 		{map[string]any{"driver": "nvidia.com/" + strings.Repeat("g", 64)}, "capabilities[0].config.driver"},
+		{map[string]any{"driver": GPUDriverNVIDIA, "devices": nil}, "capabilities[0].config.devices"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": "0"}, "capabilities[0].config.devices"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": "01"}, "capabilities[0].config.devices"},
 		{map[string]any{"driver": GPUDriverNVIDIA, "devices": "two"}, "capabilities[0].config.devices"},
@@ -104,6 +106,7 @@ func TestGPUSurface(t *testing.T) {
 
 	require.Equal(t, Surface{GPU: []string{"nvidia.com/gpu all"}}, nvidia(""))
 	require.Equal(t, nvidia(""), nvidia("all"), "the default and its spelling are one grant")
+	require.Equal(t, nvidia(""), surface(map[string]any{"driver": GPUDriverNVIDIA, "devices": ""}), "an empty count is the default")
 
 	require.Equal(t, []Widening{{Category: "gpu", Detail: "nvidia.com/gpu 1"}}, DiffWidenings(Surface{}, nvidia("1")))
 	for _, tt := range []struct {
