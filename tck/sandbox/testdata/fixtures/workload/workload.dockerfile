@@ -145,17 +145,21 @@ PRIV
 
 # A device node can exist and still refuse open under a device filter,
 # so the probe opens the nodes gpu@1's driver row names read-write rather
-# than testing for them.
+# than testing for them: for NVIDIA, the control node, every GPU node, and
+# the UVM node when the driver created it; for Venus, every render node.
 COPY --chmod=0755 <<'GPU' /usr/local/bin/kit-tck-gpu
 #!/bin/sh
 opens() { [ -c "$1" ] && ( : <> "$1" ) 2>/dev/null; }
-first() { for dev in "$@"; do [ -c "$dev" ] && { echo "$dev"; return; }; done; }
 case "$1" in
-nvidia.com/gpu) set -- /dev/nvidiactl "$(first /dev/nvidia[0-9]*)" ;;
-mesa3d.org/venus) set -- "$(first /dev/dri/renderD*)" ;;
+nvidia.com/gpu)
+  set -- /dev/nvidiactl
+  for dev in /dev/nvidia[0-9]*; do set -- "$@" "$dev"; done
+  [ -e /dev/nvidia-uvm ] && set -- "$@" /dev/nvidia-uvm
+  # Without a GPU node the glob stays literal and does not open.
+  ;;
+mesa3d.org/venus) set -- /dev/dri/renderD* ;;
 *) echo unknown; exit 0 ;;
 esac
-# A missing node leaves an empty argument, which does not open.
 for dev in "$@"; do opens "$dev" || { echo no; exit 0; }; done
 echo yes
 GPU
