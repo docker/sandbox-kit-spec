@@ -202,11 +202,14 @@ capabilities:
 
   # Headless verbs, so a host can drive sessions without the TTY. Verb
   # entries are argv tails appended to the entrypoint's launch command.
-  - type: com.docker.sandbox/agent-sessions@1
+  # Every verb runs one prompt under `exec`; `codex resume` without it
+  # is the TUI. With --last, exec resume reads its lone positional as
+  # the prompt rather than a session id.
+  - type: com.docker.sandbox/agent-sessions@2
     config:
       prompt: ["exec", "--", "{{.Prompt}}"]
-      resume: ["resume", "{{.SessionID}}"]
-      continue: ["resume", "--last"]
+      resume: ["exec", "resume", "{{.SessionID}}", "--", "{{.Prompt}}"]
+      continue: ["exec", "resume", "--last", "--", "{{.Prompt}}"]
       list:
         - /bin/sh
         - -c

@@ -542,6 +542,10 @@ const (
 	// practice — the agent the verbs drive is the workload's.
 	CapabilityAgentSessions = "com.docker.sandbox/agent-sessions@1"
 
+	// CapabilityAgentSessionsV2 is agent-sessions@1 with a prompt on every
+	// headless verb. A descriptor declares one version, never both.
+	CapabilityAgentSessionsV2 = "com.docker.sandbox/agent-sessions@2"
+
 	// CapabilityAgentInteractiveSessions is agent-sessions' interactive
 	// sibling: the argv shapes a human-facing host uses to put the agent's
 	// terminal UI in front of a person — start one, seed it with a prompt,
@@ -1037,6 +1041,8 @@ const (
 // session ids, one per line, most recent first. Every verb is optional
 // — an absent verb means the agent has no such operation — but a
 // declaration with no verbs at all says nothing and is invalid.
+//
+// CapabilityAgentSessionsV2 shares this config.
 type AgentSessions struct {
 	Prompt   []string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Resume   []string    `json:"resume,omitempty" yaml:"resume,omitempty"`

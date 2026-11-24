@@ -85,7 +85,7 @@ writing anything. v2 kits carry their reasoning in comments, and that prose is
 the most valuable thing to carry across. `testdata/tck.yaml` is the only record
 of whether a working non-interactive invocation was ever established
 (`promptArgs`), which decides whether the migrated kit declares
-`agent-sessions@1`. It says nothing about interactive verbs: declare
+`agent-sessions@2`. It says nothing about interactive verbs: declare
 `agent-interactive-sessions@1` beside it only for verbs you have verified
 against the tool's real CLI, never from a pattern.
 

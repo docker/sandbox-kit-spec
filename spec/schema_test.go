@@ -73,7 +73,7 @@ func allCapabilityTypes() []string {
 		CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityKVM, CapabilityDockerd, CapabilityKitRegistry,
-		CapabilityAgentSessions, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
+		CapabilityAgentSessions, CapabilityAgentSessionsV2, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
 	}
 }
@@ -432,6 +432,68 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// agent-sessions@2 reads an empty tail as absent, so each verb's schema
+// admits [] and otherwise requires the placeholders the validator does:
+// every verb the prompt, resume the session id as well.
+func TestAgentSessionsV2SchemaPlaceholders(t *testing.T) {
+	schema := loadJSON(t, perTypeSchemaPath(CapabilityAgentSessionsV2))
+	require.Equal(t, false, schema["additionalProperties"])
+	require.EqualValues(t, 1, schema["minProperties"], "{} must fail: no verbs")
+
+	defs := at(t, schema, "definitions")
+	for def, placeholder := range map[string]string{"referencesPrompt": SessionPromptPlaceholder, "referencesSessionID": SessionIDPlaceholder} {
+		anyOf := at(t, defs, def)["anyOf"].([]any)
+		pattern := regexp.MustCompile(anyOf[0].(map[string]any)["pattern"].(string))
+		// An element that still references a kit arg is judged after
+		// expansion, as the validator defers a parameterized entry.
+		require.Contains(t, anyOf[1].(map[string]any)["$ref"], "kit-arg.schema.json#/definitions/bearing")
+		require.True(t, pattern.MatchString("--flag="+placeholder), "%s: a placeholder inside a token counts", def)
+		require.False(t, pattern.MatchString("--flag"), "%s: a tail without it fails", def)
+	}
+
+	// required names the definitions a non-empty tail must contain.
+	required := func(verb string) []string {
+		prop := at(t, schema, "properties", verb)
+		require.Equal(t, "array", prop["type"])
+		branches := prop["anyOf"].([]any)
+		require.Len(t, branches, 2)
+		require.EqualValues(t, 0, branches[0].(map[string]any)["maxItems"], "%s: [] reads as absent", verb)
+		rest := branches[1].(map[string]any)
+		all, ok := rest["allOf"].([]any)
+		if !ok {
+			all = []any{rest}
+		}
+		var refs []string
+		for _, c := range all {
+			refs = append(refs, at(t, c.(map[string]any), "contains")["$ref"].(string))
+		}
+		return refs
+	}
+	require.Equal(t, []string{"#/definitions/referencesPrompt"}, required("prompt"))
+	require.Equal(t, []string{"#/definitions/referencesPrompt"}, required("continue"))
+	require.ElementsMatch(t, []string{"#/definitions/referencesSessionID", "#/definitions/referencesPrompt"}, required("resume"))
+
+	// As the validator does, at least one verb must be more than an empty
+	// tail. minItems leaves a string list alone, which decodes to sh -c.
+	var verbs []string
+	for _, b := range schema["anyOf"].([]any) {
+		branch := b.(map[string]any)
+		verb := branch["required"].([]any)[0].(string)
+		require.EqualValues(t, 1, at(t, branch, "properties", verb)["minItems"], verb)
+		verbs = append(verbs, verb)
+	}
+	require.ElementsMatch(t, []string{"prompt", "resume", "continue", "list"}, verbs)
+
+	for _, rule := range at(t, loadSchema(t), "definitions", "capability")["allOf"].([]any) {
+		branch := rule.(map[string]any)
+		if at(t, branch, "if", "properties", "type")["const"] == CapabilityAgentSessionsV2 {
+			require.Equal(t, []any{"config"}, at(t, branch, "then")["required"], "an entry without config declares no verbs")
+			return
+		}
+	}
+	t.Fatal("agent-sessions@2 schema branch is absent")
 }
 
 // The tests here read the schema's structure rather than run a validator,

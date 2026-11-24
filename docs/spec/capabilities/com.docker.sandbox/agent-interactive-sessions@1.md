@@ -118,7 +118,9 @@ tell origins apart records the origin itself when it creates a session.
 A Kit declaring `list` on both **MUST** give them the same command; <!-- tck: agent-interactive-sessions@1/list-matches-agent-sessions -->
 validation rejects a mismatch, comparing the decoded argv, so a string
 and its `[sh, -c, ...]` spelling are equal. A Kit may still declare
-`list` on only one of them.
+`list` on only one of them. The same agreement holds with
+[agent-sessions@2](agent-sessions@2.md), whose `list` has the same
+meaning.
 
 ### Placeholders
 

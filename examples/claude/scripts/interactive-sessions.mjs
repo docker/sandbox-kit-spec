@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Enumerate interactive Claude Code sessions for agent-sessions@1 list.
+// Enumerate interactive Claude Code sessions for agent-sessions@2 list.
 // Background agents (claude agents --json --all) are excluded; those are
 // a different control surface. Optional argv[2] is an absolute cwd filter
 // (exact match), matching ACP's cwd filter.

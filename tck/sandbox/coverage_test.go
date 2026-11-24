@@ -324,6 +324,9 @@ var waived = map[string]string{
 
 	"agent-sessions@1/prompt-placeholder-required":                           "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-sessions@1/session-id-placeholder-required":                       "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-sessions@2/prompt-placeholder-required":                           "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-sessions@2/session-id-placeholder-required":                       "grammar rule, judged by the spec package's validators and schema tests",
+	"agent-sessions@2/resume-continue-prompt-placeholder-required":           "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-interactive-sessions@1/prompt-placeholder-required":               "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-interactive-sessions@1/session-id-placeholder-required":           "grammar rule, judged by the spec package's validators and schema tests",
 	"agent-interactive-sessions@1/new-session-matches-lifecycle-interactive": "grammar rule, judged by the spec package's validator",
@@ -366,6 +369,13 @@ var waived = map[string]string{
 	"agent-sessions@1/list-parses-stdout":         "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-sessions@1/absent-verb-unsupported":    "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-sessions@1/declaration-grants-nothing": "grammar only; nothing consumes it yet, so there is no behavior to judge",
+
+	"agent-sessions@2/headless-from-launch-argv":     "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-sessions@2/raw-value-substitution":        "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-sessions@2/list-parses-stdout":            "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-sessions@2/absent-verb-unsupported":       "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-sessions@2/prompt-required-at-invocation": "grammar only; nothing consumes it yet, so there is no behavior to judge",
+	"agent-sessions@2/declaration-grants-nothing":    "grammar only; nothing consumes it yet, so there is no behavior to judge",
 
 	"agent-interactive-sessions@1/interactive-from-launch-argv":           "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-interactive-sessions@1/absent-new-session-is-lifecycle-launch": "grammar only; nothing consumes it yet, so there is no behavior to judge",

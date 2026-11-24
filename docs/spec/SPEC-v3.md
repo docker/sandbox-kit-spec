@@ -646,14 +646,17 @@ declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `kvm@1`, `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
-`agent-interactive-sessions@1`, `lifecycle@1`, `sbx@1`, `long-running@1`,
-`auto-restart@1`, `open-url@1`,
+`agent-sessions@2`, `agent-interactive-sessions@1`, `lifecycle@1`,
+`sbx@1`, `long-running@1`, `auto-restart@1`, `open-url@1`,
 `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
 same grant, so a host given both would have to guess which bounds the
-other.
+other. The two `agent-sessions` versions are exclusive in the same way:
+they describe the same agent's headless verbs and read `resume` and
+`continue` differently, so a host given both would have to guess which
+tails to run.
 
 **Instance-shaped types appear once per thing requested**, identified by
 their own key: `credential@1` on (service, phase), with each listed phase
@@ -936,6 +939,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/agent-context@2` | [agent-context@2](capabilities/com.docker.sandbox/agent-context@2.md) | per explicit profile destination; one undirected entry; inline bodies |
 | `com.docker.sandbox/acp@1` | [acp@1](capabilities/com.docker.sandbox/acp@1.md) | per agent |
 | `com.docker.sandbox/agent-sessions@1` | [agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) | singleton |
+| `com.docker.sandbox/agent-sessions@2` | [agent-sessions@2](capabilities/com.docker.sandbox/agent-sessions@2.md) | singleton |
 | `com.docker.sandbox/agent-interactive-sessions@1` | [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md) | singleton |
 | `com.docker.sandbox/agent-skills@1` | [agent-skills@1](capabilities/com.docker.sandbox/agent-skills@1.md) | per path |
 | `com.docker.sandbox/agent-skill@1` | [agent-skill@1](capabilities/com.docker.sandbox/agent-skill@1.md) | per effective name |
@@ -980,8 +984,8 @@ a Kit's surface in the lock and diff a candidate's against it:
 - `optional` does not change the surface: it changes what happens when the
   host cannot provide, not what is granted when it can.
 - `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-context@2`,
-  `agent-sessions@1`, `agent-interactive-sessions@1`, `acp@1`, and `sbx@1`
-  contribute nothing to the surface: resource limits constrain the Kit
+  `agent-sessions@1`, `agent-sessions@2`, `agent-interactive-sessions@1`,
+  `acp@1`, and `sbx@1` contribute nothing to the surface: resource limits constrain the Kit
   rather than grant it anything; lifecycle, agent context, session verbs,
   and ACP run inside the sandbox on the entrypoint's trust plane, and
   `sbx@1` asks the host
@@ -1020,7 +1024,8 @@ capability's `interactive` field. The effective argv per mode:
 | Interactive (TTY) | image `Entrypoint` + lifecycle `interactive` |
 
 With no `interactive` declared, both modes run the image config as-is. See
-[agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) for
+[agent-sessions@1](capabilities/com.docker.sandbox/agent-sessions@1.md) and
+[agent-sessions@2](capabilities/com.docker.sandbox/agent-sessions@2.md) for
 the headless prompt/resume verbs, which append after the launch argv the
 same way user-supplied args do, and
 [agent-interactive-sessions@1](capabilities/com.docker.sandbox/agent-interactive-sessions@1.md)
@@ -1188,7 +1193,7 @@ error. In that order they reconcile into one descriptor:
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
-| `resources@1`, `agent-sessions@1`, `agent-interactive-sessions@1` | At most one of them may declare each; an identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
+| `resources@1`, `agent-sessions@1`, `agent-sessions@2`, `agent-interactive-sessions@1` | At most one of them may declare each, and the two `agent-sessions` versions count as one: an `@1` and an `@2` from different Kits are two authors. An identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
 | `agent-context@2` | The same destination precedence and per-profile optionality as @1. Every effective profile carries selected workload and `delivery: inline` mixin bodies in dependency order, joined with two newlines; its delivery is `inline`. Progressive mixin bodies (the omitted default) remain in selected inputs for per-Kit files indexed from every profile. Publication preserves original delivery and selection boundaries in groups. A consumed workload owns all its retained guidance. Selected @1 and @2 requests cannot compose. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
