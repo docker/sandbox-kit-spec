@@ -2,7 +2,7 @@
 
 The workload's compute: CPU and memory. A constraint on the Kit, not a
 grant to it. GPUs are requested with
-[`gpu@1`](gpu@1.md).
+[gpu@1](gpu@1.md).
 
 - **Shape**: singleton — at most one entry per descriptor.
 - **Permission surface**: **no** — limits constrain the Kit rather than
