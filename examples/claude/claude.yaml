@@ -120,8 +120,7 @@ capabilities:
   # headless: without it they open the TUI. list is a complete command:
   # the Agent SDK's listSessions, minus background agents (those come
   # from `claude agents`), emitting resumable session ids one per line,
-  # most recent first. @2, because under @1 resume and continue carry no
-  # prompt.
+  # most recent first.
   - type: com.docker.sandbox/agent-sessions@2
     description: Drive claude sessions programmatically
     config:

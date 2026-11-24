@@ -4,8 +4,12 @@ How to run the workload's agent headlessly inside the sandbox. This
 capability describes commands to run a prompt, resume or continue a
 session, and list past sessions.
 
-- **Shape**: singleton. The commands describe the workload's agent.
+- **Shape**: singleton — the commands describe the workload's agent —
+  and exclusive with [`agent-sessions@2`](agent-sessions@2.md).
 - **Permission surface**: **no**.
+
+This version remains valid. [`@2`](agent-sessions@2.md) runs a prompt
+on `resume` and `continue` too.
 
 [agent-interactive-sessions@1](agent-interactive-sessions@1.md) describes
 the workload's terminal commands. An agent Kit with both headless and

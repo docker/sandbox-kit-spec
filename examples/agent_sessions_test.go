@@ -78,7 +78,6 @@ func TestAgentSessionPromptIsHeadless(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, sessions)
 			require.Equal(t, []string{prefix, "--", spec.SessionPromptPlaceholder}, sessions.Prompt)
-			// Without the headless flag, continue and resume open the TUI.
 			require.Equal(t, prefix, sessions.Continue[0])
 			require.Equal(t, prefix, sessions.Resume[0])
 		})

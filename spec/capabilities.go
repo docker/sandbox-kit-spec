@@ -677,9 +677,8 @@ func AgentSessionsOf(needs []Capability) (*AgentSessions, error) {
 }
 
 // AgentSessionsV2Of returns the agent-sessions@2 declaration's config, or
-// nil when none is declared. It deliberately does not read @1: the two
-// share a config shape, but @1's resume and continue carry no prompt, so
-// a caller treating them as @2's would run a prompt-less tail as one.
+// nil when none is declared. It does not read @1, whose resume and
+// continue carry no prompt.
 func AgentSessionsV2Of(needs []Capability) (*AgentSessions, error) {
 	for _, n := range needs {
 		if n.Type != CapabilityAgentSessionsV2 {

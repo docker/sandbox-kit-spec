@@ -9,10 +9,8 @@ import (
 
 const agentSessionsHead = "schemaVersion: \"3\"\nkind: workload\nprovides: [\"claude@2.1.0\"]\ncapabilities:"
 
-// agent-sessions@2: argv verbs decode through their own accessor, a
-// verbless entry is refused, and every verb must carry the prompt (resume
-// the session id too) — a verb that silently discards the caller's input
-// is the failure mode the rule exists for.
+// agent-sessions@2: every verb must carry the prompt, resume the session
+// id too.
 func TestAgentSessionsV2Need(t *testing.T) {
 	base := `# syntax=docker/sandbox-kit:3
 schemaVersion: "3"
@@ -34,9 +32,6 @@ capabilities:
 	require.Equal(t, []string{"-p", "--continue", "{{.Prompt}}"}, sessions.Continue)
 	require.Equal(t, CommandLine{"sh", "-c", "ls sessions"}, sessions.List)
 
-	// Each accessor reads its own version only: @1's resume and continue
-	// carry no prompt, so reading one version as the other would run the
-	// wrong tails.
 	v1, err := AgentSessionsOf(d.Capabilities)
 	require.NoError(t, err)
 	require.Nil(t, v1)
@@ -79,9 +74,6 @@ capabilities:
 		})
 	}
 
-	// Running a prompt in an existing session headlessly needs the
-	// prompt, so resume and continue are refused for it by name: resume's
-	// session id alone does not satisfy the rule.
 	for verb, tail := range map[string]string{
 		"resume":   `["--resume", "{{.SessionID}}"]`,
 		"continue": `["--continue"]`,
@@ -105,8 +97,7 @@ capabilities:
 	require.NoError(t, err)
 }
 
-// @1 keeps its shipped reading: resume and continue reopen a session and
-// need no prompt, so a Kit published against it still validates.
+// @1's resume and continue still need no prompt.
 func TestAgentSessionsV1KeepsPromptlessReopen(t *testing.T) {
 	d, err := Decode([]byte(agentSessionsHead + `
   - type: com.docker.sandbox/agent-sessions@1
@@ -122,8 +113,7 @@ func TestAgentSessionsV1KeepsPromptlessReopen(t *testing.T) {
 	require.Nil(t, v2)
 }
 
-// The two versions describe the same agent's headless verbs and read
-// resume and continue differently, so a descriptor states one of them.
+// A descriptor states one agent-sessions version.
 func TestAgentSessionsVersionsExclusive(t *testing.T) {
 	d, err := Decode([]byte(agentSessionsHead + `
   - type: com.docker.sandbox/agent-sessions@1
@@ -139,8 +129,7 @@ func TestAgentSessionsVersionsExclusive(t *testing.T) {
 	require.ErrorContains(t, err, "a descriptor states one agent-sessions version")
 }
 
-// Composition holds both versions to one author: an @1 and an @2 from
-// different Kits are two answers about the workload's one agent.
+// An @1 and an @2 from different Kits are two authors.
 func TestMergeHoldsAgentSessionsVersionsToOneAuthor(t *testing.T) {
 	sessions := `schemaVersion: "3"
 kind: %s
@@ -165,9 +154,7 @@ capabilities:
 	require.Equal(t, []string{"-p", "--continue", "{{.Prompt}}"}, v2.Continue)
 }
 
-// Whichever version declares it, the headless list enumerates the same
-// sessions as the interactive one, so the two name one command, in one
-// descriptor and across composed Kits.
+// @2's list must match the interactive one, as @1's does.
 func TestAgentSessionsV2ListMatchesInteractive(t *testing.T) {
 	d, err := Decode([]byte(agentSessionsHead + `
   - type: com.docker.sandbox/agent-sessions@2

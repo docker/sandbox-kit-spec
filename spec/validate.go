@@ -825,9 +825,6 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 			two, CapabilityNetworkPolicyV2, CapabilityNetworkPolicy, one))
 	}
 
-	// Both agent-sessions versions describe the same agent's headless
-	// verbs, and @2 reads resume and continue differently, so a host
-	// given both would have to guess which tails to run.
 	oneSessions, hasOneSessions := seenSingleton[CapabilityAgentSessions]
 	twoSessions, hasTwoSessions := seenSingleton[CapabilityAgentSessionsV2]
 	if hasOneSessions && hasTwoSessions && reported.first(ruleAgentSessionsVersions, checks[twoSessions], checks[oneSessions], noKey) {
@@ -1202,11 +1199,8 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		// The placeholder is the verb's whole point: a prompt verb
 		// that never receives the prompt (or a resume that never
 		// names the session) runs the agent with the caller's input
-		// silently discarded. Under @2 every headless verb carries a
-		// prompt: without a person at the terminal, reopening a
-		// session with nothing to say to it is not an operation. @1
-		// keeps its shipped reading, where resume and continue reopen
-		// one.
+		// silently discarded. Under @2, resume and continue carry the
+		// prompt too.
 		type promptVerb struct {
 			name string
 			argv []string

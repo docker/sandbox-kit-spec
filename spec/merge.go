@@ -670,9 +670,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		// Remembered for the list agreement in finish. This type was never
 		// decoded at merge before, so a config that does not decode here is
 		// left to validation rather than turned into a new merge failure.
-		// Both versions share the one slot: they describe the workload's
-		// one agent, so an @1 and an @2 from different Kits are two
-		// authors, not two asks to reconcile.
+		// One slot for both versions: an @1 and an @2 are two authors.
 		if m.sessions == nil {
 			var a AgentSessions
 			if err := DecodeCapabilityConfig(n, &a); err == nil {

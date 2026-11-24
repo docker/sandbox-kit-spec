@@ -4,29 +4,19 @@ How to run the workload's agent headlessly inside the sandbox. This
 capability describes commands to run a prompt in a new, a named, or the
 most recent session, and to list past sessions.
 
-- **Shape**: singleton. The commands describe the workload's agent.
+- **Shape**: singleton — the commands describe the workload's agent —
+  and exclusive with [`agent-sessions@1`](agent-sessions@1.md).
 - **Permission surface**: **no**.
+
+`@2` keeps `@1`'s fields. Its `resume` and `continue` run one prompt in
+a named or the most recent session, where `@1`'s reopen one without a
+prompt.
 
 [agent-interactive-sessions@1](agent-interactive-sessions@1.md) describes
 the workload's terminal commands. An agent Kit with both headless and
 interactive modes declares both capabilities. A headless-only agent
 declares `agent-sessions@2`. A `list` declared on both capabilities is
 the same command, and validation rejects a mismatch.
-
-## Relationship to agent-sessions@1
-
-`@2` has the same fields as
-[agent-sessions@1](agent-sessions@1.md) and narrows what `resume` and
-`continue` mean. Under `@1` they reopen a session and carry no prompt;
-under `@2` each runs one prompt in a named or the most recent session,
-so each must reference `{{.Prompt}}`, and a host refuses any headless
-invocation without one. The narrower values are why this is a new
-version: Kits already published with a prompt-less `resume` or
-`continue` keep their `@1` meaning.
-
-`@1` is unchanged. Both versions describe the same agent's headless
-verbs, so a descriptor states one of them, never both, and validation
-rejects the pair: a host given both would have to guess which to run.
 
 ## Config
 
@@ -96,7 +86,6 @@ argv, so values are inserted without shell re-quoting.
 
 Composition retains a sole declaration and collapses identical
 restatements. Differing declarations conflict, whether contributed by
-workloads or mixins, and so do an `@1` and an `@2` declaration from
-different Kits: both describe the workload's one agent. The resulting
+workloads or mixins, an `@1` and an `@2` included. The resulting
 commands describe the workload's agent
 ([§9.5](../../SPEC-v3.md#95-merging-a-set)).
