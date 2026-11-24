@@ -2,22 +2,25 @@
 
 # Docker Sandbox Kit Specification v3
 
-This repository holds the Kit v3 descriptor specification, its BuildKit
-frontend, and two conformance suites: one checks a published Kit, the
-other checks a runtime that claims to support Kits.
+Kits let you hand someone an agent environment as a single image: the
+agent, its tools, its skills and instructions, and exactly what it may
+touch, from the credentials it uses to the hosts it can reach. Run it
+with `sbx run`, layer more Kits onto it, and push it to any registry like
+an ordinary image.
 
-An agent is only useful with real authority: it installs dependencies,
-calls APIs, and holds credentials. A Dockerfile describes the software
-inside an image, but nothing in the image says what that software may
-reach. Today that lives in `docker run` flags, Compose files, CI
-configs, and people's memory. A Kit puts the content and the authority
-it asks for in one image, under one digest, so a change in authority
-shows up in a diff and can be held for review.
+A Dockerfile can't carry that authority. Today it lives in `docker run`
+flags, Compose files, CI configs, and people's memory. A Kit declares it
+in the image's manifest, under the same digest as the content, so when
+the next version of an agent asks for another credential or another
+host, the change shows up in a diff and can be stopped for review.
 
 **Dockerfiles made software reproducible. Kits make authority reproducible.**
 
-The full argument and the tenets that decided the design are in
-[docs/design.md](docs/design.md).
+This repository holds the Kit v3 specification, the BuildKit frontend
+that builds Kits, and the conformance suites that check a published Kit
+or a runtime that claims to support Kits.
+[docs/design.md](docs/design.md) has the full argument and the tenets
+behind the design.
 
 > [!IMPORTANT]
 > **This specification is experimental.** It will change as implementers
