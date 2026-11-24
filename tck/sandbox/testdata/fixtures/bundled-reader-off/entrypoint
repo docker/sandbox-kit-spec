@@ -1,0 +1,5 @@
+#!/bin/sh
+# Snapshot at launch: later exec probes cannot prove ordering.
+kit-tck-bundled exposed > /var/tmp/bundled-at-launch.tmp 2>&1 || true
+mv /var/tmp/bundled-at-launch.tmp /var/tmp/bundled-at-launch
+exec sleep infinity

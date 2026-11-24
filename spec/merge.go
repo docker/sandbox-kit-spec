@@ -752,6 +752,40 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 		}
 		return nil
 	}
+	// A shared discovery path has one mount. Its grant is the widest one
+	// any selected Kit requested, while validation still rejects different
+	// modes declared within one Kit's declaration block.
+	if n.Type == CapabilityAgentSkills {
+		var held, asked AgentSkills
+		if err := decodeForMerge(prev.reference, prev.capability, &held); err != nil {
+			return err
+		}
+		if err := decodeForMerge(reference, n, &asked); err != nil {
+			return err
+		}
+		modes := []string{SkillsOff, SkillsReadOnly, SkillsReadWrite}
+		heldRank, askedRank := slices.Index(modes, SkillsMode(held)), slices.Index(modes, SkillsMode(asked))
+		// Re-exported modes cannot be ranked before expansion. Leave them
+		// to the equality rule rather than silently dropping an unknown ask.
+		if heldRank >= 0 && askedRank >= 0 {
+			if askedRank > heldRank {
+				held.Mode = asked.Mode
+				merged, err := CapabilityWithConfig(prev.capability, held)
+				if err != nil {
+					return fmt.Errorf("merge: %s and %s: %w", prev.reference, reference, err)
+				}
+				prev.capability = *merged
+			}
+			if prev.capability.Name == "" {
+				prev.capability.Name = n.Name
+			}
+			m.byKey[key] = prev
+			if !n.Optional {
+				m.optional[key] = false
+			}
+			return nil
+		}
+	}
 	// A family is a fact about the one service both Kits publish, so a
 	// stated family holds over an omitted one, and two different ones
 	// cannot both be true.

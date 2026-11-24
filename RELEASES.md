@@ -153,6 +153,14 @@ reader of authored descriptors built before the field refuses a
 descriptor that uses it. `schemaVersion` and every capability version
 are unchanged.
 
+The in-place `agent-skills@1` addition of `mode: off` and its new default
+uses this exception, approved by maintainer @cdupuis's instruction to add
+the mode at `@1`. Omitted modes previously requested `readonly`; they now
+request no host sharing while retaining bundled-skill destinations. Old
+runtimes reject explicit `off` and interpret omission as read-only, so
+consumers need a matching draft runtime and library. Kits that need host
+skills explicitly select `readonly` or `readwrite`.
+
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new

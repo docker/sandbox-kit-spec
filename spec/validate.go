@@ -1089,9 +1089,9 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 			c.errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: skills path %q must be absolute and canonical (no . or .. segments, no trailing slash, not the root)", i, s.Path))
 		}
 		switch s.Mode {
-		case "", SkillsReadOnly, SkillsReadWrite:
+		case "", SkillsOff, SkillsReadOnly, SkillsReadWrite:
 		default:
-			c.errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: mode must be %q or %q, got %q", i, SkillsReadOnly, SkillsReadWrite, s.Mode))
+			c.errs.add(fieldErrorf(path+".config.mode", "capabilities[%d]: mode must be %q, %q, or %q, got %q", i, SkillsOff, SkillsReadOnly, SkillsReadWrite, s.Mode))
 		}
 	case CapabilityHostPort:
 		for _, key := range []string{"host", "container", "transport", "family"} {

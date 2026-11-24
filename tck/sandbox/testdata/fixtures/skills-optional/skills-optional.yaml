@@ -8,3 +8,4 @@ capabilities:
     optional: true
     config:
       path: /home/agent/.kit-tck/skills-opt
+      mode: readonly

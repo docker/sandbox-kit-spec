@@ -1039,7 +1039,11 @@ func TestSetReExportKeepsReferenceKeysApart(t *testing.T) {
 		return spec.Capability{Type: spec.CapabilityACP, Config: map[string]any{"agent": agent, "command": []any{"claude-acp"}}}
 	}
 	skills := func(path, mode string) spec.Capability {
-		return spec.Capability{Type: spec.CapabilityAgentSkills, Config: map[string]any{"path": path, "mode": mode}}
+		c := spec.Capability{Type: spec.CapabilityAgentSkills, Config: map[string]any{"path": path}}
+		if mode != "" {
+			c.Config["mode"] = mode
+		}
+		return c
 	}
 	skill := func(path, name string) spec.Capability {
 		return spec.Capability{Type: spec.CapabilityAgentSkill, Config: map[string]any{"path": path, "name": name}}
@@ -1048,30 +1052,33 @@ func TestSetReExportKeepsReferenceKeysApart(t *testing.T) {
 		return spec.Capability{Type: typ, Config: config}
 	}
 	for _, tc := range []struct {
-		name     string
-		kits     [][]spec.Capability
-		value    string
-		deferred bool
-		composed int
-		err      string
+		name       string
+		kits       [][]spec.Capability
+		value      string
+		deferred   bool
+		composed   int
+		err        string
+		skillsMode string
 	}{
-		{"port repeating another kit's", [][]spec.Capability{{port(value, "a")}, {port("tcp", "b")}}, "tcp", true, 1, ""},
-		{"port distinct from another kit's", [][]spec.Capability{{port(value, "a")}, {port("tcp", "b")}}, "udp", true, 2, ""},
-		{"one reference in two kits", [][]spec.Capability{{port(value, "a")}, {port(value, "b")}}, "tcp", true, 1, ""},
-		{"one reference twice in one kit", [][]spec.Capability{{port(value, "a"), port(value, "b")}}, "tcp", true, 0, "port 8080 already declared"},
-		{"reference beside a literal key", [][]spec.Capability{{port("tcp", value)}, {port("tcp", "b")}}, "api", false, 1, ""},
-		{"credential repeating another kit's", [][]spec.Capability{{credential(value)}, {credential("github")}}, "github", true, 0, "one credential has one owner"},
-		{"credential distinct from another kit's", [][]spec.Capability{{credential(value)}, {credential("github")}}, "gitlab", true, 2, ""},
-		{"credential over several phases", [][]spec.Capability{{phased(spec.CapabilityCredential, map[string]any{"service": value, "phase": []any{"install", "runtime"}, "apiKey": map[string]any{"name": "TOKEN"}})}, {credential("github")}}, "gitlab", true, 3, ""},
-		{"credential over several phases repeating", [][]spec.Capability{{phased(spec.CapabilityCredential, map[string]any{"service": value, "phase": []any{"install", "runtime"}, "apiKey": map[string]any{"name": "TOKEN"}})}, {credential("github")}}, "github", true, 0, "one credential has one owner"},
-		{"ssh-agent phase among several", [][]spec.Capability{{phased(spec.CapabilitySSHAgent, map[string]any{"phase": []any{"install", value}})}, {phased(spec.CapabilitySSHAgent, map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{"git"}})}}, "runtime", true, 2, ""},
-		{"acp repeating another kit's", [][]spec.Capability{{acp(value)}, {acp("claude")}}, "claude", true, 1, ""},
-		{"skill named like another kit's", [][]spec.Capability{{skill("/opt/skills/review-v2", value)}, {skill("/opt/skills/review", "review")}}, "review", true, 0, "ask for different things"},
-		{"skill named apart from another kit's", [][]spec.Capability{{skill("/opt/skills/review-v2", value)}, {skill("/opt/skills/review", "review")}}, "lint", true, 2, ""},
-		{"skills contradicting another kit's", [][]spec.Capability{{skills(value, spec.SkillsReadOnly)}, {skills("/home/agent/.claude/skills", spec.SkillsReadWrite)}}, "/home/agent/.claude/skills", true, 0, "ask for different things"},
+		{"port repeating another kit's", [][]spec.Capability{{port(value, "a")}, {port("tcp", "b")}}, "tcp", true, 1, "", ""},
+		{"port distinct from another kit's", [][]spec.Capability{{port(value, "a")}, {port("tcp", "b")}}, "udp", true, 2, "", ""},
+		{"one reference in two kits", [][]spec.Capability{{port(value, "a")}, {port(value, "b")}}, "tcp", true, 1, "", ""},
+		{"one reference twice in one kit", [][]spec.Capability{{port(value, "a"), port(value, "b")}}, "tcp", true, 0, "port 8080 already declared", ""},
+		{"reference beside a literal key", [][]spec.Capability{{port("tcp", value)}, {port("tcp", "b")}}, "api", false, 1, "", ""},
+		{"credential repeating another kit's", [][]spec.Capability{{credential(value)}, {credential("github")}}, "github", true, 0, "one credential has one owner", ""},
+		{"credential distinct from another kit's", [][]spec.Capability{{credential(value)}, {credential("github")}}, "gitlab", true, 2, "", ""},
+		{"credential over several phases", [][]spec.Capability{{phased(spec.CapabilityCredential, map[string]any{"service": value, "phase": []any{"install", "runtime"}, "apiKey": map[string]any{"name": "TOKEN"}})}, {credential("github")}}, "gitlab", true, 3, "", ""},
+		{"credential over several phases repeating", [][]spec.Capability{{phased(spec.CapabilityCredential, map[string]any{"service": value, "phase": []any{"install", "runtime"}, "apiKey": map[string]any{"name": "TOKEN"}})}, {credential("github")}}, "github", true, 0, "one credential has one owner", ""},
+		{"ssh-agent phase among several", [][]spec.Capability{{phased(spec.CapabilitySSHAgent, map[string]any{"phase": []any{"install", value}})}, {phased(spec.CapabilitySSHAgent, map[string]any{"phase": "runtime", "unrestricted": false, "sign": []any{"git"}})}}, "runtime", true, 2, "", ""},
+		{"acp repeating another kit's", [][]spec.Capability{{acp(value)}, {acp("claude")}}, "claude", true, 1, "", ""},
+		{"skill named like another kit's", [][]spec.Capability{{skill("/opt/skills/review-v2", value)}, {skill("/opt/skills/review", "review")}}, "review", true, 0, "ask for different things", ""},
+		{"skill named apart from another kit's", [][]spec.Capability{{skill("/opt/skills/review-v2", value)}, {skill("/opt/skills/review", "review")}}, "lint", true, 2, "", ""},
+		{"skills widened to another kit's", [][]spec.Capability{{skills(value, spec.SkillsReadOnly)}, {skills("/home/agent/.claude/skills", spec.SkillsReadWrite)}}, "/home/agent/.claude/skills", true, 1, "", spec.SkillsReadWrite},
+		{"off skills enabled by another kit", [][]spec.Capability{{skills(value, spec.SkillsOff)}, {skills("/home/agent/.claude/skills", spec.SkillsReadWrite)}}, "/home/agent/.claude/skills", true, 1, "", spec.SkillsReadWrite},
+		{"default skills enabled by another kit", [][]spec.Capability{{skills(value, "")}, {skills("/home/agent/.claude/skills", spec.SkillsReadOnly)}}, "/home/agent/.claude/skills", true, 1, "", spec.SkillsReadOnly},
 		// Create types a whole-value reference, so a key a merge would
 		// otherwise have to read as a number rides through too.
-		{"port container", [][]spec.Capability{{{Type: spec.CapabilityPort, Config: map[string]any{"container": value}}}, {port("tcp", "b")}}, "8080", true, 1, ""},
+		{"port container", [][]spec.Capability{{{Type: spec.CapabilityPort, Config: map[string]any{"container": value}}}, {port("tcp", "b")}}, "8080", true, 1, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setArgs := map[string]spec.Arg{"value": {Required: true}}
@@ -1123,6 +1130,14 @@ func TestSetReExportKeepsReferenceKeysApart(t *testing.T) {
 				} else {
 					require.NoError(t, err, "depth %d", depth)
 					require.Len(t, composed.Capabilities, tc.composed, "depth %d", depth)
+					if tc.skillsMode != "" {
+						// Publication preserves the declarations until the shared
+						// path is concrete, when their widest grant must survive.
+						dirs, err := spec.AgentSkillsOf(composed.Capabilities)
+						require.NoError(t, err)
+						require.Len(t, dirs, 1, "depth %d", depth)
+						require.Equal(t, tc.skillsMode, spec.SkillsMode(dirs[0].AgentSkills), "depth %d", depth)
+					}
 				}
 				nested, err := spec.Decode(raw)
 				require.NoError(t, err)

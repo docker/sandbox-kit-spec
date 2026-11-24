@@ -1268,7 +1268,7 @@ func init() {
 			// The kit asked for read-only and the adapter offers
 			// read-write, so anything writable here is the runtime taking
 			// the wider of the two instead of the narrower.
-			requirement: "agent-skills@1/readonly-default-honored",
+			requirement: "agent-skills@1/readonly-honored",
 			capability:  capAgentSkills,
 			run: func(ctx context.Context, e *Env) []report.Finding {
 				id, cleanup, err := e.sandbox(ctx, skillsComposition, nil)
@@ -1284,7 +1284,7 @@ func init() {
 				}
 				if res.ExitCode == 0 {
 					return []report.Finding{report.Failf(
-						"the kit declared no mode, which means read-only, but the mount accepted a write")}
+						"the kit declared readonly, but the mount accepted a write")}
 				}
 				return nil
 			},

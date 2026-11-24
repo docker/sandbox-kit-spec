@@ -111,6 +111,9 @@ func bundledConflict(ctx context.Context, e *Env) []report.Finding {
 }
 
 var bundledSkillChecks = []check{
+	{requirement: "agent-skills@1/off-default-honored", capability: capAgentSkills, run: skillsModeOff("default")},
+	{requirement: "agent-skills@1/off-honored", capability: capAgentSkills, run: skillsModeOff("off")},
+	{requirement: "agent-skills@1/bundled-with-sharing-off", capability: capAgentSkills, needs: []string{capAgentSkill}, run: bundledWithSharingOff},
 	{requirement: "agent-skills@1/host-store-missing", capability: capAgentSkills, run: skillsWithoutStore("missing")},
 	{requirement: "agent-skills@1/host-store-empty", capability: capAgentSkills, run: skillsWithoutStore("empty")},
 	{requirement: "agent-skills@1/bundled-with-missing-store", capability: capAgentSkills, needs: []string{capAgentSkill}, run: bundledWithoutStore("missing")},
@@ -181,4 +184,36 @@ func bundledWithoutStore(store string) func(context.Context, *Env) []report.Find
 		findings := bundledProbe(ctx, e, id, "exposed", "ready\n")
 		return append(findings, bundledProbe(ctx, e, id, "launch", "ready\n")...)
 	}
+}
+
+// A permissive host makes the Kit's refusal of host sharing observable.
+// Both selection forms remain available without asking for host content.
+func skillsModeOff(mode string) func(context.Context, *Env) []report.Finding {
+	return func(ctx context.Context, e *Env) []report.Finding {
+		findings := skillsWithoutHost("skills-"+mode, skillsReadOnlyPath, adapter.CreateOptions{})(ctx, e)
+		return append(findings, skillsWithoutHost("skills-optional-"+mode, "/home/agent/.kit-tck/skills-opt", adapter.CreateOptions{})(ctx, e)...)
+	}
+}
+
+// A bundled-only destination remains useful with an enabled, populated
+// host store, including the optional destination with explicit off.
+func bundledWithSharingOff(ctx context.Context, e *Env) []report.Finding {
+	id, cleanup, err := e.sandbox(ctx, []string{"bundled-reader-off", fixtureBundledSkill}, nil)
+	if err != nil {
+		return []report.Finding{report.Failf("create with Kit sharing off: %v", err)}
+	}
+	defer cleanup()
+	findings := bundledProbe(ctx, e, id, "exposed", "ready\n")
+	findings = append(findings, bundledProbe(ctx, e, id, "launch", "ready\n")...)
+	for _, path := range []string{skillsReadOnlyPath, skillsWritablePath} {
+		res, err := e.Adapter.Exec(ctx, id, "ls", path)
+		if err != nil {
+			findings = append(findings, report.Failf("probe host store: %v", err))
+			continue
+		}
+		if res.ExitCode == 0 && listsExactly(res.Stdout, SkillName) {
+			findings = append(findings, report.Failf("Kit sharing is off, but host skills are visible at %s", path))
+		}
+	}
+	return findings
 }

@@ -69,9 +69,12 @@ var covers = map[string][]string{
 	// requires.
 	"agent-skills@1/host-readonly-narrows":             {"agent-skills@1/access-narrower-of-both"},
 	"agent-skills@1/readwrite-granted-when-both-allow": {"agent-skills@1/access-narrower-of-both"},
-	"agent-skills@1/readonly-default-honored":          {"agent-skills@1/access-narrower-of-both"},
+	"agent-skills@1/readonly-honored":                  {"agent-skills@1/access-narrower-of-both"},
 	"agent-skills@1/shared-path-widest-mode":           {"agent-skills@1/store-mounted-at-declared-path"},
 	"agent-skills@1/same-store-at-every-path":          {"agent-skills@1/store-mounted-at-declared-path"},
+	"agent-skills@1/off-honored":                       {"agent-skills@1/access-narrower-of-both", "agent-skills@1/host-store-optional"},
+	"agent-skills@1/off-default-honored":               {"agent-skills@1/access-narrower-of-both", "agent-skills@1/host-store-optional"},
+	"agent-skills@1/bundled-with-sharing-off":          {"agent-skills@1/destination", "agent-skill@1/exposed", "agent-skill@1/before-launch"},
 	"agent-skills@1/host-off-keeps-optional":           {"agent-skills@1/host-store-optional"},
 
 	"agent-skills@1/host-store-missing":         {"agent-skills@1/host-store-optional"},
