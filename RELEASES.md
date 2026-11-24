@@ -153,6 +153,14 @@ reader of authored descriptors built before the field refuses a
 descriptor that uses it. `schemaVersion` and every capability version
 are unchanged.
 
+The in-place `agent-skills@1` addition of `mode: off` and its new default
+uses this exception, approved by maintainer @cdupuis's instruction to add
+the mode at `@1`. Omitted modes previously requested `readonly`; they now
+request no host sharing while retaining bundled-skill destinations. Old
+runtimes reject explicit `off` and interpret omission as read-only, so
+consumers need a matching draft runtime and library. Kits that need host
+skills explicitly select `readonly` or `readwrite`.
+
 The exception ends with the first stable specification release. After
 that, changes to shipped capability meanings, defaults, permitted
 values, reconciliation, or persistent-state transitions require a new
@@ -224,6 +232,70 @@ frontend can never report a release it was not published as — the rule
 kit tags already follow. Only `kit-tck` feeds its version to spec links,
 and it passes the tag alone: a revision is not a ref, and a URL built
 from one resolves to nothing.
+
+## Capability catalog
+
+Each module release publishes `capabilities.json` and
+`capability-notes.md`. The catalog describes capability types present in
+the tagged specification and their config schemas; it contains no
+runtime implementation status. The notes list additions and changes
+relative to the preceding release. The first release has no preceding
+tag, so its notes describe the initial catalog.
+
+Each catalog entry also carries a short Markdown description extracted
+from the opening prose of its capability specification page. Relative
+links in that prose point to the tagged specification. The description
+explains the specification contract; it does not assert runtime support.
+
+The catalog also records `shared_spec_sha256` for `SPEC-v3.md` and
+`conformance_sha256` for `conformance.md`. Notes report changes to these
+shared normative documents separately, including edits that leave every
+capability page and schema unchanged. The initial catalog lists both
+documents in that section.
+
+Each entry's `schema_sha256` hashes its linked capability schema file.
+`schema_contract_sha256` also fingerprints the descriptor's shared
+validation context, that type's conditional mapping, and the local
+schema fragments reachable through their `$ref` links. The shared
+context includes rules around capability groups and descriptor-wide
+rules, so such changes conservatively mark affected capability contracts
+as changed. Release notes use the contract hash to detect schema changes
+without treating an unrelated type's mapping as a change to every
+capability.
+
+For a local snapshot, pass the tag and its full commit SHA explicitly:
+
+```sh
+task release:capabilities RELEASE_TAG=v3.X.Y \
+  RELEASE_REVISION=<full-commit-sha> [PREVIOUS_REF=v3.X.Z]
+```
+
+The output is written under ignored `dist/capabilities/`. Omitting
+`PREVIOUS_REF` is appropriate for the first release. The release workflow
+generates the same files from the tag, attaches both to the GitHub
+release, includes them in `checksums.txt`, and places the notes in the
+release description.
+
+The `docker/docs` workflow `.github/workflows/sync-sandbox-kit-spec.yml`
+checks daily and on manual dispatch for a published catalog. It downloads
+and verifies the JSON against the release checksum, then vendors the
+unchanged bytes as `data/sandbox_kit_capabilities.json`. Its draft pull
+request changes only that catalog. The workflow uses the docs repository's
+`GITHUB_TOKEN`, so no cross-repository GitHub App credentials are needed.
+GitHub Actions must be permitted to create pull requests in `docker/docs`.
+Generated pull requests are drafts until Docker Sandboxes adopts the
+specification. Because pull requests created with `GITHUB_TOKEN` do not
+trigger pull request workflows, a maintainer must close and reopen the
+pull request to start CI.
+
+A Hugo inline shortcode joins the catalog with docs-owned runtime support
+and restrictions in `data/sandbox_kit_support.json`. It renders one
+section per capability with its description, local and cloud support,
+restrictions, and specification link. Newly listed types receive
+`Not verified` status because the catalog does not establish runtime
+support. Existing support claims remain owned by `docker/docs`; a known
+support entry missing from the catalog requires human review rather than
+being dropped.
 
 ## Conformance suites and releases
 

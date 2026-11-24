@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+capabilities:
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.kit-tck/skills-opt
+      mode: off

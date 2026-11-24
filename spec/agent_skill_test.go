@@ -335,3 +335,24 @@ func TestAgentSkillLiteralSourceWithParameterizedName(t *testing.T) {
 		}
 	}
 }
+
+// Omitted and explicit off name the same request, so composition must not
+// create two destinations for one discovery path.
+func TestAgentSkillsOffAndOmittedCompose(t *testing.T) {
+	entry := func(mode string) Capability {
+		config := map[string]any{"path": "/skills"}
+		if mode != "" {
+			config["mode"] = mode
+		}
+		return Capability{Type: CapabilityAgentSkills, Config: config}
+	}
+	merged, err := Merge([]Contribution{
+		{Reference: "base", Descriptor: &Descriptor{SchemaVersion: "3", Kind: KindWorkload, Capabilities: []Capability{entry("")}}},
+		{Reference: "off", Descriptor: &Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{entry(SkillsOff)}}},
+	}, MergeOptions{})
+	require.NoError(t, err)
+	dirs, err := AgentSkillsOf(merged.Descriptor.Capabilities)
+	require.NoError(t, err)
+	require.Len(t, dirs, 1)
+	require.Equal(t, SkillsOff, SkillsMode(dirs[0].AgentSkills))
+}

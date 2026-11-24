@@ -5,9 +5,9 @@ service — so that a runtime can install it, grant it what it needs, and
 combine it with other Kits without knowing anything about it in advance.
 
 This is the worked tour: a real Kit, what its capabilities ask for, and
-how a set composes. The concepts behind it — what a Kit is, the two kinds,
-and the tenets that decided the design — are on the
-[README](../README.md), and the normative rules are in
+how a set composes. What a Kit is and the two kinds are on the
+[README](../README.md), the tenets that decided the design are in
+[design.md](design.md), and the normative rules are in
 [SPEC-v3.md](spec/SPEC-v3.md).
 
 ## What a Kit looks like
@@ -222,4 +222,6 @@ the content, and publishes both as one image.
   well-known capability type, normative for runtimes implementing it.
 - [`examples/`](../examples) — working Kits, from `hello` (the smallest
   possible workload) through `shell` plus agent mixins.
-- [README](../README.md) — building and running Kits locally.
+- [Building and publishing Kits](building-kits.md) — Buildx, sets,
+  multi-platform builds, and checking a Kit with `kit-tck`.
+- [README](../README.md) — running Kits locally.

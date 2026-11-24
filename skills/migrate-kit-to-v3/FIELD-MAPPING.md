@@ -665,8 +665,10 @@ fails, and conflicting effective names cannot silently replace one another.
 ### agent-skills@1
 
 Only where the v2 kit already declares or documents the agent's skills
-directory. Do not invent a path. `mode` defaults to `readonly`, and the
-effective access is the narrower of the host's setting and the kit's.
+directory. Do not invent a path. `mode` defaults to `off`, which withholds
+host content while retaining bundled-skill discovery. Select `readonly`
+or `readwrite` to request host sharing. Effective access is the narrower
+of the host's setting and the kit's.
 
 Missing or empty host skills, or disabled host sharing, do not make this
 request unsatisfiable, even when required. Bundled skills remain available

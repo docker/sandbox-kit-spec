@@ -146,7 +146,7 @@ often got wrong:
 | `git-identity@1` | commits attributed to the runtime-provided user | Config-less; requests only user.name and user.email, not a configuration-source mount. Requires permission; optional when missing identity is tolerable. Signing/authentication are separate grants. |
 | `sbx@1` | "launch this as an agent" | Workload-only, config-less — and enforced: a mixin declaring it fails validation. |
 | `agent-skill@1` | one bundled skill | `path` names the image directory containing `SKILL.md` and supporting files. The basename is the discovery name unless `config.name` overrides it; the entry-level `name` remains only a display label. |
-| `agent-skills@1` | where an agent discovers skills | Declare on the agent workload or agent mixin. The runtime links or otherwise exposes every selected `agent-skill@1` bundle here, and includes host-shared skills when available and enabled. Missing host skills never block startup; `mode` bounds host-store access only. |
+| `agent-skills@1` | where an agent discovers skills | Declare on the agent workload or agent mixin. The runtime links or otherwise exposes every selected `agent-skill@1` bundle here, and includes host-shared skills when available and enabled. Missing host skills never block startup; `mode` defaults to `off` and bounds host-store access only. Select `readonly` or `readwrite` to request host sharing. |
 | `acp@1` | how to run an ACP agent | Declare on the Kit that supplies the launch command, workload or mixin. `agent` is its unversioned provides name; another composed Kit may provide it. `command` is a complete non-TTY stdio command, never an argv tail. `env` overlays the session environment; positive `protocolVersion` defaults to 1 and names the protocol major version, not a package release. Use `optional: true` for older hosts. Different configs for one normalized agent conflict. |
 | `agent-sessions@2` | the headless verbs a harness drives (run one prompt, continue, resume, list) | Argv tails appended to the launch argv. Every verb runs one prompt headlessly, so `prompt`, `continue` and `resume` must each reference `{{.Prompt}}`, and `resume` also `{{.SessionID}}`; check the agent's headless flag reaches continue and resume, which without it often open the TUI. `@1`, whose `continue` and `resume` carry no prompt, stays valid for Kits already published; author `@2`, and never both in one descriptor. **Most agent Kits declare both this and `agent-interactive-sessions@1`**; an agent with no interactive mode declares only this. Verify every flag against the tool's real CLI — never invent one. |
 | `agent-interactive-sessions@1` | the TUI verbs a human-facing host launches (seeded prompt, continue, resume, session picker, list) | The sibling of `agent-sessions@2` for an agent whose CLI has an interactive mode; an agent that also has a headless mode declares both, and one with only a TUI declares just this. **Presence is meaning**: a present key is supported, an absent key is not, and for `continue`, `newSession` and `sessionPicker` `[]` is the launch argv alone (`prompt` and `resume` carry their placeholders, so they are never empty). `newSession` is the exception: omit it when a bare launch opens the TUI, because it then defaults to `lifecycle@1`'s `interactive` launch; if you state both `newSession` and `interactive` they must be the same argv, an explicit `[]` included. `list` is the same command as in `agent-sessions@2`. Declare only verbs you verified. |
@@ -200,10 +200,12 @@ at discovery destinations; it does not rename or rewrite the source.
 Agent Kits declare `agent-skills@1` at their discovery paths. The runtime
 links or otherwise exposes every selected `agent-skill@1` bundle at each
 path, even when the host store is missing, empty, or disabled. The same
-declaration permits host sharing when available, bounded by `mode` and
-host policy; no second directory declaration is needed. Runtime assembly
-of these sources is implementation-specific. Different source paths
-claiming one effective name conflict at composition, and an existing
+declaration permits host sharing when `mode` explicitly selects
+`readonly` or `readwrite`, bounded by host policy. An omitted `mode`
+defaults to `off`, so discovery alone grants no host access. No second
+directory declaration is needed. Runtime assembly of these sources is
+implementation-specific. Different source paths claiming one effective
+name conflict at composition, and an existing
 destination entry makes a skill request unsatisfiable. Without
 any selected destination, a required skill request fails; optional
 requests are skipped and recorded. Registration does not execute scripts.

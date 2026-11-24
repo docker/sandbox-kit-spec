@@ -348,7 +348,7 @@ create)
     case "${kit##*/}" in
     bundled-skill) bundle_source="$kit" ;;
     bundled-optional) bundle_source="$kit"; bundle_optional=1 ;;
-    bundled-reader) bundle_reader="$kit" ;;
+    bundled-reader | bundled-reader-off) bundle_reader="$kit" ;;
     bundled-existing) bundle_existing=1 ;;
     bundled-host-conflict) bundle_host=1 ;;
     esac
@@ -372,12 +372,26 @@ create)
   # Host sharing does not decide whether a discovery destination is selected.
   required_skills=""
   optional_skills=""
+  skills_mode_off=""
+  skill_fixture=""
   for kit in "${kits[@]}"; do
     case "${kit##*/}" in
-    *skills-optional*) optional_skills=1 ;;
-    *skills*) required_skills=1 ;;
+    *skills-optional*) optional_skills=1; skill_fixture="${kit##*/}" ;;
+    *skills*) required_skills=1; skill_fixture="${kit##*/}" ;;
     esac
   done
+  # The fixture names distinguish omission from explicit off so mutations
+  # can violate one policy without weakening the other check.
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in
+    skills-default | skills-optional-default) skills_mode_off=default ;;
+    skills-off | skills-optional-off | bundled-reader-off) skills_mode_off=off ;;
+    esac
+  done
+  if [ -n "$skills_mode_off" ] && [ "$broken" = "refuses-$skills_mode_off-skills" ]; then
+    echo "refusing: Kit host sharing is off" >&2
+    exit 2
+  fi
   if [ "$hostmode" = "off" ] && [ -n "$required_skills" ] && [ "$broken" = "refuses-required-skills" ]; then
     echo "refusing: the host's skills setting is off and the kit requires the store" >&2
     exit 2
@@ -429,7 +443,7 @@ create)
       dockerd | dockerd-manual) need="com.docker.sandbox/dockerd@1" ;;
       docker-workload) ;;
       bundled-optional | bundled-existing) ;;
-      bundled-reader) need="com.docker.sandbox/agent-skills@1" ;;
+      bundled-reader | bundled-reader-off) need="com.docker.sandbox/agent-skills@1" ;;
       bundled-skill | bundled-host-conflict) need="com.docker.sandbox/agent-skill@1" ;;
       *git-identity-optional*) ;;
       *git-identity-hooks*) need="com.docker.sandbox/lifecycle@1" ;;
@@ -939,13 +953,13 @@ create)
   fi
 
   # A disabled host store stays hidden for optional destinations too.
-  if [ -n "$optional_skills" ] && [ -z "$hoststore" ]; then
+  if [ -n "$optional_skills" ] && [ -z "$hoststore" ] && { [ -z "$skills_mode_off" ] || [ "$broken" = "mounts-$skills_mode_off-skills" ]; }; then
     if [ "$hostmode" != "off" ] || [ "$broken" = "mounts-optional-despite-off" ]; then
       ln -s "$store" "$dir/skills-opt"
     fi
   fi
   # The shared store, mounted where the kit asked for it.
-  if [ -z "$hoststore" ] && [ "$broken" != "ignores-skills" ] && { [ "$hostmode" != "off" ] || [ "$broken" = "ignores-host-off" ]; }; then
+  if [ -z "$hoststore" ] && [ "$broken" != "ignores-skills" ] && { [ -z "$skills_mode_off" ] || [ "$broken" = "mounts-$skills_mode_off-skills" ] || [ "$broken" = bundle-off-mounts-host ]; } && { [ "$hostmode" != "off" ] || [ "$broken" = "ignores-host-off" ]; }; then
     ln -s "$store" "$dir/skills"
     case "$broken" in
     first-skills-only)
@@ -1035,11 +1049,10 @@ create)
   if [ "$broken" != overwrites-context-profile ]; then
     printf '%s\n' 'kit-tck-existing-instructions' >>"$dir/profile"
   fi
-  if { [ "$hostmode" = off ] || [ -n "$hoststore" ]; } && { [ -n "$required_skills" ] || [ -n "$optional_skills" ]; }; then
-    skill_fixture=skills
-    if [ -n "$optional_skills" ]; then skill_fixture=skills-optional; fi
+  if { [ "$hostmode" = off ] || [ -n "$hoststore" ] || [ -n "$skills_mode_off" ]; } && { [ -n "$required_skills" ] || [ -n "$optional_skills" ]; }; then
     record="{\"path\":\"capabilities[0]\",\"source\":{\"kit\":\"$skill_fixture\",\"path\":\"capabilities[0]\"},\"members\":[\"capabilities[0]\"]}"
     selected="$record" skipped=""
+    if [ -n "$skills_mode_off" ] && [ "$broken" = "skips-$skills_mode_off-skills" ]; then selected=""; skipped="$record"; fi
     if [ "$broken" = skips-required-skills ] || [ "$broken" = skips-optional-skills ]; then selected=""; skipped="$record"; fi
     if [ -n "$hoststore" ] && { [ "$broken" = "skips-$hoststore-required-skills" ] || [ "$broken" = "skips-$hoststore-optional-skills" ]; }; then
       case "$broken:$skill_fixture" in
@@ -1068,6 +1081,10 @@ create)
         dest="$dir/home/agent/.kit-tck/$target"
         mkdir -p "$dest"
         if [ "$broken" = bundle-ignores ] || { [ "$broken" = bundle-first-only ] && [ "$target" = skills-rw ]; }; then continue; fi
+        if [ "$skills_mode_off" = off ]; then
+          if { [ "$broken" = bundle-off-drops-required ] && [ "$target" = skills ]; } ||
+            { [ "$broken" = bundle-off-drops-optional ] && [ "$target" = skills-rw ]; }; then continue; fi
+        fi
         if [ -n "$hoststore" ]; then
           if { [ "$broken" = "bundle-$hoststore-drops-required" ] && [ "$target" = skills ]; } ||
             { [ "$broken" = "bundle-$hoststore-drops-optional" ] && [ "$target" = skills-rw ]; }; then continue; fi
@@ -1468,7 +1485,7 @@ exec)
         : >"$dir/skills/$(basename "$2")"
         exit 0
       fi
-      # Alone, the kit declared no mode, so this mount is read-only
+      # Alone, the kit declared readonly, so this mount is read-only
       # however permissive the host is.
       if [ "$broken" = "ignores-readonly" ]; then
         : >"$dir/skills/$(basename "$2")"

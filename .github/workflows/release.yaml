@@ -127,7 +127,6 @@ jobs:
               output.write(f"previous-tag={base}\n")
           PYCODE
 
-
   notes:
     name: refine published release notes
     needs: release

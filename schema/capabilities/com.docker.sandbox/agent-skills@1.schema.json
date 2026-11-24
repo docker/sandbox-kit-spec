@@ -24,6 +24,7 @@
       "anyOf": [
         {
           "enum": [
+            "off",
             "readonly",
             "readwrite"
           ]
@@ -32,7 +33,7 @@
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
         }
       ],
-      "description": "The most access the kit is willing to take; defaults to readonly. The host may narrow it but never exceed it."
+      "description": "The most access the kit is willing to take; defaults to off, withholding host content while retaining bundled-skill discovery. The host may narrow it but never exceed it."
     }
   }
 }

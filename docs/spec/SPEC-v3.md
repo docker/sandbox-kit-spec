@@ -714,7 +714,7 @@ capabilities:
       optional: true
       capabilities:
         - type: com.docker.sandbox/agent-skills@1
-          config: {path: /home/agent/.local/skills}
+          config: {path: /home/agent/.local/skills, mode: readonly}
         - type: com.docker.sandbox/lifecycle@1
           config:
             startup:

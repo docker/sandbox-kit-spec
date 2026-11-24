@@ -8,6 +8,17 @@ project_name: kit-tck
 env:
   - GOWORK=off
 
+# Generate the release-time capability snapshot from this tagged checkout.
+# GoReleaser requires dist/ to be empty after before hooks, so stage the
+# hook output under a commit-scoped /tmp path instead.
+before:
+  hooks:
+    - >-
+      go run ./cmd/capability-catalog release --root .
+      --version {{ .Tag }} --revision {{ .FullCommit }}
+      {{ if and .PreviousTag (ne .PreviousTag "v0.0.0") }}--previous-ref {{ .PreviousTag }}{{ end }}
+      --output-dir /tmp/sandbox-kit-capabilities-{{ .FullCommit }}
+
 builds:
   - id: kit-tck
     main: ./cmd/kit-tck
@@ -36,9 +47,16 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: /tmp/sandbox-kit-capabilities-{{ .FullCommit }}/*
 
 release:
   prerelease: auto
+  extra_files:
+    - glob: /tmp/sandbox-kit-capabilities-{{ .FullCommit }}/capabilities.json
+    - glob: /tmp/sandbox-kit-capabilities-{{ .FullCommit }}/capability-notes.md
+  footer: >-
+    {{ readFile (printf "/tmp/sandbox-kit-capabilities-%s/capability-notes.md" .FullCommit) }}
 
 changelog:
   sort: asc

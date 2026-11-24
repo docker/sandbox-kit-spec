@@ -1664,6 +1664,10 @@ func TestAgentSkillsValidation(t *testing.T) {
 	_, err = Validate(withSkills("/home/agent/.claude/skills", "/home/agent/.claude/skills"))
 	require.ErrorContains(t, err, "identical to capabilities[0]")
 
+	_, err = Validate(withMode("/home/agent/.claude/skills", SkillsOff))
+	require.NoError(t, err)
+	_, err = Validate(withMode("/home/agent/.claude/skills", SkillsReadOnly))
+	require.NoError(t, err)
 	_, err = Validate(withMode("/home/agent/.claude/skills", SkillsReadWrite))
 	require.NoError(t, err)
 	_, err = Validate(withMode("/home/agent/.claude/skills", "rw"))
@@ -1679,10 +1683,11 @@ func TestAgentSkillsValidation(t *testing.T) {
 	_, err = Validate(contradictory)
 	require.ErrorContains(t, err, "already declared")
 
-	// An omitted mode is the read-only default, which is what keeps a
-	// permissive host from handing write access to a kit that never
-	// asked for it.
-	require.Equal(t, SkillsReadOnly, SkillsMode(AgentSkills{Path: "/s"}))
+	// An omitted mode withholds host sharing, so declaring where an
+	// agent discovers bundled skills never grants host access by itself.
+	require.Equal(t, SkillsOff, SkillsMode(AgentSkills{Path: "/s"}))
+	require.Equal(t, SkillsOff, SkillsMode(AgentSkills{Path: "/s", Mode: SkillsOff}))
+	require.Equal(t, SkillsReadOnly, SkillsMode(AgentSkills{Path: "/s", Mode: SkillsReadOnly}))
 	require.Equal(t, SkillsReadWrite, SkillsMode(AgentSkills{Path: "/s", Mode: SkillsReadWrite}))
 }
 
@@ -1692,8 +1697,19 @@ func TestAgentSkillsValidation(t *testing.T) {
 func TestAgentSkillsSurfaceAndGate(t *testing.T) {
 	granted := SurfaceOf(&Descriptor{SchemaVersion: "3", Kind: KindMixin})
 	candidate := SurfaceOf(&Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
-		{Type: CapabilityAgentSkills, Config: map[string]any{"path": "/home/agent/.claude/skills"}},
+		{Type: CapabilityAgentSkills, Config: map[string]any{"path": "/home/agent/.claude/skills", "mode": SkillsReadOnly}},
 	}})
+
+	for _, mode := range []string{"", SkillsOff} {
+		off := SurfaceOf(&Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
+			{Type: CapabilityAgentSkills, Config: map[string]any{"path": "/home/agent/.claude/skills", "mode": mode}},
+		}})
+		require.Empty(t, off.SkillsPaths)
+		require.Empty(t, off.SkillsWritePaths)
+		require.Empty(t, DiffWidenings(granted, off))
+		require.Equal(t, []Widening{{Category: "skills", Detail: "/home/agent/.claude/skills"}}, DiffWidenings(off, candidate))
+		require.Empty(t, DiffWidenings(candidate, off))
+	}
 
 	require.Equal(t, []string{"/home/agent/.claude/skills"}, candidate.SkillsPaths)
 	require.Empty(t, candidate.StoragePaths, "a skills mount is not storage the sandbox was given")
@@ -1782,7 +1798,7 @@ func TestAgentSkillsAccessCannotBeConfusedWithAPath(t *testing.T) {
 	// A different kit asking to read a path that merely looks like the
 	// first one's write marker. It is a new path and must gate.
 	lookalike := SurfaceOf(&Descriptor{SchemaVersion: "3", Kind: KindMixin, Capabilities: []Capability{
-		{Type: CapabilityAgentSkills, Config: map[string]any{"path": "/x (readwrite)"}},
+		{Type: CapabilityAgentSkills, Config: map[string]any{"path": "/x (readwrite)", "mode": SkillsReadOnly}},
 	}})
 
 	require.Equal(t,

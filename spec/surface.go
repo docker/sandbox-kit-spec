@@ -136,6 +136,10 @@ func SurfaceOf(d *Descriptor) Surface {
 				s.Services = append(s.Services, capabilitySurfaceEntry(n))
 				continue
 			}
+			// Bundled-skill destinations grant no host access by themselves.
+			if SkillsMode(sk) == SkillsOff {
+				continue
+			}
 			s.SkillsPaths = append(s.SkillsPaths, sk.Path)
 			if SkillsWritable(sk) {
 				s.SkillsWritePaths = append(s.SkillsWritePaths, sk.Path)
