@@ -5,6 +5,48 @@
   "type": "object",
   "additionalProperties": false,
   "minProperties": 1,
+  "anyOf": [
+    {
+      "required": [
+        "prompt"
+      ],
+      "properties": {
+        "prompt": {
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "required": [
+        "resume"
+      ],
+      "properties": {
+        "resume": {
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "required": [
+        "continue"
+      ],
+      "properties": {
+        "continue": {
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "required": [
+        "list"
+      ],
+      "properties": {
+        "list": {
+          "minItems": 1
+        }
+      }
+    }
+  ],
   "definitions": {
     "referencesPrompt": {
       "type": "string",

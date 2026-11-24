@@ -474,6 +474,26 @@ func TestAgentSessionsV2SchemaPlaceholders(t *testing.T) {
 	require.Equal(t, []string{"#/definitions/referencesPrompt"}, required("prompt"))
 	require.Equal(t, []string{"#/definitions/referencesPrompt"}, required("continue"))
 	require.ElementsMatch(t, []string{"#/definitions/referencesSessionID", "#/definitions/referencesPrompt"}, required("resume"))
+
+	// As the validator does, at least one verb must be more than an empty
+	// tail. minItems leaves a string list alone, which decodes to sh -c.
+	var verbs []string
+	for _, b := range schema["anyOf"].([]any) {
+		branch := b.(map[string]any)
+		verb := branch["required"].([]any)[0].(string)
+		require.EqualValues(t, 1, at(t, branch, "properties", verb)["minItems"], verb)
+		verbs = append(verbs, verb)
+	}
+	require.ElementsMatch(t, []string{"prompt", "resume", "continue", "list"}, verbs)
+
+	for _, rule := range at(t, loadSchema(t), "definitions", "capability")["allOf"].([]any) {
+		branch := rule.(map[string]any)
+		if at(t, branch, "if", "properties", "type")["const"] == CapabilityAgentSessionsV2 {
+			require.Equal(t, []any{"config"}, at(t, branch, "then")["required"], "an entry without config declares no verbs")
+			return
+		}
+	}
+	t.Fatal("agent-sessions@2 schema branch is absent")
 }
 
 // The tests here read the schema's structure rather than run a validator,
