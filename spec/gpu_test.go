@@ -1,6 +1,8 @@
 package spec
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -142,4 +144,42 @@ func TestGPUSchemaMatchesValidation(t *testing.T) {
 	require.Equal(t, gpuDevices.String(), literalPattern(t, devices))
 	assertAcceptsKitArg(t, driver, "bearing")
 	assertAcceptsKitArg(t, devices, "bearing")
+}
+
+// A re-exported count is a placeholder at publication, so it cannot be
+// compared with a stated one yet. Publication keeps both, and create
+// reconciles them once the arg has a value.
+func TestGPUMergeDefersAParameterizedCount(t *testing.T) {
+	gpu := `schemaVersion: "3"
+kind: %s
+version: "1.0.0"
+capabilities:
+  - type: com.docker.sandbox/gpu@1
+    config: {driver: nvidia.com/gpu, devices: %s}
+`
+	published := mergeOK(t,
+		contribute(t, "a", fmt.Sprintf(gpu, KindWorkload, `"${{ kit.args.count }}"`)),
+		contribute(t, "b", fmt.Sprintf(gpu, KindMixin, `"1"`)),
+	).Descriptor
+	encoded, err := json.Marshal(published.Capabilities)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), "${{ kit.args.count }}", "the placeholder survives publication")
+	require.Contains(t, string(encoded), `"devices":"1"`, "the stated count survives publication")
+	_, err = Validate(published)
+	require.NoError(t, err, "the deferred requests stay in separate declaration blocks")
+
+	composed, err := Compose([]Contribution{
+		contribute(t, "a", fmt.Sprintf(gpu, KindWorkload, `"1"`)),
+		contribute(t, "b", fmt.Sprintf(gpu, KindMixin, `"1"`)),
+	})
+	require.NoError(t, err)
+	g, err := GPUOf(composed.Capabilities)
+	require.NoError(t, err)
+	require.Equal(t, &GPU{Driver: GPUDriverNVIDIA, Devices: "1"}, g)
+
+	_, err = Compose([]Contribution{
+		contribute(t, "a", fmt.Sprintf(gpu, KindWorkload, `"2"`)),
+		contribute(t, "b", fmt.Sprintf(gpu, KindMixin, `"1"`)),
+	})
+	require.ErrorContains(t, err, "both declare gpu")
 }

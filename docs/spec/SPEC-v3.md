@@ -1219,7 +1219,9 @@ An instance-shaped request whose key ([§7.1](#71-arity)) still holds a
 reference remains a separate contribution until create-phase expansion
 and selection, whatever its type, and so does a volume or host-mount
 request with any re-exported text input, whose settings decide whether
-two requests at one path agree. Publication preserves its optionality
+two requests at one path agree, and a `gpu@1` request with a re-exported
+driver or count, which decides whether two requests are one sandbox's
+GPUs. Publication preserves its optionality
 and source attribution through a one-member group, and its original
 declaration boundary through `declarationBlocks`
 ([§7.1.1](#711-capability-groups)); runtime composition then keys and
