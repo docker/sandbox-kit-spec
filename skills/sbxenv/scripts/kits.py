@@ -369,7 +369,7 @@ def summarize(ref, digest, man, scoped=None, unscoped=None):
         types.append(short)
         if short.startswith("credential@"):
             creds.append(_creds(cap, optional, group, values))
-        elif short.split("@")[0] in ("ssh-agent", "host-port", "host-mount", "privileged", "dockerd",
+        elif short.split("@")[0] in ("ssh-agent", "host-port", "host-mount", "privileged", "fuse", "dockerd",
                                     "git-identity", "usb-device", "gpu", "port", "resources", "long-running", "auto-restart",
                                     "clipboard"):
             grants.append({"type": short, "optional": optional, "group": group, "config": cap.get("config")})
