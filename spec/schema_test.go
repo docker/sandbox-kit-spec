@@ -184,7 +184,7 @@ func TestSchemaMatchesSpecConstants(t *testing.T) {
 	// ${{ kit.args.* }} use anyOf: the literal grammar first, then a
 	// whole/bearing kit-arg ref — matching ValidateRaw's lenient path.
 	skills := loadJSON(t, perTypeSchemaPath(CapabilityAgentSkills))
-	require.ElementsMatch(t, []any{SkillsReadOnly, SkillsReadWrite},
+	require.ElementsMatch(t, []any{SkillsOff, SkillsReadOnly, SkillsReadWrite},
 		literalEnum(t, at(t, skills, "properties", "mode")))
 	assertAcceptsKitArg(t, at(t, skills, "properties", "mode"), "bearing")
 

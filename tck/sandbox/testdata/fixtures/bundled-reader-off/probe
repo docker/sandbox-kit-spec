@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+# The fake adapter runs this same probe over its concrete filesystem model.
+root=${KIT_TCK_BUNDLE_ROOT:-}
+case "$1" in
+exposed)
+  for dir in /home/agent/.kit-tck/skills /home/agent/.kit-tck/skills-rw; do
+    dir="$root$dir"
+    cmp -s "$dir/review/SKILL.md" "$root/usr/share/kit-tck/bundled/review/SKILL.md"
+    cmp -s "$dir/renamed/SKILL.md" "$root/usr/share/kit-tck/bundled/source-name/SKILL.md"
+    test ! -e "$dir/source-name"
+    # Check the execution sentinel as content without running it.
+    test -f "$dir/review/scripts/register.sh"
+    test -x "$dir/review/scripts/register.sh"
+    cmp -s "$dir/review/scripts/register.sh" "$root/usr/share/kit-tck/bundled/review/scripts/register.sh"
+    cmp -s "$dir/review/scripts/read.sh" "$root/usr/share/kit-tck/bundled/review/scripts/read.sh"
+    cmp -s "$dir/review/references/value.txt" "$root/usr/share/kit-tck/bundled/review/references/value.txt"
+    test -x "$dir/review/scripts/read.sh"
+    test "$("$dir/review/scripts/read.sh")" = 'bundled reference'
+  done
+  echo ready
+  ;;
+launch)
+  for attempt in 1 2 3 4 5; do
+    if test -f "$root/var/tmp/bundled-at-launch"; then
+      cat "$root/var/tmp/bundled-at-launch"
+      exit 0
+    fi
+    sleep 1
+  done
+  exit 1
+  ;;
+no-execution)
+  test ! -e "$root/var/tmp/bundled-script-executed"
+  echo clean
+  ;;
+esac

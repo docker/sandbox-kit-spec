@@ -884,7 +884,8 @@ type ResponseFields struct {
 // skills says so and never receives write access on a permissive host.
 type AgentSkills struct {
 	Path string `json:"path" yaml:"path"`
-	// Mode is "readonly" (default) or "readwrite".
+	// Mode is "off" (default), "readonly", or "readwrite".
+	// Discovery alone does not grant access to the host's shared store.
 	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
@@ -899,6 +900,7 @@ type AgentSkillsCapability struct {
 
 // Skills access modes.
 const (
+	SkillsOff       = "off"
 	SkillsReadOnly  = "readonly"
 	SkillsReadWrite = "readwrite"
 )
@@ -906,7 +908,7 @@ const (
 // SkillsMode reports the access a request names, resolving the default.
 func SkillsMode(s AgentSkills) string {
 	if s.Mode == "" {
-		return SkillsReadOnly
+		return SkillsOff
 	}
 	return s.Mode
 }
