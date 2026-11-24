@@ -779,6 +779,7 @@ var mutations = map[string][]string{
 	"drops-context-body":                     {"agent-context@1/body-readable"},
 	"ignores-privileged":                     {"privileged@1/elevation-granted"},
 	"ignores-gpu-device":                     {"gpu@1/devices-usable"},
+	"ignores-venus-device":                   {"gpu@1/devices-usable"},
 	"gpu-grants-unsatisfiable":               {"gpu@1/unsatisfiable-refused"},
 	"docker-ignores-privilege":               {"dockerd@1/elevation-granted"},
 	"docker-elevates-on-label-only":          {"dockerd@1/elevation-granted", "dockerd@1/manual-elevation-granted"},

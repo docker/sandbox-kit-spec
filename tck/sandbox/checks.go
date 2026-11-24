@@ -1218,29 +1218,41 @@ func init() {
 		},
 		check{
 			// The node can exist and still refuse open under a device
-			// filter, so the probe opens what the driver's row names. A
-			// host without NVIDIA GPUs refuses, which is conforming.
+			// filter, so the probe opens what the driver's row names. Each
+			// documented driver is its own scenario: a host offering one
+			// refuses the other, which is conforming, and only a host
+			// refusing both leaves nothing to judge.
 			requirement: "gpu@1/devices-usable",
 			capability:  capGPU,
 			run: func(ctx context.Context, e *Env) []report.Finding {
-				id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixtureGPU}, nil)
-				defer cleanup()
-				var refused *adapter.RefusedError
-				if errors.As(err, &refused) {
-					return []report.Finding{report.Skipf("runtime refused the GPU request: %s", refused.Detail)}
+				var findings, skips []report.Finding
+				for _, scenario := range []struct{ fixture, driver string }{
+					{fixtureGPU, "nvidia.com/gpu"},
+					{"gpu-venus", "mesa3d.org/venus"},
+				} {
+					id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, scenario.fixture}, nil)
+					var refused *adapter.RefusedError
+					switch {
+					case errors.As(err, &refused):
+						skips = append(skips, report.Skipf("runtime refused the %s request: %s", scenario.driver, refused.Detail))
+					case err != nil:
+						findings = append(findings, report.Failf("%s: create: %v", scenario.driver, err))
+					default:
+						got, f := execOutput(ctx, e, id, "kit-tck-gpu", scenario.driver)
+						switch {
+						case f != nil:
+							findings = append(findings, *f)
+						case strings.TrimSpace(got) != "yes":
+							findings = append(findings, report.Failf(
+								"the kit requested %s GPUs; kit-tck-gpu reports %q", scenario.driver, strings.TrimSpace(got)))
+						}
+					}
+					cleanup()
 				}
-				if err != nil {
-					return []report.Finding{report.Failf("create: %v", err)}
+				if len(findings) == 0 && len(skips) == 2 {
+					return skips
 				}
-				got, f := execOutput(ctx, e, id, "kit-tck-gpu", "nvidia.com/gpu")
-				if f != nil {
-					return []report.Finding{*f}
-				}
-				if got = strings.TrimSpace(got); got != "yes" {
-					return []report.Finding{report.Failf(
-						"the kit requested NVIDIA GPUs; kit-tck-gpu reports %q", got)}
-				}
-				return nil
+				return findings
 			},
 		},
 		check{

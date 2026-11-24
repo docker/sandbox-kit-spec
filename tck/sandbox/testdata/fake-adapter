@@ -668,7 +668,7 @@ create)
       *skills*) need="com.docker.sandbox/agent-skills@1" ;;
       *port*) need="com.docker.sandbox/port@1" ;;
       *usb-device*) need="com.docker.sandbox/usb-device@1" ;;
-      gpu | gpu-unknown-driver | gpu-too-many) need="com.docker.sandbox/gpu@1" ;;
+      gpu | gpu-venus | gpu-unknown-driver | gpu-too-many) need="com.docker.sandbox/gpu@1" ;;
       # Spelled out beside agent-sessions: the *agent-sessions* glob does
       # not match this name ("agent-" and "sessions" are not adjacent), and
       # this one does not match that.
@@ -1792,7 +1792,9 @@ exec)
     run_ssh_probe "$dir" "$(cat "$dir/ssh-agent")" "$broken" "$@"
     ;;
   kit-tck-gpu)
-    if [ "$broken" = "ignores-gpu-device" ]; then echo "no"; else echo "yes"; fi
+    if [ "$2" = nvidia.com/gpu ] && [ "$broken" = "ignores-gpu-device" ]; then echo "no"
+    elif [ "$2" = mesa3d.org/venus ] && [ "$broken" = "ignores-venus-device" ]; then echo "no"
+    else echo "yes"; fi
     ;;
   kit-tck-privileged)
     if [ "$broken" = "ignores-privileged" ]; then echo "no"
