@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/gpu@1",
+  "description": "Config schema for the gpu need: GPUs of one driver, the GPU interface the image is built for, and how many. Permission surface. Singleton. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "driver"
+  ],
+  "properties": {
+    "driver": {
+      "description": "<dns-domain>/<name>. The page documents nvidia.com/gpu and mesa3d.org/venus; any other name is runtime-defined. The domain is at most 253 characters and the name at most 63.",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9]([a-z0-9._-]*[a-z0-9])?$",
+          "maxLength": 317
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    },
+    "devices": {
+      "description": "\"all\" (every GPU of the driver, and at least one) or a positive count. Omission is equivalent to \"all\".",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^(all|[1-9][0-9]*)$"
+        },
+        {
+          "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+        }
+      ]
+    }
+  }
+}

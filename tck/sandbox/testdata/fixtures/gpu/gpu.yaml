@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: GPU
+description: Requests every NVIDIA GPU, so the grant is observable
+capabilities:
+  - type: com.docker.sandbox/gpu@1
+    config:
+      driver: nvidia.com/gpu

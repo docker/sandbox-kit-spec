@@ -373,6 +373,10 @@ var waived = map[string]string{
 	"kit-registry@1/content-must-not-assume-address": "the facade is reference-implementation infrastructure, not portable behavior",
 	"port@1/host-binding-default":                    "the adapter contract offers no host-side observation, so a published mapping cannot be seen",
 	"privileged@1/widening-gates":                    "gate semantics are surface diffs, judged by the spec package's tests",
+	"gpu@1/widening-gates":                           "gate semantics are surface diffs, judged by the spec package's tests",
+	"gpu@1/driver-contract":                          "vendor driver stacks are outside the fixture image; the suite judges device access only",
+	"gpu@1/before-startup":                           "the device probe runs through exec after create; startup-hook timing is not observed for GPUs yet",
+	"gpu@1/selection-scoped":                         "needs a known host GPU inventory the suite cannot assume",
 	"resources@1/max-of-declarations":                "needs a multi-declaration fixture; not exercised yet",
 	"resources@1/never-undercut-workload":            "needs a multi-declaration fixture; not exercised yet",
 

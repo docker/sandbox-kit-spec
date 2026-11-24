@@ -499,6 +499,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityNetworkPolicyV2:          true,
 	CapabilityResources:                true,
 	CapabilityPrivileged:               true,
+	CapabilityGPU:                      true,
 	CapabilityKVM:                      true,
 	CapabilityDockerd:                  true,
 	CapabilityKitRegistry:              true,
@@ -1190,6 +1191,18 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 		}
 		if r.Memory != "" && !sizeBytes.MatchString(r.Memory) {
 			c.errs.add(fieldErrorf(path+".config.memory", "capabilities[%d]: invalid memory %q", i, r.Memory))
+		}
+	case CapabilityGPU:
+		var g GPU
+		if err := DecodeCapabilityConfig(n, &g); err != nil {
+			c.errs.add(configErrorf(path, i, err))
+			return false
+		}
+		if !validGPUDriver(g.Driver) {
+			c.errs.add(fieldErrorf(path+".config.driver", "capabilities[%d]: driver must be <dns-domain>/<name> (for example %s), got %q", i, GPUDriverNVIDIA, g.Driver))
+		}
+		if g.Devices != "" && !gpuDevices.MatchString(g.Devices) {
+			c.errs.add(fieldErrorf(path+".config.devices", "capabilities[%d]: devices must be %q or a positive count, got %q", i, GPUDevicesAll, g.Devices))
 		}
 	case CapabilityACP:
 		c.errs.add(validateACP(path, i, n))

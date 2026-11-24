@@ -240,6 +240,7 @@ var checks = append(append(append(gitIdentityChecks, hostMountChecks...), clipbo
 				{capVolume, fixtureVolume, false},
 				{capResources, fixtureResources, false},
 				{capPrivileged, fixturePrivileged, false},
+				{capGPU, fixtureGPU, false},
 				{capDockerd, fixtureDocker, false},
 				{capAgentSkills, fixtureSkills, false},
 				{capAgentSkill, fixtureBundledSkill, false},
@@ -930,6 +931,7 @@ const (
 	capVolume                   = "com.docker.sandbox/volume@1"
 	capResources                = "com.docker.sandbox/resources@1"
 	capPrivileged               = "com.docker.sandbox/privileged@1"
+	capGPU                      = "com.docker.sandbox/gpu@1"
 	capAgentSkills              = "com.docker.sandbox/agent-skills@1"
 	capPort                     = "com.docker.sandbox/port@1"
 	capUSBDevice                = "com.docker.sandbox/usb-device@1"
@@ -945,6 +947,7 @@ const (
 	fixtureVolume         = "volume"
 	fixtureResources      = "resources"
 	fixturePrivileged     = "privileged"
+	fixtureGPU            = "gpu"
 	fixtureSkills         = "skills"
 	fixtureSkillsRW       = "skills-writable"
 	fixtureSkillsShared   = "skills-shared"
@@ -1211,6 +1214,54 @@ func init() {
 						declaredMemoryLimit, limit)}
 				}
 				return nil
+			},
+		},
+		check{
+			// The node can exist and still refuse open under a device
+			// filter, so the probe opens what the driver's row names. A
+			// host without NVIDIA GPUs refuses, which is conforming.
+			requirement: "gpu@1/devices-usable",
+			capability:  capGPU,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixtureGPU}, nil)
+				defer cleanup()
+				var refused *adapter.RefusedError
+				if errors.As(err, &refused) {
+					return []report.Finding{report.Skipf("runtime refused the GPU request: %s", refused.Detail)}
+				}
+				if err != nil {
+					return []report.Finding{report.Failf("create: %v", err)}
+				}
+				got, f := execOutput(ctx, e, id, "kit-tck-gpu", "nvidia.com/gpu")
+				if f != nil {
+					return []report.Finding{*f}
+				}
+				if got = strings.TrimSpace(got); got != "yes" {
+					return []report.Finding{report.Failf(
+						"the kit requested NVIDIA GPUs; kit-tck-gpu reports %q", got)}
+				}
+				return nil
+			},
+		},
+		check{
+			// No runtime offers the example.com driver or 65536 GPUs, so
+			// accepting either request grants less than the kit asked for.
+			requirement: "gpu@1/unsatisfiable-refused",
+			capability:  capGPU,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				var findings []report.Finding
+				for _, fixture := range []string{"gpu-unknown-driver", "gpu-too-many"} {
+					_, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixture}, nil)
+					cleanup()
+					var refused *adapter.RefusedError
+					switch {
+					case !errors.As(err, &refused):
+						findings = append(findings, report.Failf("%s: an unsatisfiable required GPU request must be refused: %v", fixture, err))
+					case !diagnosticNames(refused.Detail, capGPU):
+						findings = append(findings, report.Failf("%s: the refusal must name %s: %s", fixture, capGPU, refused.Detail))
+					}
+				}
+				return findings
 			},
 		},
 		check{

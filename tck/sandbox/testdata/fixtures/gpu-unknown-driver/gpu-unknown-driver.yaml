@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: GPU, unknown driver
+description: Requests a GPU driver no runtime offers, so refusal is observable
+capabilities:
+  - type: com.docker.sandbox/gpu@1
+    config:
+      driver: example.com/no-such-gpu

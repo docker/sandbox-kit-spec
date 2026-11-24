@@ -56,6 +56,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityAgentSkill:               reflect.TypeFor[AgentSkill](),
 	CapabilityUSBDevice:                reflect.TypeFor[USBDevice](),
 	CapabilityResources:                reflect.TypeFor[Resources](),
+	CapabilityGPU:                      reflect.TypeFor[GPU](),
 	CapabilityDockerd:                  reflect.TypeFor[Dockerd](),
 	CapabilityClipboard:                reflect.TypeFor[Clipboard](),
 	CapabilityLifecycle:                reflect.TypeFor[Lifecycle](),
@@ -612,6 +613,21 @@ func ResourcesOf(needs []Capability) (*Resources, error) {
 			return nil, err
 		}
 		return &r, nil
+	}
+	return nil, nil
+}
+
+// GPUOf returns the gpu request's config, or nil when none is declared.
+func GPUOf(needs []Capability) (*GPU, error) {
+	for _, n := range needs {
+		if n.Type != CapabilityGPU {
+			continue
+		}
+		var g GPU
+		if err := DecodeCapabilityConfig(n, &g); err != nil {
+			return nil, err
+		}
+		return &g, nil
 	}
 	return nil, nil
 }

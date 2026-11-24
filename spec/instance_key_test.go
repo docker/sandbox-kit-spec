@@ -108,6 +108,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityNetworkPolicyV2:          AritySingleton,
 		CapabilityResources:                AritySingleton,
 		CapabilityPrivileged:               AritySingleton,
+		CapabilityGPU:                      AritySingleton,
 		CapabilityKVM:                      AritySingleton,
 		CapabilityDockerd:                  AritySingleton,
 		CapabilityKitRegistry:              AritySingleton,
