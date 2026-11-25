@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
+	gwpb "github.com/moby/buildkit/frontend/gateway/pb"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/stretchr/testify/require"
+	fstypes "github.com/tonistiigi/fsutil/types"
 )
 
 const guidanceDescriptor = `schemaVersion: "3"
@@ -45,7 +47,7 @@ func TestBuildAllowsReservedBasenamesInGroupedGuidance(t *testing.T) {
 			c.files["docs/"+file] = []byte("Guidance body.")
 			_, err := Build(t.Context(), c)
 			require.ErrorIs(t, err, errGuidanceContentBuild)
-			require.Equal(t, []string{"demo.yaml", "demo.dockerfile", "docs/" + file}, c.reads)
+			require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile", ".dockerignore", "docs/" + file}, c.reads)
 		})
 	}
 }
@@ -67,7 +69,7 @@ func TestBuildLoadsExpandedGuidance(t *testing.T) {
 			_, err := Build(t.Context(), c)
 			require.ErrorIs(t, err, errGuidanceContentBuild,
 				"guidance must be read, rewritten, and validated before building content")
-			require.Equal(t, []string{"demo.yaml", "demo.dockerfile", "docs/" + tt.file}, c.reads)
+			require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile", ".dockerignore", "docs/" + tt.file}, c.reads)
 		})
 	}
 }
@@ -77,7 +79,7 @@ func TestBuildRejectsExpandedGuidanceDescriptorCollision(t *testing.T) {
 
 	_, err := Build(t.Context(), c)
 	require.ErrorContains(t, err, "contentFile ./docs/kit.yaml stages as kit.yaml")
-	require.Equal(t, []string{"demo.yaml", "demo.dockerfile"}, c.reads)
+	require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile"}, c.reads)
 }
 
 func TestBuildRejectsExpandedGuidanceRecipeCollision(t *testing.T) {
@@ -85,7 +87,7 @@ func TestBuildRejectsExpandedGuidanceRecipeCollision(t *testing.T) {
 
 	_, err := Build(t.Context(), c)
 	require.ErrorContains(t, err, "contentFile ./docs/kit.dockerfile stages as kit.dockerfile")
-	require.Equal(t, []string{"demo.yaml", "demo.dockerfile"}, c.reads)
+	require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile"}, c.reads)
 }
 
 func TestBuildReportsMissingExpandedGuidance(t *testing.T) {
@@ -94,7 +96,7 @@ func TestBuildReportsMissingExpandedGuidance(t *testing.T) {
 	_, err := Build(t.Context(), c)
 	require.ErrorIs(t, err, fs.ErrNotExist)
 	require.ErrorContains(t, err, "contentFile ./docs/missing.md")
-	require.Equal(t, []string{"demo.yaml", "demo.dockerfile", "docs/missing.md"}, c.reads)
+	require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile", ".dockerignore", "docs/missing.md"}, c.reads)
 }
 
 func TestBuildLeavesInlineGuidanceOutOfFileLoading(t *testing.T) {
@@ -114,7 +116,7 @@ capabilities:
 
 	_, err := Build(t.Context(), c)
 	require.ErrorIs(t, err, errGuidanceContentBuild)
-	require.Equal(t, []string{"demo.yaml", "demo.dockerfile"}, c.reads)
+	require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile"}, c.reads)
 }
 
 var errGuidanceContentBuild = errors.New("stop before building image content")
@@ -128,6 +130,8 @@ type guidanceClient struct {
 func newGuidanceClient(descriptor string, opts map[string]string) *guidanceClient {
 	c := &guidanceClient{files: map[string][]byte{"demo.yaml": []byte(descriptor)}}
 	c.bopts.Opts = map[string]string{keyFilename: "demo.yaml"}
+	c.bopts.Caps = gwpb.Caps.CapSet(gwpb.Caps.All())
+	c.bopts.LLBCaps = pb.Caps.CapSet(pb.Caps.All())
 	for k, v := range opts {
 		c.bopts.Opts[k] = v
 	}
@@ -154,6 +158,16 @@ type guidanceReference struct {
 	client *guidanceClient
 }
 
+// dockerui checks file size before reads; report the fake file's actual
+// size so these tests exercise its public read boundary too.
+func (r guidanceReference) StatFile(_ context.Context, req gwclient.StatRequest) (*fstypes.Stat, error) {
+	body, ok := r.client.files[req.Path]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	return &fstypes.Stat{Size: int64(len(body))}, nil
+}
+
 func (r guidanceReference) ReadFile(_ context.Context, req gwclient.ReadRequest) ([]byte, error) {
 	r.client.reads = append(r.client.reads, req.Filename)
 	body, ok := r.client.files[req.Filename]
@@ -176,7 +190,7 @@ capabilities:
 `, nil)
 	_, err := Build(t.Context(), c)
 	require.ErrorIs(t, err, errGuidanceContentBuild)
-	require.Equal(t, []string{"demo.yaml", "demo.dockerfile"}, c.reads)
+	require.Equal(t, []string{"demo.yaml", "demo.yaml.dockerignore", "demo.dockerfile"}, c.reads)
 }
 
 func TestBuildRejectsV2ContentFileBeforeReadingIt(t *testing.T) {

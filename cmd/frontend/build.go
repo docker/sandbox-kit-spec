@@ -525,7 +525,7 @@ func explicitCompanion(ctx context.Context, c gwclient.Client, d *spec.Descripto
 	if name == conventional && src.companion != nil {
 		return &companionSource{name: name, bytes: src.companion}, nil
 	}
-	data, err := readDockerfileLocalFile(ctx, c, name)
+	data, err := readDockerfileFile(ctx, c, name)
 	if err != nil {
 		return nil, fmt.Errorf("dockerfile: %s names a recipe that cannot be read: %w", d.Dockerfile, err)
 	}
@@ -567,69 +567,77 @@ type sources struct {
 	companion  []byte // nil when no companion file exists
 }
 
-// readDockerfileLocalFile reads one file from the dockerfile local — the
-// directory the -f file lives in — for recipes named explicitly rather
-// than found by the stem convention.
-func readDockerfileLocalFile(ctx context.Context, c gwclient.Client, filename string) ([]byte, error) {
-	st := llb.Local(dockerui.DefaultLocalNameDockerfile,
-		llb.FollowPaths([]string{filename}),
-		llb.SessionID(c.BuildOpts().SessionID),
-		llb.SharedKeyHint(dockerui.DefaultLocalNameDockerfile),
-		llb.WithCustomName("[internal] load kit recipe "+filename),
-	)
-	def, err := st.Marshal(ctx)
+// readDockerfileFile reads one file from the descriptor source — the
+// directory the -f file lives in for a local build, or its Git/input tree —
+// for recipes named explicitly rather than found by the stem convention.
+func readDockerfileFile(ctx context.Context, c gwclient.Client, filename string) ([]byte, error) {
+	src, err := readKitEntrypoint(ctx, c, filename)
 	if err != nil {
 		return nil, err
 	}
-	res, err := c.Solve(ctx, gwclient.SolveRequest{Definition: def.ToPB()})
-	if err != nil {
-		return nil, err
-	}
-	ref, err := res.SingleRef()
-	if err != nil {
-		return nil, err
-	}
-	return ref.ReadFile(ctx, gwclient.ReadRequest{Filename: filename})
+	return src.Data, nil
 }
 
-// readDescriptorSources solves the dockerfile local once and reads the
+// readDescriptorSources resolves the descriptor source and reads the
 // descriptor plus the companion Dockerfile, which shares the descriptor's
-// directory and stem by convention.
+// directory and stem by convention. ReadEntrypoint uses the same Git and
+// frontend-input resolution as dockerfile.v0; a remote build has no local
+// file session to fall back to.
 func readDescriptorSources(ctx context.Context, c gwclient.Client, filename, companion string) (*sources, error) {
-	st := llb.Local(dockerui.DefaultLocalNameDockerfile,
-		llb.FollowPaths([]string{filename, companion}),
-		llb.SessionID(c.BuildOpts().SessionID),
-		llb.SharedKeyHint(dockerui.DefaultLocalNameDockerfile),
-		// The frontend names itself on the one step every kit build
-		// runs, and runs first. A gateway frontend has no other voice in
-		// the progress stream, and "which frontend produced this?" is
-		// the first question a surprising build raises.
-		llb.WithCustomName("[internal] load kit descriptor "+filename+
-			" · sandbox-kit "+version.String()),
-	)
-	def, err := st.Marshal(ctx)
-	if err != nil {
-		return nil, err
-	}
-	res, err := c.Solve(ctx, gwclient.SolveRequest{Definition: def.ToPB()})
-	if err != nil {
-		return nil, err
-	}
-	ref, err := res.SingleRef()
-	if err != nil {
-		return nil, err
-	}
-
-	descriptor, err := ref.ReadFile(ctx, gwclient.ReadRequest{Filename: filename})
+	src, err := readKitEntrypoint(ctx, c, filename, companion)
 	if err != nil {
 		return nil, fmt.Errorf("read kit descriptor %s: %w", filename, err)
 	}
+	res, err := c.Solve(ctx, gwclient.SolveRequest{Definition: src.Definition.ToPB()})
+	if err != nil {
+		return nil, err
+	}
+	ref, err := res.SingleRef()
+	if err != nil {
+		return nil, err
+	}
 
-	out := &sources{descriptor: descriptor}
+	out := &sources{descriptor: src.Data}
 	if data, err := ref.ReadFile(ctx, gwclient.ReadRequest{Filename: companion}); err == nil {
 		out.companion = data
 	}
 	return out, nil
+}
+
+// filenameClient lets dockerui resolve an explicit recipe from the same
+// source as the descriptor without changing the caller's shared options.
+// Re-reading matters for local builds: the descriptor read synchronizes
+// only its known files, and an explicit recipe is known only after decode.
+type filenameClient struct {
+	gwclient.Client
+	filename string
+}
+
+func (c filenameClient) BuildOpts() gwclient.BuildOpts {
+	opts := c.Client.BuildOpts()
+	opts.Opts = maps.Clone(opts.Opts)
+	if opts.Opts == nil {
+		opts.Opts = make(map[string]string)
+	}
+	opts.Opts[keyFilename] = c.filename
+	return opts
+}
+
+func readKitEntrypoint(ctx context.Context, c gwclient.Client, filename string, companions ...string) (*dockerui.Source, error) {
+	bc, err := dockerui.NewClient(filenameClient{Client: c, filename: filename})
+	if err != nil {
+		return nil, err
+	}
+	files := append([]string{filename, filename + ".dockerignore"}, companions...)
+	return bc.ReadEntrypoint(ctx, "YAML",
+		llb.FollowPaths(files),
+		// The frontend names itself on the one step every kit build
+		// runs, and runs first. A gateway frontend has no other voice in
+		// the progress stream, and "which frontend produced this?" is
+		// the first question a surprising build raises.
+		llb.WithCustomName("[internal] load kit source "+filename+
+			" · sandbox-kit "+version.String()),
+	)
 }
 
 // validateBuildSecretOpts refuses the ordinary build-arg channel before a
@@ -717,7 +725,7 @@ func buildCompanion(ctx context.Context, c gwclient.Client, d *spec.Descriptor, 
 // optionally stopping at target. Shared by the workload whole-image build
 // and both sides of a mixin overlay diff. Inline recipes are synthesized
 // into the dockerfile frontend input; file recipes are read from the
-// dockerfile local like any -f file.
+// descriptor's local, Git, or frontend-input source like any -f file.
 func solveDockerfile(ctx context.Context, c gwclient.Client, d *spec.Descriptor, opts map[string]string, content *companionSource, plat *ocispecs.Platform, target string) (*gwclient.Result, error) {
 	if err := validateBuildSecretOpts(d, opts); err != nil {
 		return nil, err
@@ -742,9 +750,10 @@ func solveDockerfile(ctx context.Context, c gwclient.Client, d *spec.Descriptor,
 	// Named contexts a caller sent as frontend inputs (bake wiring one
 	// target's output into another) only reach the sub-solve if handed
 	// on; the gateway does not forward the parent's inputs by itself.
-	// The dockerfile input is the one exception: the companion is read
-	// from the dockerfile local, never from the parent's input, which
-	// holds the descriptor. Gated on the inputs capability the way
+	// The dockerfile input is also the source of file companions: it
+	// contains the descriptor's tree, and a frontend-input build has no
+	// dockerfile local. Inline recipes replace that input below. Gated
+	// on the inputs capability the way
 	// dockerfile.v0's own gateway forwarder is: a bridge without it
 	// errors on the Inputs call itself, even when no inputs exist.
 	if caps := c.BuildOpts().Caps; caps.Supports(gwpb.CapFrontendInputs) == nil {
@@ -753,9 +762,6 @@ func solveDockerfile(ctx context.Context, c gwclient.Client, d *spec.Descriptor,
 			return nil, err
 		}
 		for name, st := range inputs {
-			if name == dockerui.DefaultLocalNameDockerfile {
-				continue
-			}
 			def, err := st.Marshal(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("marshal frontend input %s: %w", name, err)
@@ -764,6 +770,32 @@ func solveDockerfile(ctx context.Context, c gwclient.Client, d *spec.Descriptor,
 		}
 	}
 	if content.inline {
+		// dockerfile.v0 resolves a Git URL before consulting frontend
+		// inputs. Materialize that context as an input first, otherwise
+		// it searches the Git tree for our synthesized recipe filename.
+		contextKey := opts["contextkey"]
+		if contextKey == "" {
+			contextKey = dockerui.DefaultLocalNameContext
+		}
+		if opts[contextKey] != "" {
+			bc, err := dockerui.NewClient(c)
+			if err != nil {
+				return nil, err
+			}
+			st, err := bc.MainContext(ctx)
+			if err != nil {
+				return nil, err
+			}
+			def, err := st.Marshal(ctx)
+			if err != nil {
+				return nil, err
+			}
+			req.FrontendInputs[dockerui.DefaultLocalNameContext] = def.ToPB()
+			delete(fo, contextKey)
+			delete(fo, "contextkey")
+			// MainContext already applied the subdirectory selection.
+			delete(fo, "contextsubdir")
+		}
 		def, err := llb.Scratch().
 			File(llb.Mkfile(content.name, 0o644, content.bytes),
 				llb.WithCustomName("[kit] inline build block")).
@@ -1207,18 +1239,28 @@ func mappingValue(n *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-// readContextFile reads one file from the build context local. Guidance
+// readContextFile reads one file from the resolved build context. Guidance
 // bodies are authored next to the descriptor, and buildx syncs the -f
 // directory as the dockerfile local; the descriptor's directory is the
 // context in the common `docker buildx build . -f kit.yaml` invocation, so
-// context is where a relative path resolves.
+// context is where a relative path resolves. MainContext also preserves
+// Git subdirectories and frontend inputs when no local session exists.
 func readContextFile(ctx context.Context, c gwclient.Client, filename string) ([]byte, error) {
-	st := llb.Local(dockerui.DefaultLocalNameContext,
+	bc, err := dockerui.NewClient(c)
+	if err != nil {
+		return nil, err
+	}
+	st, err := bc.MainContext(ctx,
+		// Explicitly declared guidance is staged even when COPY ignores
+		// it. This preserves local builds and matches Git/input contexts,
+		// whose source trees are unfiltered at this boundary.
+		llb.ExcludePatterns(nil),
 		llb.FollowPaths([]string{filename}),
-		llb.SessionID(c.BuildOpts().SessionID),
-		llb.SharedKeyHint(dockerui.DefaultLocalNameContext),
 		llb.WithCustomName("[internal] load guidance "+filename),
 	)
+	if err != nil {
+		return nil, err
+	}
 	def, err := st.Marshal(ctx)
 	if err != nil {
 		return nil, err
