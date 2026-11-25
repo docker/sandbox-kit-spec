@@ -56,7 +56,8 @@ func ArityOf(typ string) Arity {
 // RELEASES.md says.
 type InstanceKey struct {
 	// Space is the key space Parts belong to: the entry's type, except
-	// host-mount@1, which keys into volume@1's storage path space.
+	// host-mount@1, which keys into volume@1's storage path space, and
+	// openai-chatgpt@1, which owns credential@1's openai runtime key.
 	// agent-context@1 and @2 keep separate spaces; they never compose
 	// together.
 	Space string
@@ -65,6 +66,7 @@ type InstanceKey struct {
 	//
 	//   - acp@1: the agent name, normalized by NormalizeCapabilityName
 	//   - credential@1: the service, then the phase
+	//   - openai-chatgpt@1: "openai", then "runtime"
 	//   - ssh-agent@1: the phase
 	//   - volume@1, host-mount@1: the path, cleaned by path.Clean
 	//   - agent-skills@1: the path, which validation holds to canonical form
@@ -121,6 +123,9 @@ func keyAsWritten(c Capability) (InstanceKey, Arity, error) {
 	if c.Type == CapabilityHostMount {
 		space = CapabilityVolume
 	}
+	if c.Type == CapabilityOpenAIChatGPT {
+		space = CapabilityCredential
+	}
 	return InstanceKey{Space: space, Parts: parts}, ArityInstance, nil
 }
 
@@ -134,6 +139,9 @@ var instanceKeys = map[string]keyDefinition{
 	CapabilityCredential: keyOn([]string{"service", "phase"}, func(c Credential) ([]string, error) {
 		phase, err := onlyPhase(c.Phase)
 		return []string{c.Service, phase}, err
+	}),
+	CapabilityOpenAIChatGPT: keyOn(nil, func(OpenAIChatGPT) ([]string, error) {
+		return []string{"openai", "runtime"}, nil
 	}),
 	// One socket per phase, whichever kits asked: the bounds are what that
 	// socket signs, not which socket it is.

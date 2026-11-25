@@ -47,6 +47,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityNetworkPolicy:            reflect.TypeFor[PhasedNetwork](),
 	CapabilityNetworkPolicyV2:          reflect.TypeFor[PhasedNetworkV2](),
 	CapabilityCredential:               reflect.TypeFor[Credential](),
+	CapabilityOpenAIChatGPT:            reflect.TypeFor[OpenAIChatGPT](),
 	CapabilitySSHAgent:                 reflect.TypeFor[SSHAgent](),
 	CapabilityVolume:                   reflect.TypeFor[Volume](),
 	CapabilityHostMount:                reflect.TypeFor[HostMount](),
@@ -408,7 +409,9 @@ type CredentialCapability struct {
 	Description string
 }
 
-// CredentialsOf returns every credential request, in declaration order.
+// CredentialsOf returns credential@1 requests, in declaration order. Native
+// ChatGPT requests use OpenAIChatGPTOf so a generic OAuth consumer cannot
+// silently accept native authentication without implementing its boundary.
 func CredentialsOf(needs []Capability) ([]CredentialCapability, error) {
 	var out []CredentialCapability
 	for _, n := range needs {
@@ -435,6 +438,30 @@ func CredentialsOfPhase(needs []Capability, phase string) ([]CredentialCapabilit
 		if slices.Contains(c.Phase, phase) {
 			out = append(out, c)
 		}
+	}
+	return out, nil
+}
+
+// OpenAIChatGPTCapability retains native authentication and its selection
+// metadata separately from generic credential requests.
+type OpenAIChatGPTCapability struct {
+	OpenAIChatGPT
+	Required    bool
+	Name        string
+	Description string
+}
+
+func OpenAIChatGPTOf(needs []Capability) ([]OpenAIChatGPTCapability, error) {
+	var out []OpenAIChatGPTCapability
+	for _, n := range needs {
+		if n.Type != CapabilityOpenAIChatGPT {
+			continue
+		}
+		var c OpenAIChatGPT
+		if err := DecodeCapabilityConfig(n, &c); err != nil {
+			return nil, err
+		}
+		out = append(out, OpenAIChatGPTCapability{OpenAIChatGPT: c, Required: !n.Optional, Name: n.Name, Description: n.Description})
 	}
 	return out, nil
 }

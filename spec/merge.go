@@ -725,7 +725,7 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 	// collapsing two into one here would let a set publish what the
 	// resolver would have refused, and the merged kit would carry a
 	// credential with no telling which kit answers for it.
-	if n.Type == CapabilityCredential {
+	if n.Type == CapabilityCredential || n.Type == CapabilityOpenAIChatGPT {
 		return fmt.Errorf("merge: %s and %s both declare %s; one credential has one owner",
 			prev.reference, reference, describeCapability(n))
 	}

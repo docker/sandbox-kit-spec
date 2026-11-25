@@ -530,6 +530,20 @@ keying profiles on one half of the destination collapses them.
 An adapter that cannot bind credentials **SHOULD NOT** claim
 `com.docker.sandbox/credential@1`, in which case its checks are skipped.
 
+`com.docker.sandbox/openai-chatgpt@1` is a separate runtime claim. The
+suite checks refusal when it is required and unclaimed; a generic
+credential claim does not satisfy it. The adapter currently has no
+controlled OpenAI OAuth binding, provider exchange, Desktop SSH session,
+phone relay, or host credential-mutation input. Native identity delivery,
+refresh, tool preservation and revocation therefore have explicit waivers
+in the coverage accounting. Passing the generic API-key probes or the
+native refusal fixture is not evidence of those runtime behaviors.
+The reference identity-projection helper has unit tests for preservation
+of unknown claims and removal of the original signature; those tests do
+not establish that a runtime uses it at every delivery boundary.
+Compatibility of the complete, unmodified identity payload with live
+Desktop, guest and provider exchanges still needs runtime validation.
+
 When `create` carries `--ssh-agent <socket>`, the adapter **MUST** make
 the SSH agent listening on that Unix socket the backing agent available
 to that sandbox, and only to that sandbox. Without it, no backing agent is

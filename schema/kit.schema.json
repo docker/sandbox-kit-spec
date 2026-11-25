@@ -351,7 +351,9 @@
             "required": ["type"]
           },
           "then": {
-            "required": ["config"],
+            "required": [
+              "config"
+            ],
             "properties": {"config": {"$ref": "capabilities/com.docker.sandbox/docker-auth@1.schema.json"}}
           }
         },
@@ -408,6 +410,28 @@
             "properties": {
               "config": {
                 "$ref": "capabilities/com.docker.sandbox/credential@1.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "com.docker.sandbox/openai-chatgpt@1"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "config"
+            ],
+            "properties": {
+              "config": {
+                "$ref": "capabilities/com.docker.sandbox/openai-chatgpt@1.schema.json"
               }
             }
           }

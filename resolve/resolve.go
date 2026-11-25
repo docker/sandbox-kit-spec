@@ -237,6 +237,13 @@ func checkOneCredentialOwner(units []*Unit, addProblem func(string, ...any)) {
 		if err != nil {
 			continue // the per-descriptor validator owns malformed configs
 		}
+		native, err := spec.OpenAIChatGPTOf(u.Descriptor.Capabilities)
+		if err == nil {
+			for range native {
+				k := key{"openai", "runtime"}
+				owners[k] = append(owners[k], u.Reference)
+			}
+		}
 		for _, c := range creds {
 			for _, phase := range c.Phase {
 				k := key{c.Service, phase}

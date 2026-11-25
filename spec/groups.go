@@ -158,7 +158,7 @@ func Supported(types ...string) SelectCapability {
 // KnownCapabilities lists types understood by this version of the library.
 // Understanding a schema is not a claim that a runtime implements it.
 func KnownCapabilities() []string {
-	return []string{CapabilityDockerAuth, CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilitySSHAgent,
+	return []string{CapabilityDockerAuth, CapabilityNetworkPolicy, CapabilityNetworkPolicyV2, CapabilityCredential, CapabilityOpenAIChatGPT, CapabilitySSHAgent,
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort, CapabilityUSBDevice, CapabilityResources,
 		CapabilityPrivileged, CapabilityKVM, CapabilityDockerd, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2, CapabilityAgentSessions, CapabilityAgentSessionsV2, CapabilityAgentInteractiveSessions, CapabilityACP,
 		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilityGitIdentity, CapabilityKitRegistry}
@@ -605,7 +605,7 @@ func refuseConcreteConflicts(contributions []Contribution) error {
 			switch {
 			case !parameterized:
 				d.Capabilities = append(d.Capabilities, item)
-			case item.Type == CapabilityCredential || item.Type == CapabilityHostMount:
+			case item.Type == CapabilityCredential || item.Type == CapabilityOpenAIChatGPT || item.Type == CapabilityHostMount:
 				for _, config := range literalKeyConfigs(item) {
 					standIn := item
 					standIn.Config = config

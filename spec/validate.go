@@ -484,6 +484,8 @@ func RequireAuthoredProvides(d *Descriptor) error {
 	return errs.err()
 }
 
+var openAIChatGPTPath = regexp.MustCompile(`^(?:/|~/)[^\x01-\x1f\x7f]*[^/\x01-\x1f\x7f]$`)
+
 // needType is <namespace>/<name>@<version>: a dotted lowercase
 // namespace, a hyphenated lowercase name, an integer config-schema
 // version.
@@ -719,10 +721,14 @@ func compareCapabilityBlock(d *Descriptor, checks []*entryCheck, reported pairRe
 					errs.add(fieldErrorf(path+".config.phase", "capabilities[%d]: ssh-agent for phase %q already declared at capabilities[%d]", i, key.parts[0], prev))
 				}
 			}
-		case CapabilityCredential:
+		case CapabilityCredential, CapabilityOpenAIChatGPT:
 			for _, key := range c.keys {
-				if prev, dup := declared.add(n.Type, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
-					errs.add(fieldErrorf(path+".config.service", "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.parts[0], key.parts[1], prev))
+				if prev, dup := declared.add(CapabilityCredential, key, i); dup && prev != i && reported.first(ruleRepeat, c, checks[prev], key.identity) {
+					field := path + ".config.service"
+					if n.Type == CapabilityOpenAIChatGPT {
+						field = path + ".type"
+					}
+					errs.add(fieldErrorf(field, "capabilities[%d]: credential for service %q phase %q already declared at capabilities[%d]", i, key.parts[0], key.parts[1], prev))
 				}
 			}
 		case CapabilityACP:
@@ -960,7 +966,7 @@ func checkEntry(kind string, i int, n Capability) entryCheck {
 	}
 
 	switch n.Type {
-	case CapabilitySSHAgent, CapabilityCredential, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
+	case CapabilitySSHAgent, CapabilityCredential, CapabilityOpenAIChatGPT, CapabilityAgentSkill, CapabilityAgentSkills, CapabilityPort, CapabilityHostPort,
 		CapabilityAgentContext, CapabilityAgentContextV2:
 		c.keys = entryKeys(n)
 	case CapabilityACP:
@@ -1047,6 +1053,15 @@ func (c *entryCheck) checkTyped(path string, i int, n Capability) bool {
 			c.errs.add(err)
 			c.invalidCredential = true
 			return false
+		}
+	case CapabilityOpenAIChatGPT:
+		var native OpenAIChatGPT
+		if err := DecodeCapabilityConfig(n, &native); err != nil {
+			c.errs.add(configErrorf(path, i, err))
+			return false
+		}
+		if !openAIChatGPTPath.MatchString(native.Path) {
+			c.errs.add(fieldErrorf(path+".config.path", "capabilities[%d]: native auth path must name an absolute or ~/ file without control characters", i))
 		}
 	case CapabilitySSHAgent:
 		_, err := validateSSHAgentNeed(path, i, n)
