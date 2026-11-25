@@ -170,6 +170,9 @@ task tck:runtime ADAPTER=./my-adapter            # does this runtime behave as t
 [Checking a Kit with kit-tck](docs/building-kits.md#checking-a-kit-with-kit-tck)
 covers output formats, local layouts, and `kit-tck inspect`.
 
+For GitHub Actions, [setup-tck](actions/setup-tck/README.md) installs an
+exact release, verifies its checksum, and adds `kit-tck` to PATH.
+
 ## Development
 
 ```sh

@@ -1,0 +1,70 @@
+name: setup-tck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - actions/setup-tck/**
+      - .github/workflows/setup-tck.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: install on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: X64
+            sha256: 9aaf699a662e55c35a2930dd4778a7f4e2317b563d64cc9d21622e6bac6f744c
+          - runner: ubuntu-24.04-arm
+            arch: ARM64
+            sha256: 5da07a878f6d9b24f54c21eb8e047185e378deb4680196750e2c80b5c675828e
+          - runner: macos-15-intel
+            arch: X64
+            sha256: ed773466ef04573229e5b55951b85a25a823b6bddb5dec424846865d8c8d26df
+          - runner: macos-15
+            arch: ARM64
+            sha256: 26954b86b0c81d00422f26bf087a515c41b0b91c05d00cbdf3a5b8a31792969a
+          - runner: windows-2025
+            arch: X64
+            sha256: ab4d4e3c539e470516f3fc94d609309635e46cae50f6bfc0b8eeb334d03932f5
+          - runner: windows-11-arm
+            arch: ARM64
+            sha256: 07dfcc4e2fb2d6e7e2a941a9479ccb518588f270b4413b88c4836dfcfb21e4fe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test installation failures and platform selection
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          node -e "require('node:assert/strict').equal(process.env.RUNNER_ARCH, process.env.EXPECTED_ARCH)"
+          node --test actions/setup-tck/install.test.mjs
+      # Pin real release bytes on every supported native runner. This also
+      # exercises Windows ZIP extraction through the system tar.exe.
+      - name: Install the released TCK
+        id: tck
+        uses: ./actions/setup-tck
+        with:
+          version: v3.0.0-m.13
+          sha256: ${{ matrix.sha256 }}
+      - name: Run the installed TCK from PATH
+        shell: bash
+        env:
+          INSTALLED_VERSION: ${{ steps.tck.outputs.version }}
+          INSTALLED_PATH: ${{ steps.tck.outputs.path }}
+        run: |
+          set -euo pipefail
+          test "$INSTALLED_VERSION" = v3.0.0-m.13
+          test -f "$INSTALLED_PATH"
+          kit-tck version | tee version.txt
+          grep -E '^3[.]0[.]0-m[.]13 [(]' version.txt
