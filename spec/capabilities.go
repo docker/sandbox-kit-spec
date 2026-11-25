@@ -57,6 +57,7 @@ var configTypes = map[string]reflect.Type{
 	CapabilityUSBDevice:                reflect.TypeFor[USBDevice](),
 	CapabilityResources:                reflect.TypeFor[Resources](),
 	CapabilityDockerd:                  reflect.TypeFor[Dockerd](),
+	CapabilityClipboard:                reflect.TypeFor[Clipboard](),
 	CapabilityLifecycle:                reflect.TypeFor[Lifecycle](),
 	CapabilityAgentContext:             reflect.TypeFor[AgentContext](),
 	CapabilityAgentContextV2:           reflect.TypeFor[AgentContextV2](),

@@ -119,6 +119,7 @@ func TestArityOf(t *testing.T) {
 		CapabilityLongRunning:              AritySingleton,
 		CapabilityAutoRestart:              AritySingleton,
 		CapabilityOpenURL:                  AritySingleton,
+		CapabilityClipboard:                AritySingleton,
 		CapabilityGitIdentity:              AritySingleton,
 		CapabilityCredential:               ArityInstance,
 		CapabilitySSHAgent:                 ArityInstance,

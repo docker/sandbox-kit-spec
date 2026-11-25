@@ -647,7 +647,7 @@ effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
 `kvm@1`, `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
 `agent-sessions@2`, `agent-interactive-sessions@1`, `lifecycle@1`,
-`sbx@1`, `long-running@1`, `auto-restart@1`, `open-url@1`,
+`sbx@1`, `long-running@1`, `auto-restart@1`, `open-url@1`, `clipboard@1`,
 `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
@@ -932,6 +932,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/kvm@1` | [kvm@1](capabilities/com.docker.sandbox/kvm@1.md) | singleton, config-less |
 | `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
 | `com.docker.sandbox/open-url@1` | [open-url@1](capabilities/com.docker.sandbox/open-url@1.md) | singleton, config-less |
+| `com.docker.sandbox/clipboard@1` | [clipboard@1](capabilities/com.docker.sandbox/clipboard@1.md) | singleton; filters union per direction |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/auto-restart@1` | [auto-restart@1](capabilities/com.docker.sandbox/auto-restart@1.md) | singleton, config-less |
 | `com.docker.sandbox/lifecycle@1` | [lifecycle@1](capabilities/com.docker.sandbox/lifecycle@1.md) | singleton |
@@ -964,9 +965,9 @@ A descriptor projects onto a **permission surface**: the normalized
 network allow/deny lists, credentials by phase, what the SSH agent may
 sign by phase, storage paths (`dockerd@1` adds `/var/lib/docker`),
 skills paths, ports, USB matches, privileged (which `dockerd@1` also
-sets), plus one `type+config-digest`
-entry (the full SHA-256 of the canonical config) for every other
-request. The projection input is the
+sets), the media types `clipboard@1` admits per direction, plus one
+`type+config-digest` entry (the full SHA-256 of the canonical config)
+for every other request. The projection input is the
 **effective descriptor** — published declarations with this
 installation's create-phase arg values expanded ([§6](#6-args)) — so the
 surface describes the policy actually enforced, and an arg value that
@@ -979,8 +980,8 @@ a Kit's surface in the lock and diff a candidate's against it:
   was part of what made the grant acceptable), a new credential, a wider
   SSH agent grant, path,
   port, USB match, privileged, write access over a skills path already
-  granted read, or any config change on an other-typed request — **MUST** <!-- tck: SPEC-v3 §7.4/widenings-gate -->
-  stop for approval.
+  granted read, a clipboard media type not admitted before, or any config <!-- tck: SPEC-v3 §7.4/widenings-gate -->
+  change on an other-typed request — **MUST** stop for approval.
 - `optional` does not change the surface: it changes what happens when the
   host cannot provide, not what is granted when it can.
 - `resources@1`, `lifecycle@1`, `agent-context@1`, `agent-context@2`,
@@ -1189,6 +1190,7 @@ error. In that order they reconcile into one descriptor:
 | `credential@1` | One owner per (service, phase); overlapping requests conflict even when identical. |
 | `host-mount@1` | One declaring Kit per cleaned storage path; overlapping host mounts, or a host mount and a volume, conflict even when their settings match. |
 | `dockerd@1` | Presence is the union, and the merged `autoStart` is true when any of them says true or omits it, false only when all say false. It owns `/var/lib/docker`: a `volume@1` or `host-mount@1` at or under that cleaned path conflicts with it, whichever Kit declares either and whether or not the request is optional. |
+| `clipboard@1` | Filters union per direction: the merged entry admits every type any of them admits, and a direction any of them leaves unfiltered stays unfiltered. Entries another one covers are dropped, so equal grants have one spelling. It is one entry, selected or refused whole. |
 | `ssh-agent@1` | Requests union per phase: any unrestricted request wins, otherwise signing and authentication bounds union. |
 | `acp@1` | Union, keyed on normalized agent name. Different configs for one agent conflict; identical restatements collapse, comparing decoded commands, default protocol version, and environment values. Workload and mixin declarations participate alike. |
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |

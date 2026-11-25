@@ -1,0 +1,6 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Host clipboard
+capabilities:
+  - type: com.docker.sandbox/clipboard@1

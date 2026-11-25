@@ -1,0 +1,10 @@
+#!/bin/sh
+# Capture helper discovery as the workload sees it, once per direction;
+# a check reads only the capture for the capability it composed.
+for direction in read write; do
+  status=0
+  kit-tck-clipboard interface "$direction" || status=$?
+  printf '%s\n' "$status" >"/var/tmp/kit-tck-clipboard-$direction.tmp"
+  mv "/var/tmp/kit-tck-clipboard-$direction.tmp" "/var/tmp/kit-tck-clipboard-$direction"
+done
+exec sleep infinity

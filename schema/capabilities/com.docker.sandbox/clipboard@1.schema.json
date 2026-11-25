@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/clipboard@1",
+  "description": "Config schema for the host clipboard. Singleton. Without config the sandbox has a normal clipboard: every media type, both directions. Each field narrows one direction to the listed media types; an empty list turns that direction off, and an entry turning both off is refused. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "read": {
+      "description": "Media types the sandbox may read from the host clipboard. Omitted admits every type; an empty list admits none.",
+      "$ref": "#/definitions/filter"
+    },
+    "write": {
+      "description": "Media types the sandbox may put on the host clipboard. Omitted admits every type; an empty list admits none.",
+      "$ref": "#/definitions/filter"
+    }
+  },
+  "not": {
+    "required": [
+      "read",
+      "write"
+    ],
+    "properties": {
+      "read": {
+        "maxItems": 0
+      },
+      "write": {
+        "maxItems": 0
+      }
+    }
+  },
+  "definitions": {
+    "filter": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^(\\*/\\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\\*|[a-z0-9][a-z0-9!#$&^_.+-]*))$",
+            "not": {
+              "enum": [
+                "image/x-png"
+              ]
+            },
+            "description": "A canonical media type, type/*, or */*. Aliases are refused: a filter states each type by its canonical name."
+          },
+          {
+            "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
+          }
+        ]
+      }
+    }
+  }
+}

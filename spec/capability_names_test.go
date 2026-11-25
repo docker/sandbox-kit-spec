@@ -139,6 +139,7 @@ func TestMergeCapabilityNames(t *testing.T) {
 		{"bounded ssh agent", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime, unrestricted: false, sign: [git]}", "type: com.docker.sandbox/ssh-agent@1\n    config: {phase: runtime, unrestricted: false, sign: [file]}"},
 		{"configless", "type: com.docker.sandbox/privileged@1", ""},
 		{"dockerd", "type: com.docker.sandbox/dockerd@1\n    config: {autoStart: false}", "type: com.docker.sandbox/dockerd@1\n    config: {autoStart: true}"},
+		{"clipboard", "type: com.docker.sandbox/clipboard@1\n    config: {read: [image/*], write: []}", "type: com.docker.sandbox/clipboard@1\n    config: {read: [], write: [text/*]}"},
 		{"unknown", "type: example.com/service@1\n    config: {mode: read}", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

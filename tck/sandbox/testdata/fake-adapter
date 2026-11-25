@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -241,6 +241,194 @@ record_ssh_processes() {
   done
 }
 
+# The runtime's clipboard bridge, emulated at the shipped probe's
+# interface: each mode answers what that probe would conclude against a
+# bridge serving, and writing to, the isolated clipboard the suite bound.
+# Grants come from the composed Kits, never from the binding, which every
+# clipboard sandbox receives. They are tokens: rt and ri read text and
+# images, wt and wi write them.
+clipboard_sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
+
+# clipboard_served prints the file the bridge would serve as the host
+# image, or nothing when it serves none.
+clipboard_served() {
+  local dir="$1" clip="$2" ri="$3"
+  if [ "$ri" != yes ] || [ "$broken" = clipboard-missing-read-helper ]; then return 0; fi
+  case "$broken" in
+  clipboard-read-stale)
+    if [ ! -f "$dir/clipboard-cache" ] && [ -f "$clip/image.png" ]; then cp "$clip/image.png" "$dir/clipboard-cache"; fi
+    if [ -f "$dir/clipboard-cache" ]; then echo "$dir/clipboard-cache"; fi
+    return 0
+    ;;
+  clipboard-read-keeps-removed-image)
+    if [ -f "$clip/image.png" ]; then cp "$clip/image.png" "$dir/clipboard-cache"; fi
+    if [ -f "$dir/clipboard-cache" ]; then echo "$dir/clipboard-cache"; fi
+    return 0
+    ;;
+  esac
+  if [ -f "$clip/image.png" ]; then echo "$clip/image.png"; fi
+  return 0
+}
+
+# clipboard_replace puts one type on the clipboard in place of everything
+# it held, as a host clipboard write does.
+clipboard_replace() {
+  local clip="$1" name="$2" source="$3" other=text
+  if [ "$name" = text ]; then other=image.png; fi
+  cp "$source" "$clip/.$name.tmp"
+  mv "$clip/.$name.tmp" "$clip/$name"
+  if [ "$broken" != clipboard-write-keeps-old-types ]; then rm -f "$clip/$other"; fi
+}
+
+clipboard_probe() {
+  local dir="$1" mode="$2"
+  shift 2
+  local clip grants rt=no ri=no wt=no wi=no
+  clip="$(cat "$dir/clipboard-dir")"
+  grants=" $(tr '\n' ' ' <"$dir/clipboard-grants") "
+  case "$grants" in *" rt "*) rt=yes ;; esac
+  case "$grants" in *" ri "*) ri=yes ;; esac
+  case "$grants" in *" wt "*) wt=yes ;; esac
+  case "$grants" in *" wi "*) wi=yes ;; esac
+  # Broken bridges that misjudge grants.
+  case "$broken" in
+  clipboard-read-without-grant) rt=yes ri=yes ;;
+  clipboard-write-without-grant) wt=yes wi=yes ;;
+  clipboard-read-with-write-grant) if [ "$wt" = yes ] || [ "$wi" = yes ]; then rt=yes ri=yes; fi ;;
+  clipboard-write-with-read-grant) if [ "$rt" = yes ] || [ "$ri" = yes ]; then wt=yes wi=yes; fi ;;
+  clipboard-read-ignores-filter) if [ "$ri" = yes ]; then rt=yes; fi ;;
+  clipboard-write-ignores-filter) if [ "$wt" = yes ]; then wi=yes; fi ;;
+  clipboard-write-text-only) wi=no ;;
+  esac
+  local reads=no writes=no
+  if { [ "$rt" = yes ] || [ "$ri" = yes ]; } && [ "$broken" != clipboard-missing-read-helper ]; then reads=yes; fi
+  if { [ "$wt" = yes ] || [ "$wi" = yes ]; } && [ "$broken" != clipboard-missing-write-helper ]; then writes=yes; fi
+  if [ -z "$clip" ]; then
+    echo "no isolated clipboard bound" >&2
+    return 1
+  fi
+  case "$mode" in
+  interface | capture)
+    local ok=no
+    case "$1" in
+    read) ok=$reads ;;
+    write) ok=$writes ;;
+    esac
+    if [ "$mode" = capture ]; then
+      if [ "$broken" = "clipboard-missing-workload-$1-interface" ]; then ok=no; fi
+      if [ "$ok" = yes ]; then echo 0; else echo 1; fi
+      return 0
+    fi
+    [ "$ok" = yes ]
+    ;;
+  text)
+    local got=""
+    if [ "$rt" = yes ] && [ "$reads" = yes ] && [ -f "$clip/text" ]; then got="$(clipboard_sha256 "$clip/text")"; fi
+    if [ "$broken" = clipboard-read-corrupts-text ]; then got=corrupted; fi
+    if [ "$broken" = clipboard-read-misses-alias ]; then
+      echo "xclip -selection clipboard -t UTF8_STRING -o delivered nothing" >&2
+      return 1
+    fi
+    if [ -z "${2:-}" ]; then
+      echo "the text mode takes the newline-terminated digest too" >&2
+      return 1
+    fi
+    if [ "$broken" = clipboard-read-drops-newline ]; then
+      echo "wl-paste delivered the text without its trailing newline" >&2
+      return 1
+    fi
+    if [ "$got" != "$1" ]; then
+      echo "wl-paste --no-newline delivered sha256 $got, want $1" >&2
+      return 1
+    fi
+    ;;
+  image)
+    local served got
+    served="$(clipboard_served "$dir" "$clip" "$ri")"
+    if [ -z "$served" ]; then
+      echo "wl-paste --list-types does not list image/png" >&2
+      return 1
+    fi
+    got="$(clipboard_sha256 "$served")"
+    if [ "$broken" = clipboard-read-corrupts-image ]; then got=corrupted; fi
+    if [ "$broken" = clipboard-read-misses-image-alias ]; then
+      echo "wl-paste --type image/x-png delivered nothing" >&2
+      return 1
+    fi
+    if [ "$got" != "$1" ]; then
+      echo "wl-paste --type image/png delivered sha256 $got, want $1" >&2
+      return 1
+    fi
+    ;;
+  empty | no-image)
+    if [ "$broken" = clipboard-read-leaks-image-alias ] && [ -f "$clip/image.png" ]; then
+      echo "wl-paste --type image/x-png delivered a withheld image" >&2
+      return 1
+    fi
+    if [ "$broken" = clipboard-read-leaks-image-stderr ] && [ -f "$clip/image.png" ]; then
+      echo "wl-paste --type image/png leaked clipboard content on stderr" >&2
+      return 1
+    fi
+    if [ -n "$(clipboard_served "$dir" "$clip" "$ri")" ]; then
+      echo "wl-paste --list-types lists image/png" >&2
+      return 1
+    fi
+    if [ "$mode" = empty ] && [ "$rt" = yes ] && [ "$reads" = yes ] && [ -f "$clip/text" ]; then
+      echo "wl-paste --no-newline wrote text from an empty clipboard" >&2
+      return 1
+    fi
+    ;;
+  no-text | no-text-beside-image)
+    local leaks=no
+    if [ "$rt" = yes ] && [ "$reads" = yes ]; then leaks=yes; fi
+    if [ "$broken" = clipboard-read-leaks-alias ] && [ "$reads" = yes ]; then leaks=yes; fi
+    if [ "$broken" = clipboard-read-leaks-compound-text ] && [ "$reads" = yes ]; then leaks=yes; fi
+    if [ "$broken" = clipboard-read-leaks-stderr ]; then leaks=yes; fi
+    if [ "$leaks" = yes ] && [ -f "$clip/text" ]; then
+      echo "xclip -selection clipboard -t UTF8_STRING -o revealed host clipboard text" >&2
+      return 1
+    fi
+    ;;
+  pipe)
+    local text="$1" helper="$2" prev="" nontext=no trim=no arg
+    shift 2
+    if [ "$broken" = clipboard-missing-write-helper ] && [ "$helper" = clip.exe ]; then return 127; fi
+    for arg in "$@"; do
+      case "$prev $arg" in "--type image/"* | "-t image/"*) nontext=yes ;; esac
+      case "$arg" in --type=image/*) nontext=yes ;; -n | --trim-newline) trim=yes ;; esac
+      prev="$arg"
+    done
+    if [ "$nontext" = yes ]; then
+      [ "$wi" = yes ] || return 1
+      printf '%s' "$text" >"$dir/clipboard-write"
+      clipboard_replace "$clip" image.png "$dir/clipboard-write"
+      return 0
+    fi
+    [ "$wt" = yes ] || return 1
+    if [ "$trim" = yes ] && [ "$broken" != clipboard-write-ignores-trim ]; then text="${text%$'\n'}"; fi
+    if [ "$broken" = clipboard-write-drops-newlines ]; then text="${text//$'\n'/}"; fi
+    if [ "$broken" = clipboard-write-reports-without-writing ]; then return 0; fi
+    printf '%s' "$text" >"$dir/clipboard-write"
+    clipboard_replace "$clip" text "$dir/clipboard-write"
+    ;;
+  copy-image)
+    [ "$wi" = yes ] || return 1
+    if [ "$broken" = clipboard-write-corrupts-image ]; then
+      printf 'not the image' >"$dir/clipboard-write"
+    else
+      cp "$(cat "$dir/clipboard-png")" "$dir/clipboard-write"
+    fi
+    clipboard_replace "$clip" image.png "$dir/clipboard-write"
+    ;;
+  png-digest)
+    clipboard_sha256 "$(cat "$dir/clipboard-png")"
+    ;;
+  *) return 1 ;;
+  esac
+}
+
 case "$verb" in
 capabilities)
   if [ -n "$claims" ]; then echo "$claims" | tr ',' '\n'; fi
@@ -264,6 +452,7 @@ create)
   identity_config=""
   open_url_isolated=no
   open_url_budget=0
+  clipboard_dir=""
   group_rejected=no
   lifecycle_rejected=no
   sandbox_name=""
@@ -293,6 +482,10 @@ create)
       ;;
     --open-url-budget)
       open_url_budget="$2"
+      shift 2
+      ;;
+    --clipboard-isolated)
+      clipboard_dir="$2"
       shift 2
       ;;
     --open-url-isolated)
@@ -451,6 +644,8 @@ create)
       *long-running-optional*)
         if [ "$broken" = "refuses-optional-long-running" ]; then exit 2; fi
         ;;
+      clipboard-workload) ;;
+      clipboard | clipboard-read | clipboard-write | clipboard-filtered) need="com.docker.sandbox/clipboard@1" ;;
       *open-url-workload*) ;;
       *open-url*) need="com.docker.sandbox/open-url@1" ;;
       *long-running-workload*) ;;
@@ -650,6 +845,34 @@ create)
   echo running >"$dir/status"
   printf '%s' "$open_url_isolated" >"$dir/open-url-isolated"
   printf '%s' "$open_url_budget" >"$dir/open-url-budget"
+  printf '%s' "$clipboard_dir" >"$dir/clipboard-dir"
+  # Grants union across the composed Kits. The broken runtimes treat
+  # clipboard@1 as a plain singleton: refusing the second entry, or
+  # keeping only the first or the last one's filter.
+  entries=()
+  : >"$dir/clipboard-png"
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in
+    clipboard) entries+=("rt ri wt wi") ;;
+    clipboard-read) entries+=("rt ri") ;;
+    clipboard-write) entries+=("wt wi") ;;
+    clipboard-filtered) entries+=("ri wt") ;;
+    clipboard-workload) printf '%s' "$kit/clipboard.png" >"$dir/clipboard-png" ;;
+    esac
+  done
+  if [ "${#entries[@]}" -gt 1 ]; then
+    case "$broken" in
+    clipboard-refuses-second-entry)
+      rm -rf "$dir"
+      echo "refusing: clipboard@1 is declared by more than one Kit" >&2
+      exit 2
+      ;;
+    clipboard-first-entry-wins) entries=("${entries[0]}") ;;
+    clipboard-last-entry-wins) entries=("${entries[${#entries[@]}-1]}") ;;
+    esac
+  fi
+  : >"$dir/clipboard-grants"
+  for entry in "${entries[@]+"${entries[@]}"}"; do echo "$entry" >>"$dir/clipboard-grants"; done
   # The probe the workload fixture ships, which the fake runs itself.
   for kit in "${kits[@]}"; do
     if [[ "$kit" == */workload ]]; then printf '%s' "$kit/kit-tck-ssh-agent.py" >"$dir/ssh-agent-probe"; fi
@@ -1171,6 +1394,10 @@ exec)
     *) exit 1 ;;
     esac
     ;;
+  kit-tck-clipboard)
+    shift
+    clipboard_probe "$dir" "$@"
+    ;;
   kit-tck-open-url)
     if [ "$broken" = open-url-missing-helper ]; then exit 1; fi
     if [ "$2" = invalid ]; then
@@ -1186,6 +1413,9 @@ exec)
     ;;
   cat)
     case "$2" in
+    /var/tmp/kit-tck-clipboard-read | /var/tmp/kit-tck-clipboard-write)
+      clipboard_probe "$dir" capture "${2##*-}"
+      ;;
     /var/tmp/kit-tck-open-url-interface)
       if [ "$broken" = open-url-missing-workload-interface ]; then echo 1; else echo 0; fi
       ;;

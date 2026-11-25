@@ -578,6 +578,11 @@ const (
 	// default browser. It takes no config and grants no sandbox egress.
 	CapabilityOpenURL = "com.docker.sandbox/open-url@1"
 
+	// CapabilityClipboard shares the runtime host's clipboard with the
+	// sandbox; optional config decodes to Clipboard, a per-direction
+	// media-type filter.
+	CapabilityClipboard = "com.docker.sandbox/clipboard@1"
+
 	// CapabilityKitRegistry requests the runtime's kit registry — the daemon's
 	// registry facade over the engine image store, where kit builds push
 	// results and pull the kit frontend. Reaching it is the host's
@@ -1016,6 +1021,17 @@ type Dockerd struct {
 
 // AutoStarts reports whether the runtime starts the engine.
 func (d Dockerd) AutoStarts() bool { return d.AutoStart == nil || *d.AutoStart }
+
+// Clipboard is CapabilityClipboard's config. Without it the sandbox has
+// a normal clipboard: every type, both directions. Each field narrows one
+// direction to the media types it lists; an empty list turns that
+// direction off. Pointers, because omitted and empty mean opposite things.
+type Clipboard struct {
+	// Read filters what the sandbox may read from the host clipboard.
+	Read *[]string `json:"read,omitempty" yaml:"read,omitempty"`
+	// Write filters what the sandbox may put on the host clipboard.
+	Write *[]string `json:"write,omitempty" yaml:"write,omitempty"`
+}
 
 // Resources is CapabilityResources's config: the workload's compute.
 type Resources struct {

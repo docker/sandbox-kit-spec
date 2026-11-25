@@ -64,7 +64,7 @@ An adapter **MUST NOT** require interactive input.
 | Verb | Arguments | stdout | Purpose |
 |---|---|---|---|
 | `capabilities` | — | one capability type per line | What the runtime claims to implement |
-| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, `--docker-auth-config <absolute-path>`, `--open-url-isolated`, and `--open-url-budget <attempts>` each at most once | one sandbox id | Compose the Kit set and start it |
+| `create` | `<kit-ref>…`, zero or more `--arg name=value` and `--env name=value`, `--name <name>`, `--workspace-mode internal\|host\|cloned\|none`, `--skills-host-mode readonly\|off`, `--skills-host-store missing\|empty`, `--ssh-agent <socket>`, `--ssh-known-hosts <file>`, `--git-identity-config <absolute-path>\|off`, `--docker-auth-config <absolute-path>`, `--open-url-isolated`, `--open-url-budget <attempts>`, and `--clipboard-isolated <absolute-path>` each at most once | one sandbox id | Compose the Kit set and start it |
 | `exec` | `<id>`, optional `--cwd <absolute-path>` and zero or more `--env name=value`, then `-- <argv>…` | the command's stdout | Run a command inside |
 | `stop` | `<id>` | — | Stop without discarding state |
 | `start` | `<id>` | — | Start a stopped sandbox |
@@ -400,6 +400,67 @@ schemes, malformed URLs, or multiple individually valid HTTP/HTTPS URLs.
 Invalid inputs alone cannot prevent host application launches. Each
 helper first receives valid single HTTP and HTTPS URLs and must succeed,
 so an always-rejecting helper cannot pass the rejection probe.
+
+### Host clipboard isolation
+
+An adapter claiming `com.docker.sandbox/clipboard@1` **MUST** accept
+`create --clipboard-isolated <absolute-path>`, naming a suite-owned
+directory outside the sandbox. Before starting that sandbox it **MUST**
+bind the sandbox's host clipboard to a test clipboard backed by that
+directory instead of the user's. The binding is confined to that
+sandbox and removed with it; the user's clipboard is neither read nor
+written.
+
+The directory models one host clipboard holding the two types every
+runtime bridges. When `text` is present the clipboard offers that UTF-8
+text as `text/plain`; when `image.png` is present it offers that image
+as `image/png`. The runtime **MUST** consult both files when each
+request arrives, so the suite can change them between requests. A
+write replaces the whole clipboard, as on a host: a successful text
+write **MUST** replace `text` and remove `image.png`, and a successful
+PNG write replace `image.png` and remove `text`, atomically, before the
+helper returns. The suite writes no other type.
+
+Isolation **MUST** preserve the runtime's real guest helpers, transport,
+filter and grant checks, and size bounds. The adapter **MUST NOT**
+substitute a guest helper, read or write the files on the runtime's
+behalf from outside the runtime's dispatch path, or manufacture probe
+results. Measures a runtime adds of its own, such as user consent
+settings, are arranged by the adapter for this sandbox only, without
+changing the user's settings, so they admit what the Kit's filter
+admits. If the runtime cannot isolate its host clipboard, the adapter
+**MUST** fail the create before starting a sandbox, never fall back to
+the user's clipboard.
+
+The suite passes the option on creates whose Kits filter a direction
+off or request no clipboard at all, so the binding **MUST** apply to
+every create that names it, whatever the Kits admit. Otherwise a
+withheld direction reaching the user's real clipboard would be
+invisible to the suite.
+
+The suite checks helper discovery without touching the clipboard, both
+in a workload entrypoint capture and in an exec session. Against an
+unfiltered entry, it seeds a multi-line, non-ASCII text and compares
+digests computed inside the sandbox for every read spelling, then
+seeds two distinct PNG images in turn, so a runtime that caches its
+first answer fails, and then empties the clipboard. Writes pipe text
+into each helper and a PNG the workload fixture ships into each typed
+helper, and compare the resulting files byte for byte, including that
+the previous type is gone.
+
+A fixture filtering reads to `image/*` and writes to `text/*` must
+withhold seeded text, under every spelling and alias, while still
+delivering an image, and refuse a PNG write while still landing text.
+Withholding is judged by silence rather than by searching for the
+seeded text, so a truncated disclosure fails as a whole one does: with
+nothing readable on the clipboard every text spelling writes nothing,
+and beside an admitted image every spelling naming text writes
+nothing.
+Each direction's withholding is judged twice: with the other direction
+alone enabled, and in a workload-only sandbox. Composing the
+read-only, write-only, and filtered fixtures must union their filters,
+so a runtime that treats the entries as conflicting, or keeps one
+Kit's filter over the others', fails.
 
 ### Git identity binding
 

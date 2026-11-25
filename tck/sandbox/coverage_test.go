@@ -111,7 +111,16 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "auto-restart@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "auto-restart@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused", "clipboard@1/required-unsatisfiable-refused"},
+
+	// Seeding a second image and then none is what tells a bridge that
+	// reads per request from one that cached its first answer. Aliases
+	// are judged from both sides: text delivered under UTF8_STRING where
+	// the filter admits text, and withheld under every alias where it
+	// does not.
+	"clipboard@1/image-delivered": {"clipboard@1/current-contents"},
+	"clipboard@1/text-delivered":  {"clipboard@1/type-aliases"},
+	"clipboard@1/read-filtered":   {"clipboard@1/type-aliases"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -145,6 +154,7 @@ var kitCovers = map[string][]string{
 		"auto-restart@1/no-config",
 		"kvm@1/no-config",
 		"open-url@1/no-config",
+		"clipboard@1/config-valid",
 		"dockerd@1/engine-store-owned",
 		"git-identity@1/no-config",
 		"SPEC-v3 §7.1.1/group-grammar",
@@ -234,6 +244,16 @@ var waived = map[string]string{
 	"open-url@1/bounded-requests":                                 "the isolated probe reserves a known test budget but does not exhaust it or exercise runtime-selected limits; host pending counts, duration bounds, and rate-limit enforcement remain unobserved",
 	"open-url@1/url-private":                                      "the adapter exposes no runtime audit or diagnostic log inventory",
 	"open-url@1/revoked":                                          "exec requires a running sandbox and the adapter has no per-grant revocation operation or retained raw service connection",
+
+	"clipboard@1/guest-interface":  "the runtime probe checks helper discovery in the workload and exec sessions; hook availability and ordering remain unobserved without requiring lifecycle support",
+	"clipboard@1/other-types":      "SHOULD; the isolated clipboard models only the text and PNG every runtime bridges",
+	"clipboard@1/native-clients":   "SHOULD; the fixture ships no native clipboard client, and the protocol a runtime serves is its choice",
+	"clipboard@1/read-bounded":     "size and duration limits are runtime policy the adapter does not report, so no fixture content can be sized to exceed them",
+	"clipboard@1/write-bounded":    "size and duration limits are runtime policy the adapter does not report, so no fixture write can be sized to exceed them",
+	"clipboard@1/write-result":     "the isolated probes check successful writes and writes the filter refuses; transport and host failures cannot be arranged through the binding",
+	"clipboard@1/host-session":     "the isolated clipboard replaces host session selection, so which session a real request reaches is not observed",
+	"clipboard@1/revoked":          "the adapter has no per-grant revocation operation, and exec requires a running sandbox",
+	"clipboard@1/contents-private": "the adapter exposes no runtime audit or diagnostic log inventory",
 
 	"sbx@1/identity-rename":                 "the adapter has no rename operation; current-name propagation and ID stability through rename cannot be arranged",
 	"sbx@1/identity-opaque":                 "Kit author duty; the runtime suite cannot observe whether arbitrary Kit code parses the ID",

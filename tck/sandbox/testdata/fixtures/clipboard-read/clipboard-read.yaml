@@ -1,0 +1,8 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Host clipboard, read only
+capabilities:
+  - type: com.docker.sandbox/clipboard@1
+    config:
+      write: []

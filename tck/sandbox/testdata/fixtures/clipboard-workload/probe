@@ -1,0 +1,162 @@
+#!/bin/sh
+# Drives the runtime's clipboard helpers. The suite seeds and inspects the
+# isolated host clipboard from outside; this only runs helpers and judges
+# what they print.
+set -eu
+
+png="${KIT_TCK_CLIPBOARD_PNG:-/usr/share/kit-tck/clipboard.png}"
+png_magic=$(printf '\211PNG')
+errfile="${TMPDIR:-/tmp}/kit-tck-clipboard-err.$$"
+trap 'rm -f "$errfile"' EXIT
+
+# Content is compared by digest inside the sandbox, so binary output and
+# trailing newlines never have to survive the adapter's exec transport.
+digest() { sha256sum | cut -d' ' -f1; }
+
+lists='wl-paste --list-types|xclip -selection clipboard -t TARGETS -o'
+# image/x-png is an alias of image/png: it delivers what image/png does,
+# and is withheld wherever image/png is.
+image_reads='wl-paste --type image/png|xclip -selection clipboard -t image/png -o|wl-paste --type image/x-png|xclip -selection clipboard -t image/x-png -o'
+text_reads='wl-paste --no-newline|wl-paste --no-newline --type text/plain|xclip -selection clipboard -o|xclip -selection clipboard -t UTF8_STRING -o|xsel --clipboard --output|pbpaste'
+# Every text spelling an agent might try, aliases included. Each names an
+# output mode explicitly: xsel and xclip read standard input when they do
+# not, and an empty write would replace the very text being looked for.
+# Withholding is judged by silence, not by searching for the seeded text,
+# so a truncated or re-encoded disclosure fails as a whole one does.
+# A typeless wl-paste may serve whatever admitted type the clipboard
+# offers, so it is apart from the spellings that name text.
+typeless_text_probes='wl-paste|wl-paste --no-newline'
+typed_text_probes='wl-paste --no-newline --type text/plain|wl-paste --type text/plain;charset=utf-8|wl-paste --type UTF8_STRING|xclip -o|xclip -selection clipboard -o|xclip -selection clipboard -t UTF8_STRING -o|xclip -selection clipboard -t STRING -o|xclip -selection clipboard -t TEXT -o|xclip -selection clipboard -t COMPOUND_TEXT -o|xclip -selection clipboard -t text/plain -o|xsel --output|xsel --clipboard --output|pbpaste'
+
+# each runs every '|'-separated command line in $1 through the named check.
+each() {
+  set -f
+  old_ifs=$IFS
+  IFS='|'
+  for line in $1; do
+    IFS=$old_ifs
+    "$2" "$line" "${3:-}" || return 1
+    IFS='|'
+  done
+  IFS=$old_ifs
+  set +f
+}
+
+listed() {
+  # shellcheck disable=SC2086 # the command line is split on purpose
+  $1 2>/dev/null </dev/null | grep -qx "$2"
+}
+lists_type() {
+  listed "$1" "$2" || {
+    echo "$1 does not list $2" >&2
+    return 1
+  }
+}
+delivers() {
+  # shellcheck disable=SC2086
+  got=$($1 2>/dev/null </dev/null | digest)
+  [ "$got" = "$2" ] || {
+    echo "$1 delivered sha256 $got, want $2" >&2
+    return 1
+  }
+}
+silent() {
+  : >"$errfile"
+  # shellcheck disable=SC2086
+  bytes=$($1 2>"$errfile" </dev/null | wc -c | tr -d ' ')
+  if [ -n "${2:-}" ] && LC_ALL=C grep -Fq -- "$2" "$errfile"; then
+    echo "$1 leaked clipboard content on stderr" >&2
+    return 1
+  fi
+  [ "$bytes" = 0 ] || {
+    echo "$1 wrote $bytes bytes" >&2
+    return 1
+  }
+}
+lists_none() {
+  cmd="$1"
+  secret="$2"
+  shift 2
+  : >"$errfile"
+  # shellcheck disable=SC2086
+  types=$($cmd 2>"$errfile" </dev/null || true)
+  if [ -n "$secret" ] && LC_ALL=C grep -Fq -- "$secret" "$errfile"; then
+    echo "$cmd leaked clipboard content on stderr" >&2
+    return 1
+  fi
+  for name in "$@"; do
+    if printf '%s\n' "$types" | grep -qx "$name"; then
+      echo "$cmd lists $name" >&2
+      return 1
+    fi
+  done
+}
+lists_no_image() { lists_none "$1" "${2:-}" image/png image/x-png; }
+lists_no_text() { lists_none "$1" "${2:-}" text/plain UTF8_STRING STRING TEXT COMPOUND_TEXT; }
+
+case "${1:-}" in
+interface)
+  case "${2:-}" in
+  read) helpers='wl-paste xclip xsel pbpaste' ;;
+  write) helpers='wl-copy xclip xsel pbcopy clip.exe' ;;
+  *) exit 1 ;;
+  esac
+  for helper in $helpers; do
+    command -v "$helper" >/dev/null || {
+      echo "$helper is not on PATH" >&2
+      exit 1
+    }
+  done
+  ;;
+text)
+  # $2 is the text's digest, $3 the digest with the one newline plain
+  # wl-paste appends.
+  [ -n "${3:-}" ] || exit 1
+  each "$lists" lists_type text/plain
+  each "$text_reads" delivers "$2"
+  delivers wl-paste "$3"
+  ;;
+image)
+  each "$lists" lists_type image/png
+  each "$image_reads" delivers "$2"
+  ;;
+empty)
+  each "$lists" silent
+  each "$image_reads" silent
+  each "$text_reads" silent
+  ;;
+no-image)
+  each "$lists" lists_no_image "$png_magic"
+  each "$image_reads" silent "$png_magic"
+  ;;
+no-text)
+  # Nothing the sandbox may read is on the clipboard: every spelling is
+  # silent on stdout and does not repeat the seeded text ($2) on stderr.
+  [ -n "${2:-}" ] || exit 1
+  each "$lists" lists_no_text "$2"
+  each "$typeless_text_probes|$typed_text_probes" silent "$2"
+  ;;
+no-text-beside-image)
+  # An admitted image is on the clipboard too: every spelling naming text
+  # is still silent on stdout and does not repeat the seeded text ($2) on
+  # stderr.
+  [ -n "${2:-}" ] || exit 1
+  each "$lists" lists_no_text "$2"
+  each "$typed_text_probes" silent "$2"
+  ;;
+pipe)
+  # The helper's own status is the result; the suite judges it against
+  # what landed in the isolated host clipboard.
+  text="$2"
+  shift 2
+  printf '%s' "$text" | "$@"
+  ;;
+copy-image)
+  shift
+  "$@" <"$png"
+  ;;
+png-digest)
+  digest <"$png"
+  ;;
+*) exit 1 ;;
+esac
