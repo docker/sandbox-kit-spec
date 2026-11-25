@@ -222,7 +222,7 @@ func (f *fakeGatewayClient) Warn(context.Context, digest.Digest, string, gwclien
 // The parent's frontend inputs (bake wiring one target's output into
 // another) reach the companion sub-solve only if solveDockerfile hands
 // them on. Covered here: named inputs are forwarded, the parent's
-// dockerfile input is not (it holds the descriptor, not the companion),
+// dockerfile input carries the tree containing descriptor and companion,
 // inline recipes claim the dockerfile input slot with their synthesized
 // content, and a bridge without CapFrontendInputs is never asked for
 // inputs at all — the Inputs call itself errors on such bridges even when
@@ -238,7 +238,7 @@ func TestSolveDockerfileForwardsFrontendInputs(t *testing.T) {
 	fileRecipe := &companionSource{name: "kit.build.dockerfile", bytes: []byte("FROM scratch\n")}
 	inlineRecipe := &companionSource{name: "kit.build.dockerfile", bytes: []byte("FROM scratch\n"), inline: true}
 
-	t.Run("named inputs are forwarded, the parent dockerfile input is not", func(t *testing.T) {
+	t.Run("named inputs and the parent recipe tree are forwarded", func(t *testing.T) {
 		c := &fakeGatewayClient{
 			bopts: gwclient.BuildOpts{Caps: withInputsCap},
 			inputs: map[string]llb.State{
@@ -250,8 +250,10 @@ func TestSolveDockerfileForwardsFrontendInputs(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, c.inputsCalled)
 		require.Contains(t, c.lastReq.FrontendInputs, "deps")
-		require.NotContains(t, c.lastReq.FrontendInputs, dockerui.DefaultLocalNameDockerfile,
-			"the parent's dockerfile input holds the descriptor, not the companion")
+		require.Contains(t, c.lastReq.FrontendInputs, dockerui.DefaultLocalNameDockerfile)
+		require.Equal(t, parentDockerfileDef.ToPB().Def,
+			c.lastReq.FrontendInputs[dockerui.DefaultLocalNameDockerfile].Def,
+			"a file companion must remain readable from the parent source tree")
 	})
 
 	t.Run("an inline recipe claims the dockerfile input slot", func(t *testing.T) {
