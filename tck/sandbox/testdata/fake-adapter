@@ -440,6 +440,7 @@ create)
       case "${kit##*/}" in
       acp) need="com.docker.sandbox/acp@1" ;;
       auto-restart) need="com.docker.sandbox/auto-restart@1" ;;
+      openai-chatgpt) need="com.docker.sandbox/openai-chatgpt@1" ;;
       dockerd | dockerd-manual) need="com.docker.sandbox/dockerd@1" ;;
       docker-workload) ;;
       bundled-optional | bundled-existing) ;;

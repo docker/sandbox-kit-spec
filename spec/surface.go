@@ -123,6 +123,9 @@ func SurfaceOf(d *Descriptor) Surface {
 					s.CredentialsRuntime = append(s.CredentialsRuntime, c.Service)
 				}
 			}
+		case CapabilityOpenAIChatGPT:
+			s.CredentialsRuntime = append(s.CredentialsRuntime, "openai")
+			s.Services = append(s.Services, capabilitySurfaceEntry(n))
 		case CapabilitySSHAgent:
 			var a SSHAgent
 			if err := DecodeCapabilityConfig(n, &a); err != nil {

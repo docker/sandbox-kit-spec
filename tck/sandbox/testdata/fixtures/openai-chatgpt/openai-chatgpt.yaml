@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Native ChatGPT support requirement
+provides: ["kit-tck-openai-chatgpt@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/openai-chatgpt@1
+    config:
+      path: /home/agent/.codex/auth.json

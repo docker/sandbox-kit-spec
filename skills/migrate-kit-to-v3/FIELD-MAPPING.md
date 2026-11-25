@@ -331,6 +331,18 @@ unchanged. `phase` also accepts a non-empty list of distinct phases:
   matcher does not expand globs. Add the literal host beside the wildcard; it
   widens nothing.
 
+### openai-chatgpt@1
+
+Native ChatGPT is a deliberate authentication change, not a v2-to-v3
+transcription. Preserve an existing Codex kit's `credential@1` declaration
+when migrating it. A separately selected native kit requests
+`openai-chatgpt@1` with the guest auth-file `path` and requires a runtime
+that explicitly implements it. The native request owns `(openai, runtime)`,
+so remove the generic runtime OpenAI request rather than declaring both.
+An install-only OpenAI request may remain. The host presents the complete
+identity payload with an invalid signature and keeps usable credentials
+outside the guest. Do not add `onMissing` or passthrough settings.
+
 ### lifecycle@1
 
 One entry holding `install:`, `startup:`, `files:` and `interactive:`. Commands,

@@ -21,6 +21,7 @@ const (
 	capNetworkPolicy   = "com.docker.sandbox/network-policy@1"
 	capNetworkPolicyV2 = "com.docker.sandbox/network-policy@2"
 	capCredential      = "com.docker.sandbox/credential@1"
+	capOpenAIChatGPT   = "com.docker.sandbox/openai-chatgpt@1"
 	capSbx             = "com.docker.sandbox/sbx@1"
 )
 
@@ -233,6 +234,7 @@ var checks = append(append(gitIdentityChecks, hostMountChecks...), []check{
 				{capNetworkPolicy, fixtureEgress, false},
 				{capNetworkPolicyV2, fixtureHTTPEgress, false},
 				{capCredential, fixtureCredential, false},
+				{capOpenAIChatGPT, "openai-chatgpt", false},
 				{capSSHAgent, fixtureSSHAgent, false},
 				{capAgentContext, fixtureContext, false},
 				{capAgentContextV2, "context-v2-workload", true},

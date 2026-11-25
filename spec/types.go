@@ -461,6 +461,10 @@ const (
 	// (service, phase).
 	CapabilityCredential = "com.docker.sandbox/credential@1"
 
+	// CapabilityOpenAIChatGPT presents host-managed ChatGPT identity without
+	// usable credentials. It owns the openai runtime credential.
+	CapabilityOpenAIChatGPT = "com.docker.sandbox/openai-chatgpt@1"
+
 	// CapabilitySSHAgent exposes an SSH agent to one phase, relaying to a
 	// backing agent of the runtime's choosing; config decodes to SSHAgent.
 	// Instance-shaped, keyed by phase.
@@ -740,6 +744,12 @@ type Credential struct {
 
 	// OAuth configures proxy-managed OAuth token interception.
 	OAuth *OAuth `json:"oauth,omitempty" yaml:"oauth,omitempty"`
+}
+
+// OpenAIChatGPT places a native ChatGPT auth cache at a guest path. The
+// host chooses the OpenAI account and retains usable credentials.
+type OpenAIChatGPT struct {
+	Path string `json:"path" yaml:"path"`
 }
 
 // SSHAgent is CapabilitySSHAgent's config. Phase accepts one phase or a

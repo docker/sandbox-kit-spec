@@ -111,7 +111,7 @@ var covers = map[string][]string{
 	// The refusal probe composes one required fixture per unclaimed
 	// well-known type, which is lifecycle's refusal duty exercised for
 	// every claimant.
-	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "auto-restart@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused"},
+	"conformance.md §2.2/required-unclaimed-refused": {"lifecycle@1/required-unsatisfiable-refused", "long-running@1/required-unsatisfiable-refused", "auto-restart@1/required-unsatisfiable-refused", "open-url@1/required-unsatisfiable-refused", "openai-chatgpt@1/explicit-support"},
 
 	// The writable-layer control distinguishes persistence from keeping
 	// the old container; composition changes exercise reattachment too.
@@ -136,6 +136,7 @@ var kitCovers = map[string][]string{
 	"descriptor-valid": {
 		"host-port@1/config-valid",
 		"docker-auth@1/config-valid",
+		"openai-chatgpt@1/config-valid",
 		"host-port@1/published-port-conflict",
 		"agent-context@2/inline-only",
 		"host-mount@1/runtime-owned-location",
@@ -384,6 +385,18 @@ var waived = map[string]string{
 	"agent-interactive-sessions@1/list-parses-stdout":                     "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-interactive-sessions@1/absent-verb-unsupported":                "grammar only; nothing consumes it yet, so there is no behavior to judge",
 	"agent-interactive-sessions@1/declaration-grants-nothing":             "grammar only; nothing consumes it yet, so there is no behavior to judge",
+
+	"openai-chatgpt@1/host-binding":         "the adapter has no OpenAI host-binding or missing-binding control; generic API-key fixture binding does not judge native OAuth availability",
+	"openai-chatgpt@1/permission-surface":   "surface arithmetic is judged by spec tests; the adapter cannot grant native account disclosure independently or observe consent",
+	"openai-chatgpt@1/host-authoritative":   "needs controlled host accounts, provider destinations and guest override attempts, which the adapter cannot supply",
+	"openai-chatgpt@1/guest-presentation":   "needs a bound OpenAI fixture and a managed Codex session; the refusal-only fixture never presents native credentials",
+	"openai-chatgpt@1/identity-payload":     "reference projection is unit-tested; the adapter cannot seed an identity token or observe every runtime delivery path",
+	"openai-chatgpt@1/managed-credentials":  "needs controlled OAuth, enrollment, relay, pairing, attestation and Desktop tool credentials plus network and SSH observations; the adapter exposes none of these protocol controls",
+	"openai-chatgpt@1/host-refresh":         "needs delayed provider responses and host credential mutations; the adapter cannot trigger or inspect native OAuth refresh",
+	"openai-chatgpt@1/ssh-compatible":       "the adapter has no Desktop SSH session or tool-registration verbs; generic exec cannot establish Desktop compatibility",
+	"openai-chatgpt@1/unsupported-protocol": "needs versioned Desktop/guest clients and malformed credential exchanges over managed SSH; the adapter has no such transport",
+	"openai-chatgpt@1/revocation":           "needs live relay observations and host logout, replacement and permission-mutation inputs; removing a sandbox alone does not judge the other revocation paths",
+	"openai-chatgpt@1/credential-owner":     "grammar and composition rule, judged by the spec and resolver tests including generic/native overlap and phase separation",
 
 	"credential@1/resolved-from-host-store":         "host-internal: which store the value came from has no in-sandbox symptom",
 	"credential@1/oauth-token-endpoint-intercepted": "needs an OAuth fixture service the suite does not run yet",

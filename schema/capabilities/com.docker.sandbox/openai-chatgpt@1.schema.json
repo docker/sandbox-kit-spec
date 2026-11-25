@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "com.docker.sandbox/openai-chatgpt@1",
+  "description": "Host-managed native ChatGPT authentication. Owns the openai runtime credential and discloses its full identity-token payload with an invalid signature.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["path"],
+  "properties": {
+    "path": {
+      "type": "string",
+      "anyOf": [
+        {"pattern": "^(?:/|~/)[^\\x01-\\x1f\\x7f]*[^/\\x01-\\x1f\\x7f]$"},
+        {"$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"}
+      ]
+    }
+  }
+}
