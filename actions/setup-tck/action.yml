@@ -1,0 +1,17 @@
+name: Set up kit-tck
+description: Install a checksum-verified kit-tck release and add it to PATH.
+inputs:
+  version:
+    description: Exact release version, with or without the leading v.
+    required: true
+  sha256:
+    description: Optional SHA256 of the platform archive, checked in addition to the release checksum.
+    required: false
+outputs:
+  version:
+    description: Installed release version, including the leading v.
+  path:
+    description: Absolute path to the installed kit-tck executable.
+runs:
+  using: node24
+  main: index.mjs
