@@ -16,6 +16,7 @@ steps:
     with:
       version: v3.0.0-m.13
   - name: Validate a published kit
+    shell: bash
     env:
       IMAGE: docker.io/example/my-kit@sha256:<image-digest>
     run: kit-tck validate "$IMAGE"
