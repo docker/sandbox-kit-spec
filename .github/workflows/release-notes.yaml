@@ -57,7 +57,10 @@ jobs:
     env:
       TAG: ${{ inputs.tag }}
       BASE: ${{ inputs.base }}
-      APP_NAME: release-notes-${{ github.run_id }}-${{ github.run_attempt }}
+      # A constant: sbx rejects an --app-name over 20 characters (it bounds a
+      # Unix socket path), which a run id outgrows. The hosted runner is
+      # already a fresh machine per job, so the name has nothing to collide with.
+      APP_NAME: release-notes
       SBX_NAME: notes-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
