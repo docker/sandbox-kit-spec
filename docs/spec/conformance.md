@@ -421,6 +421,24 @@ Invalid inputs alone cannot prevent host application launches. Each
 helper first receives valid single HTTP and HTTPS URLs and must succeed,
 so an always-rejecting helper cannot pass the rejection probe.
 
+### Host display
+
+The display fixture runs as an unprivileged workload user and supplies
+its own Wayland client. It connects to `/run/display/wayland-0`, binds
+`wl_compositor`, creates and commits an empty surface, and checks for a
+successful round trip. This exercises the guest interface without
+drawing on the user's desktop. If the runtime refuses display by name,
+the positive probe records a skip. The suite also checks that the same
+workload has no usable endpoint when it omits display or its optional
+request is refused. The workload has no compositor of its own and these
+checks run without an independent display grant.
+
+The adapter cannot observe host-side window presentation, host clipboard
+or drag-and-drop transfers through the display, or authorization on
+initial grant and widening. A refused create returns no handle with
+which to check when the refusal took effect. The suite records those
+duties as waivers.
+
 ### Host clipboard isolation
 
 An adapter claiming `com.docker.sandbox/clipboard@1` **MUST** accept

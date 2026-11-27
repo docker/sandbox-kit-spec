@@ -486,6 +486,13 @@ into the Kit. Only HTTP/HTTPS navigation is granted, on the provider
 host rather than the CLI client. Browser traffic is not sandbox egress.
 Use `optional: true` if printing the URL is a sufficient fallback.
 
+### display@1
+
+For a Kit that relied on an operator enabling host window forwarding,
+declare `com.docker.sandbox/display@1` without `config`. On runtimes
+that grant it, direct the Wayland application to `/run/display/wayland-0`.
+Set `optional: true` if the application also works headless.
+
 ### clipboard@1
 
 For host clipboard access, request `com.docker.sandbox/clipboard@1`.

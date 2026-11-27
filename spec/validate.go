@@ -512,6 +512,7 @@ var singletonCapabilities = map[string]bool{
 	CapabilityLongRunning:              true,
 	CapabilityAutoRestart:              true,
 	CapabilityOpenURL:                  true,
+	CapabilityDisplay:                  true,
 	CapabilityClipboard:                true,
 }
 
@@ -603,6 +604,7 @@ var configlessCapabilities = map[string]bool{
 	CapabilityLongRunning: true,
 	CapabilityAutoRestart: true,
 	CapabilityOpenURL:     true,
+	CapabilityDisplay:     true,
 }
 
 // validateCapabilityEntries checks the typed capability list. Type syntax and

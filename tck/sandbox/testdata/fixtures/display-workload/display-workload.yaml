@@ -1,0 +1,4 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Wayland surface probe

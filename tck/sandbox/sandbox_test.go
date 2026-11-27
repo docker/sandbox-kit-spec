@@ -235,6 +235,15 @@ func TestBackingAgentCloseWithIdleClient(t *testing.T) {
 // requirement — the two network-policy versions state the same duty about
 // the host lists — and dropping it has to fail every one of them.
 var mutations = map[string][]string{
+	"display-unusable":                                         {"display@1/socket-usable"},
+	"display-granted-by-default":                               {"display@1/no-grant"},
+	"display-ignores-rejection":                                {"display@1/required-unsatisfiable-refused"},
+	"display-unnamed-refusal":                                  {"display@1/required-unsatisfiable-refused"},
+	"display-refuses-optional":                                 {"display@1/optional-unavailable-skipped"},
+	"display-missing-skip-record":                              {"display@1/optional-unavailable-skipped"},
+	"display-skipped-grant":                                    {"display@1/optional-unavailable-skipped"},
+	"display-skipped-usable":                                   {"display@1/optional-unavailable-skipped"},
+	"display-probe-error":                                      {"display@1/no-grant", "display@1/optional-unavailable-skipped"},
 	"kvm-recreate-noop":                                        {"kvm@1/independent-grants"},
 	"kvm-probe-crashes":                                        {"kvm@1/optional-unavailable-skipped", "kvm@1/grant-transition"},
 	"kvm-refuses-corrupts-selection":                           {"kvm@1/grant-transition", "kvm@1/independent-grants"},

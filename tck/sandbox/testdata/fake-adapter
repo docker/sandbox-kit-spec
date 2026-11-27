@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/gpu@1,com.docker.sandbox/fuse@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/display@1,com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/gpu@1,com.docker.sandbox/fuse@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -463,6 +463,9 @@ create)
   offered_agent=""
   known_hosts=""
   identity_config=""
+  display_cap=com.docker.sandbox/display@1
+  display_available=yes
+  [[ ",$claims," == *",$display_cap,"* ]] || display_available=no
   open_url_isolated=no
   open_url_budget=0
   clipboard_dir=""
@@ -489,6 +492,7 @@ create)
       shift 2
       ;;
     --reject-capability)
+      if [ "$2" = "$display_cap" ]; then display_available=no; fi
       if [ "$2" = com.docker.sandbox/volume@1 ]; then group_rejected=yes; fi
       if [ "$2" = com.docker.sandbox/lifecycle@1 ]; then lifecycle_rejected=yes; fi
       shift 2
@@ -659,6 +663,7 @@ create)
         ;;
       clipboard-workload) ;;
       clipboard | clipboard-read | clipboard-write | clipboard-filtered) need="com.docker.sandbox/clipboard@1" ;;
+      display) need="$display_cap" ;;
       *open-url-workload*) ;;
       *open-url*) need="com.docker.sandbox/open-url@1" ;;
       *long-running-workload*) ;;
@@ -711,6 +716,24 @@ create)
       ;;
     esac
   done
+
+  display_fixture=""
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in
+    display | display-optional) display_fixture="${kit##*/}" ;;
+    esac
+  done
+  if [ "$display_available" = no ] && [ "$display_fixture" = display ]; then
+    case "$broken" in
+    display-ignores-rejection | accepts-required-unclaimed) display_available=yes ;;
+    display-unnamed-refusal) echo 'refusing: unavailable' >&2; exit 2 ;;
+    *) echo "refusing: $display_cap is unavailable" >&2; exit 2 ;;
+    esac
+  fi
+  if [ "$display_fixture" = display-optional ] && [ "$display_available" = no ] && [ "$broken" = display-refuses-optional ]; then
+    echo "refusing: $display_cap is unavailable" >&2
+    exit 2
+  fi
 
   if [ "$broken" = "refuses-everything" ]; then
     echo "refusing: this runtime declines every composition" >&2
@@ -1367,6 +1390,16 @@ create)
   if [ "$host_requested" = yes ]; then
     python3 "$host_mount_helper" create "$state" "$claims" "$broken" "$id" "$mount_path" "$mount_mode" "${kits[@]}"
   fi
+  if [ "$display_fixture" = display-optional ] && [ "$display_available" = no ]; then
+    record='{"path":"capabilities[0]","source":{"kit":"display-optional","path":"capabilities[0]"},"members":["capabilities[0]"],"memberSources":[{"kit":"display-optional","path":"capabilities[0]"}],"rejected":["capabilities[0]"]}'
+    services=''
+    if [ "$broken" = display-missing-skip-record ]; then record=''; fi
+    if [ "$broken" = display-skipped-grant ]; then services="\"$display_cap\""; fi
+    printf '{"selection":{"skipped":[%s]},"surface":{"services":[%s]}}\n' "$record" "$services" >"$dir/selection.json"
+    if [ "$broken" = display-skipped-usable ]; then touch "$dir/display"; fi
+  elif [ -n "$display_fixture" ] || [ "$broken" = display-granted-by-default ]; then
+    touch "$dir/display"
+  fi
   echo "$id"
   ;;
 
@@ -1425,6 +1458,11 @@ exec)
   kit-tck-clipboard)
     shift
     clipboard_probe "$dir" "$@"
+    ;;
+  kit-tck-display)
+    [ "$#" -eq 2 ] && [ "$2" = /run/display/wayland-0 ] || exit 1
+    if [ "$broken" = display-probe-error ]; then exit 1; fi
+    if [ -f "$dir/display" ] && [ "$broken" != display-unusable ]; then echo usable; else echo unavailable; fi
     ;;
   kit-tck-open-url)
     if [ "$broken" = open-url-missing-helper ]; then exit 1; fi

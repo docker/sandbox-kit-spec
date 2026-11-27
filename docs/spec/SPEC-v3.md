@@ -648,7 +648,7 @@ effective merged descriptor:
 `gpu@1`, `kvm@1`, `fuse@1`, `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
 `agent-sessions@2`, `agent-interactive-sessions@1`, `lifecycle@1`,
 `sbx@1`, `long-running@1`, `auto-restart@1`, `open-url@1`, `clipboard@1`,
-`git-identity@1`.
+`display@1`, `git-identity@1`.
 
 The two `network-policy` versions are additionally **exclusive of each
 other**: a descriptor states one of them, never both. They describe the
@@ -934,6 +934,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/fuse@1` | [fuse@1](capabilities/com.docker.sandbox/fuse@1.md) | singleton, config-less |
 | `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
 | `com.docker.sandbox/open-url@1` | [open-url@1](capabilities/com.docker.sandbox/open-url@1.md) | singleton, config-less |
+| `com.docker.sandbox/display@1` | [display@1](capabilities/com.docker.sandbox/display@1.md) | singleton, config-less |
 | `com.docker.sandbox/clipboard@1` | [clipboard@1](capabilities/com.docker.sandbox/clipboard@1.md) | singleton; filters union per direction |
 | `com.docker.sandbox/long-running@1` | [long-running@1](capabilities/com.docker.sandbox/long-running@1.md) | singleton, config-less |
 | `com.docker.sandbox/auto-restart@1` | [auto-restart@1](capabilities/com.docker.sandbox/auto-restart@1.md) | singleton, config-less |
@@ -1001,6 +1002,8 @@ a Kit's surface in the lock and diff a candidate's against it:
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
+- `display@1` contributes its type to the service surface. The grant
+  allows the sandbox to present windows on the runtime host's desktop.
 - `gpu@1` contributes its driver and effective count (`nvidia.com/gpu
   all`) rather than a config digest, so spelling out the default
   `devices: all` widens nothing. A grant covers a request of the same
@@ -1535,7 +1538,7 @@ The spec library enforces, beyond per-field rules stated above:
   `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?/[a-z0-9]([a-z0-9-]*[a-z0-9])?@[1-9][0-9]*$`;
   singleton and dedup arity per [§7.1](#71-arity); config-less types
   (`privileged@1`, `kvm@1`, `fuse@1`, `kit-registry@1`, `sbx@1`, `long-running@1`,
-  `auto-restart@1`, `git-identity@1`) reject any
+  `auto-restart@1`, `display@1`, `git-identity@1`) reject any
   config; well-known configs decode strictly (unknown keys are errors)
   and pass their per-type rules
   (see the capability pages); **cross-entry**: every credential inject

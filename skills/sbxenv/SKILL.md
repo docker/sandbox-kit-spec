@@ -202,6 +202,8 @@ For `hostGrants`:
   must be running with a key loaded (`ssh-add -l`).
 - `host-port@1`, `host-mount@1`, `privileged@1`, `fuse@1`, `dockerd@1` →
   explain what the user will be asked to approve.
+- `display@1` → explain that granting it lets sandbox applications draw
+  windows on the runtime host's desktop.
 - A kit that publishes ports (`port@1`) → offer a `ports:` entry to pin the
   host port.
 
