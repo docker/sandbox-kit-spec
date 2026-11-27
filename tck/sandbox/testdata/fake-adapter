@@ -13,7 +13,7 @@ permissions="${broken%%+*}"
 # suite narrows it, nothing when broken that way. The refusal duty below
 # is always keyed off this same list, because claiming and refusing are
 # two sides of one statement.
-default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
+default_claims="com.docker.sandbox/kvm@1,com.docker.sandbox/clipboard@1,com.docker.sandbox/open-url@1,com.docker.sandbox/docker-auth@1,com.docker.sandbox/port@1,com.docker.sandbox/host-port@1,com.docker.sandbox/agent-skill@1,com.docker.sandbox/git-identity@1,com.docker.sandbox/long-running@1,com.docker.sandbox/sbx@1,com.docker.sandbox/lifecycle@1,com.docker.sandbox/network-policy@1,com.docker.sandbox/network-policy@2,com.docker.sandbox/credential@1,com.docker.sandbox/agent-context@1,com.docker.sandbox/agent-context@2,com.docker.sandbox/volume@1,com.docker.sandbox/host-mount@1,com.docker.sandbox/resources@1,com.docker.sandbox/privileged@1,com.docker.sandbox/gpu@1,com.docker.sandbox/dockerd@1,com.docker.sandbox/agent-skills@1,com.docker.sandbox/ssh-agent@1"
 claims="${KIT_TCK_FAKE_CLAIMS:-$default_claims}"
 if [ "$broken" = "claims-nothing" ]; then claims=""; fi
 case "$broken" in
@@ -668,6 +668,7 @@ create)
       *skills*) need="com.docker.sandbox/agent-skills@1" ;;
       *port*) need="com.docker.sandbox/port@1" ;;
       *usb-device*) need="com.docker.sandbox/usb-device@1" ;;
+      gpu | gpu-venus | gpu-unknown-driver | gpu-too-many) need="com.docker.sandbox/gpu@1" ;;
       # Spelled out beside agent-sessions: the *agent-sessions* glob does
       # not match this name ("agent-" and "sessions" are not adjacent), and
       # this one does not match that.
@@ -683,6 +684,19 @@ create)
       fi
     done
   fi
+
+  # No driver example.com/no-such-gpu, and no 65536 GPUs: a required
+  # gpu@1 request this runtime cannot satisfy is refused, naming the type.
+  for kit in "${kits[@]}"; do
+    case "${kit##*/}" in
+    gpu-unknown-driver | gpu-too-many)
+      if [ "$broken" != "gpu-grants-unsatisfiable" ]; then
+        echo "refusing: ${kit##*/} requires com.docker.sandbox/gpu@1 beyond this host's GPUs" >&2
+        exit 2
+      fi
+      ;;
+    esac
+  done
 
   if [ "$broken" = "refuses-everything" ]; then
     echo "refusing: this runtime declines every composition" >&2
@@ -1776,6 +1790,11 @@ exec)
     fi
     shift
     run_ssh_probe "$dir" "$(cat "$dir/ssh-agent")" "$broken" "$@"
+    ;;
+  kit-tck-gpu)
+    if [ "$2" = nvidia.com/gpu ] && [ "$broken" = "ignores-gpu-device" ]; then echo "no"
+    elif [ "$2" = mesa3d.org/venus ] && [ "$broken" = "ignores-venus-device" ]; then echo "no"
+    else echo "yes"; fi
     ;;
   kit-tck-privileged)
     if [ "$broken" = "ignores-privileged" ]; then echo "no"

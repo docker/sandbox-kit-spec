@@ -70,7 +70,12 @@ type Surface struct {
 	HostPorts        []string `json:"hostPorts,omitempty"`
 	Ports            []string `json:"ports,omitempty"`
 	USB              []string `json:"usb,omitempty"`
-	Privileged       bool     `json:"privileged,omitempty"`
+
+	// GPU holds the gpu@1 request as "<driver> <devices>", with omitted
+	// devices spelled "all", so the gate compares meaning rather than
+	// spelling and can tell a smaller count from a larger one.
+	GPU        []string `json:"gpu,omitempty"`
+	Privileged bool     `json:"privileged,omitempty"`
 
 	// Clipboard holds the host clipboard grant as "<direction> <pattern>"
 	// entries, such as "read */*" or "write text/plain". Kept apart from
@@ -189,6 +194,13 @@ func SurfaceOf(d *Descriptor) Surface {
 			} else {
 				s.USB = append(s.USB, u.VendorID+":"+u.ProductID)
 			}
+		case CapabilityGPU:
+			var g GPU
+			if err := DecodeCapabilityConfig(n, &g); err != nil {
+				s.Services = append(s.Services, capabilitySurfaceEntry(n))
+				continue
+			}
+			s.GPU = append(s.GPU, gpuSurface(g))
 		case CapabilityPrivileged:
 			s.Privileged = true
 		case CapabilityClipboard:
@@ -245,6 +257,7 @@ func SurfaceOf(d *Descriptor) Surface {
 	s.HostPorts = normalized(s.HostPorts)
 	s.USB = normalized(s.USB)
 	s.Clipboard = normalized(s.Clipboard)
+	s.GPU = normalized(s.GPU)
 	s.Services = normalized(s.Services)
 	return s
 }
@@ -381,6 +394,7 @@ func DiffWidenings(granted, candidate Surface) []Widening {
 	add("hostPorts", missingFrom(granted.HostPorts, candidate.HostPorts))
 	add("usb", missingFrom(granted.USB, candidate.USB))
 	add("clipboard", clipboardWidenings(granted.Clipboard, candidate.Clipboard))
+	add("gpu", gpuWidenings(granted.GPU, candidate.GPU))
 	if !granted.Privileged && candidate.Privileged {
 		out = append(out, Widening{Category: "privileged", Detail: "requests privileged execution"})
 	}

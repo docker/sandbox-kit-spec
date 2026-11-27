@@ -1,7 +1,8 @@
 # `com.docker.sandbox/resources@1`
 
-The workload's compute: CPU, memory, GPU. A constraint on the Kit, not a
-grant to it.
+The workload's compute: CPU and memory. A constraint on the Kit, not a
+grant to it. GPUs are requested with
+[gpu@1](gpu@1.md).
 
 - **Shape**: singleton — at most one entry per descriptor.
 - **Permission surface**: **no** — limits constrain the Kit rather than
@@ -14,14 +15,12 @@ grant to it.
   config:
     cpu: 4.0           # cores; MUST be >= 0
     memory: 8g         # byte-size string
-    gpu: "1"           # runtime-defined selector ("1", "all", …)
 ```
 
 | Field | Type | Rules |
 |---|---|---|
 | `cpu` | float | optional. Cores; non-negative. |
 | `memory` | string | optional. Byte-size (`4096m`, `8g`, `2gib`). |
-| `gpu` | string | optional. Runtime-defined selector. |
 
 Any unset field means "no constraint from this Kit".
 
@@ -36,8 +35,6 @@ A conforming runtime:
   what the Kit wants, the host owns what it gets.
 - **MUST NOT** treat an unsatisfiable request as silent truncation when the <!-- tck: resources@1/no-silent-truncation -->
   entry is required: refuse, or degrade observably.
-- GPU semantics (which devices, which driver stack) are runtime-defined;
-  the field is a request selector, not a hardware contract.
 
 ## Composition
 

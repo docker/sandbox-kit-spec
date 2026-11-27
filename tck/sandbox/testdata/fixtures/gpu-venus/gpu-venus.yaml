@@ -1,0 +1,9 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: GPU, Venus
+description: Requests a Venus render node, so the grant is observable
+capabilities:
+  - type: com.docker.sandbox/gpu@1
+    config:
+      driver: mesa3d.org/venus

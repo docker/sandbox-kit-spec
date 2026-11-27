@@ -495,13 +495,16 @@ const (
 	// to USBDevice. Instance-shaped.
 	CapabilityUSBDevice = "com.docker.sandbox/usb-device@1"
 
-	// CapabilityResources constrains CPU, memory, and GPU; config decodes to
+	// CapabilityResources constrains CPU and memory; config decodes to
 	// Resources.
 	CapabilityResources = "com.docker.sandbox/resources@1"
 
 	// CapabilityPrivileged requests elevated privilege; no config. Present or
 	// absent — the host may refuse.
 	CapabilityPrivileged = "com.docker.sandbox/privileged@1"
+
+	// CapabilityGPU requests GPUs of one driver; config decodes to GPU.
+	CapabilityGPU = "com.docker.sandbox/gpu@1"
 
 	// CapabilityKVM requests usable KVM and vhost-vsock devices for inner VMs.
 	// Hardware virtualization is a separate grant from container elevation.
@@ -1037,7 +1040,31 @@ type Clipboard struct {
 type Resources struct {
 	CPU    float64 `json:"cpu,omitempty" yaml:"cpu,omitempty"`
 	Memory string  `json:"memory,omitempty" yaml:"memory,omitempty"`
-	GPU    string  `json:"gpu,omitempty" yaml:"gpu,omitempty"`
+}
+
+// Drivers the gpu@1 page documents. Any other <dns-domain>/<name> is
+// runtime-defined.
+const (
+	GPUDriverNVIDIA = "nvidia.com/gpu"
+	GPUDriverVenus  = "mesa3d.org/venus"
+)
+
+// GPUDevicesAll selects every GPU of the requested driver, and at least one.
+const GPUDevicesAll = "all"
+
+// GPU is CapabilityGPU's config: the GPU interface the image is built
+// for, and how many of its GPUs.
+type GPU struct {
+	Driver  string `json:"driver" yaml:"driver"`
+	Devices string `json:"devices,omitempty" yaml:"devices,omitempty"`
+}
+
+// EffectiveDevices is Devices with its omitted default spelled out.
+func (g GPU) EffectiveDevices() string {
+	if g.Devices == "" {
+		return GPUDevicesAll
+	}
+	return g.Devices
 }
 
 // Placeholders the host substitutes into agent-sessions argv before

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "com.docker.sandbox/resources@1",
-  "description": "Config schema for the resources need: CPU, memory, and GPU constraints. Limits constrain the kit rather than grant it anything, so this type is not permission surface. Singleton. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception.",
+  "description": "Config schema for the resources need: CPU and memory constraints. Limits constrain the kit rather than grant it anything, so this type is not permission surface. Singleton. The @1 names the capability contract, including this config schema and observable behavior. RELEASES.md defines when versions move and the maintainer-approved draft-stage exception.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -26,9 +26,6 @@
           "$ref": "../../definitions/kit-arg.schema.json#/definitions/bearing"
         }
       ]
-    },
-    "gpu": {
-      "type": "string"
     }
   }
 }

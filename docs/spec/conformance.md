@@ -177,6 +177,14 @@ has no failed-create effect trace, in-place grant update, policy-revocation
 operation, or explicit operator KVM grant control. Preflight side effects
 and those grant-change paths remain unobserved.
 
+For `gpu@1`, the refusal check assumes no runtime offers the driver
+`example.com/no-such-gpu` or 65536 GPUs of `nvidia.com/gpu`. The device
+probe runs as the image user once per documented driver and opens that
+driver's nodes read-write; a runtime refusing one driver is judged on
+the other, and a deliberate refusal is never proof of access. The
+suite judges neither the driver stack nor how many GPUs were granted,
+because it cannot assume the host's GPUs.
+
 An adapter claiming `volume@1` **MUST** support `create --name`, changed
 composition re-create, `volume-paths`, `volume-storage`, and `volume-rm`.
 The suite uses fresh names within the adapter's owner scope. Both

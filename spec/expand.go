@@ -206,8 +206,8 @@ func ExpandBuildArgs(raw []byte, decls map[string]Arg, values map[string]string)
 	}
 	var expandErr error
 	originals := map[*yaml.Node]yaml.Node{}
-	var expand func(*yaml.Node, bool, bool)
-	expand = func(n *yaml.Node, forceText, volumeConfig bool) {
+	var expand func(*yaml.Node, bool, string)
+	expand = func(n *yaml.Node, forceText bool, textConfig string) {
 		if expandErr != nil {
 			return
 		}
@@ -215,7 +215,7 @@ func ExpandBuildArgs(raw []byte, decls map[string]Arg, values map[string]string)
 			// Only detach an alias when its use needs different scalar typing.
 			original = *cloneExpansionNode(&original)
 			original.HeadComment, original.LineComment, original.FootComment = n.HeadComment, n.LineComment, n.FootComment
-			expand(&original, forceText, volumeConfig)
+			expand(&original, forceText, textConfig)
 			if !sameExpansionValue(&original, n.Alias) {
 				*n = original
 			} else {
@@ -291,10 +291,13 @@ func ExpandBuildArgs(raw []byte, decls map[string]Arg, values map[string]string)
 			if n.Kind == yaml.MappingNode && !isKey {
 				field = n.Content[i-1].Value
 			}
-			text := isKey || (volumeConfig && volumeTextField(field))
-			config := field == "config" && capabilityType == CapabilityVolume
-			if volumeConfig && (n.Kind == yaml.SequenceNode || (!isKey && n.Content[i-1].Tag == "!!merge")) {
-				config = true
+			text := isKey || configTextField(textConfig, field)
+			config := ""
+			if field == "config" && configTextFields[capabilityType] != nil {
+				config = capabilityType
+			}
+			if textConfig != "" && (n.Kind == yaml.SequenceNode || (!isKey && n.Content[i-1].Tag == "!!merge")) {
+				config = textConfig
 			}
 			expand(child, text, config)
 			if expandErr != nil {
@@ -315,7 +318,7 @@ func ExpandBuildArgs(raw []byte, decls map[string]Arg, values map[string]string)
 			}
 		}
 	}
-	expand(&doc, false, false)
+	expand(&doc, false, "")
 	if expandErr != nil {
 		return nil, expandErr
 	}
@@ -376,7 +379,7 @@ func ExpandCreateArgs(raw []byte, decls map[string]Arg, values map[string]string
 		return nil, err
 	}
 	var expandErr error
-	expanded := expandNode(doc, decls, values, &expandErr, false)
+	expanded := expandNode(doc, decls, values, &expandErr, "")
 	if expandErr != nil {
 		return nil, expandErr
 	}
@@ -393,7 +396,7 @@ func ExpandCreateArgs(raw []byte, decls map[string]Arg, values map[string]string
 // a backslash sequence was reread as an escape: `C:\new\text` arrived as
 // `C:`, newline, `ew`, tab, `ext`. Substituting into decoded strings and
 // re-serializing makes any value survive by construction.
-func expandNode(n any, decls map[string]Arg, values map[string]string, expandErr *error, volumeConfig bool) any {
+func expandNode(n any, decls map[string]Arg, values map[string]string, expandErr *error, textConfig string) any {
 	switch v := n.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(v))
@@ -409,17 +412,20 @@ func expandNode(n any, decls map[string]Arg, values map[string]string, expandErr
 				}
 				continue
 			}
-			if text, ok := child.(string); ok && volumeConfig && volumeTextField(expanded) {
+			if text, ok := child.(string); ok && configTextField(textConfig, expanded) {
 				out[expanded] = expandString(text, decls, values, "create", expandErr)
 			} else {
-				config := expanded == "config" && v["type"] == CapabilityVolume
+				config := ""
+				if typ, _ := v["type"].(string); expanded == "config" && configTextFields[typ] != nil {
+					config = typ
+				}
 				out[expanded] = expandNode(child, decls, values, expandErr, config)
 			}
 		}
 		return out
 	case []any:
 		for i, child := range v {
-			v[i] = expandNode(child, decls, values, expandErr, false)
+			v[i] = expandNode(child, decls, values, expandErr, "")
 		}
 		return v
 	case string:
@@ -530,10 +536,18 @@ func configReferenceKeys(config any, path keyPath, typ any) error {
 	return referenceKeys(config, path, inStructure, free)
 }
 
-// Volume sizes and octal modes are schema strings even when their values
-// look numeric. Preserve their spelling before typedScalar can round it
-// or turn an otherwise valid request into a config type error.
-func volumeTextField(field string) bool { return field == "size" || field == "mode" }
+// configTextFields lists, by type, config fields that are schema strings
+// even when their values look numeric: volume sizes and octal modes, and
+// GPU counts. Preserve their spelling before typedScalar can round it or
+// turn an otherwise valid request into a config type error.
+var configTextFields = map[string][]string{
+	CapabilityVolume: {"size", "mode"},
+	CapabilityGPU:    {"devices"},
+}
+
+func configTextField(typ, field string) bool {
+	return slices.Contains(configTextFields[typ], field)
+}
 
 // expandScalar expands the references in one string. A string that is
 // nothing but a reference adopts the value's own type, so a numeric arg

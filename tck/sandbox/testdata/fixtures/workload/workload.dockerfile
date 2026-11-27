@@ -143,6 +143,43 @@ has() { [ $(( (dec >> $1) & 1 )) -eq 1 ]; }
 if has 21 && has 16 && has 17 && [ "${seccomp:-0}" = "0" ]; then echo yes; else echo no; fi
 PRIV
 
+# A device node can exist and still refuse open under a device filter,
+# so the probe opens the nodes gpu@1's driver row names read-write rather
+# than testing for them: for NVIDIA, the control node, every GPU node, and
+# the UVM node when the driver created it; for Venus, every render node.
+# Any character device opens, /dev/null included, so each node must also
+# carry its driver's identity: NVIDIA's fixed major 195 (nvidia-uvm's is
+# assigned at load, so it is read from /proc/devices), and for Venus DRM's
+# major 226 with virtio_gpu as the driver the node itself reports through
+# DRM_IOCTL_VERSION, so the check does not need sysfs to be visible.
+COPY --chmod=0755 kit-tck-drm-driver.py /usr/local/bin/kit-tck-drm-driver
+COPY --chmod=0755 <<'GPU' /usr/local/bin/kit-tck-gpu
+#!/bin/sh
+no() { echo no; exit 0; }
+opens() { [ -c "$1" ] && ( : <> "$1" ) 2>/dev/null; }
+major() { printf '%d' "0x$(stat -L -c %t "$1")"; }
+# A missing node leaves its glob literal, which does not open.
+is() { opens "$1" && [ "$(major "$1")" = "$2" ]; }
+case "$1" in
+nvidia.com/gpu)
+  is /dev/nvidiactl 195 || no
+  for dev in /dev/nvidia[0-9]*; do is "$dev" 195 || no; done
+  if [ -e /dev/nvidia-uvm ]; then
+    uvm=$(awk '$2 == "nvidia-uvm" {print $1}' /proc/devices)
+    [ -n "$uvm" ] && is /dev/nvidia-uvm "$uvm" || no
+  fi
+  ;;
+mesa3d.org/venus)
+  for dev in /dev/dri/renderD*; do
+    is "$dev" 226 || no
+    [ "$(kit-tck-drm-driver "$dev" 2>/dev/null)" = virtio_gpu ] || no
+  done
+  ;;
+*) echo unknown; exit 0 ;;
+esac
+echo yes
+GPU
+
 # Observes the SSH agent a sandbox was given, one agent-protocol request
 # at a time: the script's docstring lists what it sends. It speaks the
 # protocol itself rather than through ssh-add because the checks need

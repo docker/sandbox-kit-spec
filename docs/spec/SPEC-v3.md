@@ -645,7 +645,7 @@ serialization. An empty string is equivalent to an omitted label.
 declaration block (ordinary top-level entries or one group), and in the
 effective merged descriptor:
 `network-policy@1`, `network-policy@2`, `resources@1`, `privileged@1`,
-`kvm@1`, `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
+`gpu@1`, `kvm@1`, `dockerd@1`, `kit-registry@1`, `agent-sessions@1`,
 `agent-sessions@2`, `agent-interactive-sessions@1`, `lifecycle@1`,
 `sbx@1`, `long-running@1`, `auto-restart@1`, `open-url@1`, `clipboard@1`,
 `git-identity@1`.
@@ -929,6 +929,7 @@ behavior** for a runtime supporting the type:
 | `com.docker.sandbox/usb-device@1` | [usb-device@1](capabilities/com.docker.sandbox/usb-device@1.md) | instance |
 | `com.docker.sandbox/resources@1` | [resources@1](capabilities/com.docker.sandbox/resources@1.md) | singleton |
 | `com.docker.sandbox/privileged@1` | [privileged@1](capabilities/com.docker.sandbox/privileged@1.md) | singleton, config-less |
+| `com.docker.sandbox/gpu@1` | [gpu@1](capabilities/com.docker.sandbox/gpu@1.md) | singleton |
 | `com.docker.sandbox/kvm@1` | [kvm@1](capabilities/com.docker.sandbox/kvm@1.md) | singleton, config-less |
 | `com.docker.sandbox/dockerd@1` | [dockerd@1](capabilities/com.docker.sandbox/dockerd@1.md) | singleton |
 | `com.docker.sandbox/open-url@1` | [open-url@1](capabilities/com.docker.sandbox/open-url@1.md) | singleton, config-less |
@@ -964,10 +965,10 @@ A descriptor projects onto a **permission surface**: the normalized
 (sorted, deduplicated) set of everything the host must grant — phased
 network allow/deny lists, credentials by phase, what the SSH agent may
 sign by phase, storage paths (`dockerd@1` adds `/var/lib/docker`),
-skills paths, ports, USB matches, privileged (which `dockerd@1` also
-sets), the media types `clipboard@1` admits per direction, plus one
-`type+config-digest` entry (the full SHA-256 of the canonical config)
-for every other request. The projection input is the
+skills paths, ports, USB matches, GPU requests, privileged (which
+`dockerd@1` also sets), the media types `clipboard@1` admits per
+direction, plus one `type+config-digest` entry (the full SHA-256 of the
+canonical config) for every other request. The projection input is the
 **effective descriptor** — published declarations with this
 installation's create-phase arg values expanded ([§6](#6-args)) — so the
 surface describes the policy actually enforced, and an arg value that
@@ -979,8 +980,9 @@ a Kit's surface in the lock and diff a candidate's against it:
 - Any **widening** — a new allow entry, a **removed deny entry** (the deny
   was part of what made the grant acceptable), a new credential, a wider
   SSH agent grant, path,
-  port, USB match, privileged, write access over a skills path already
-  granted read, a clipboard media type not admitted before, or any config <!-- tck: SPEC-v3 §7.4/widenings-gate -->
+  port, USB match, GPU request the grant does not cover, privileged,
+  write access over a skills path already granted read, a clipboard media
+  type not admitted before, or any config <!-- tck: SPEC-v3 §7.4/widenings-gate -->
   change on an other-typed request — **MUST** stop for approval.
 - `optional` does not change the surface: it changes what happens when the
   host cannot provide, not what is granted when it can.
@@ -998,6 +1000,11 @@ a Kit's surface in the lock and diff a candidate's against it:
 - `git-identity@1` contributes its type to the service surface: it
   discloses runtime-provided name/email values, unlike the image-defined
   process identity honored by `sbx@1`.
+- `gpu@1` contributes its driver and effective count (`nvidia.com/gpu
+  all`) rather than a config digest, so spelling out the default
+  `devices: all` widens nothing. A grant covers a request of the same
+  driver when it is `all` or a count no smaller; a new driver or a
+  larger count widens.
 - `kvm@1` contributes its type to the service surface. Hardware
   virtualization access is independent of container elevation, so
   `privileged@1` and `dockerd@1` do not include this grant.
@@ -1196,6 +1203,7 @@ error. In that order they reconcile into one descriptor:
 | `network-policy` | Allow and deny union per phase. The output states one version: `@2` when any of them uses it, with `@1` hosts joining as the unbounded entries they already are. An allow entry bounded to methods or paths is dropped when another entry grants its host outright — the union of the two grants *is* the unbounded one. |
 | `lifecycle@1` | Install hooks, startup hooks, and files concatenate in composition order. Two of them writing one file path is an error; so is two declaring `interactive`, which replaces the launch argv rather than adding to it. |
 | `resources@1`, `agent-sessions@1`, `agent-sessions@2`, `agent-interactive-sessions@1` | At most one of them may declare each, and the two `agent-sessions` versions count as one: an `@1` and an `@2` from different Kits are two authors. An identical restatement is the same ask, anything else is an error. They describe the whole sandbox, not a grant to it. |
+| `gpu@1` | At most one of them may declare it: a sandbox gets one driver and one count. Requests with the same driver and effective `devices` are the same ask (omitted `devices` equals `all`); a different driver or count is an error. |
 | `agent-context@1` | An explicit profile (`directory` plus `filename`) takes precedence over a legacy workload filename; differing explicit profiles each stay, one entry per destination, so a set can list several agents. Without one, at most one contribution owns the legacy filename. The bodies concatenate into one staged file on the first required profile entry (or the sole optional profile), which every profile indexes. When several profiles are all optional, publication preserves declarations in groups and stages bodies separately so selection retains each accepted profile's body. |
 | `agent-context@2` | The same destination precedence and per-profile optionality as @1. Every effective profile carries selected workload and `delivery: inline` mixin bodies in dependency order, joined with two newlines; its delivery is `inline`. Progressive mixin bodies (the omitted default) remain in selected inputs for per-Kit files indexed from every profile. Publication preserves original delivery and selection boundaries in groups. A consumed workload owns all its retained guidance. Selected @1 and @2 requests cannot compose. |
 | Config-less and unknown types | Presence is the union; unknown types deduplicate on type plus config, as the permission surface does. |
@@ -1211,7 +1219,9 @@ An instance-shaped request whose key ([§7.1](#71-arity)) still holds a
 reference remains a separate contribution until create-phase expansion
 and selection, whatever its type, and so does a volume or host-mount
 request with any re-exported text input, whose settings decide whether
-two requests at one path agree. Publication preserves its optionality
+two requests at one path agree, and a `gpu@1` request with a re-exported
+driver or count, which decides whether two requests are one sandbox's
+GPUs. Publication preserves its optionality
 and source attribution through a one-member group, and its original
 declaration boundary through `declarationBlocks`
 ([§7.1.1](#711-capability-groups)); runtime composition then keys and

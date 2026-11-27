@@ -240,6 +240,7 @@ var checks = append(append(append(gitIdentityChecks, hostMountChecks...), clipbo
 				{capVolume, fixtureVolume, false},
 				{capResources, fixtureResources, false},
 				{capPrivileged, fixturePrivileged, false},
+				{capGPU, fixtureGPU, false},
 				{capDockerd, fixtureDocker, false},
 				{capAgentSkills, fixtureSkills, false},
 				{capAgentSkill, fixtureBundledSkill, false},
@@ -930,6 +931,7 @@ const (
 	capVolume                   = "com.docker.sandbox/volume@1"
 	capResources                = "com.docker.sandbox/resources@1"
 	capPrivileged               = "com.docker.sandbox/privileged@1"
+	capGPU                      = "com.docker.sandbox/gpu@1"
 	capAgentSkills              = "com.docker.sandbox/agent-skills@1"
 	capPort                     = "com.docker.sandbox/port@1"
 	capUSBDevice                = "com.docker.sandbox/usb-device@1"
@@ -945,6 +947,7 @@ const (
 	fixtureVolume         = "volume"
 	fixtureResources      = "resources"
 	fixturePrivileged     = "privileged"
+	fixtureGPU            = "gpu"
 	fixtureSkills         = "skills"
 	fixtureSkillsRW       = "skills-writable"
 	fixtureSkillsShared   = "skills-shared"
@@ -1211,6 +1214,66 @@ func init() {
 						declaredMemoryLimit, limit)}
 				}
 				return nil
+			},
+		},
+		check{
+			// The node can exist and still refuse open under a device
+			// filter, so the probe opens what the driver's row names. Each
+			// documented driver is its own scenario: a host offering one
+			// refuses the other, which is conforming, and only a host
+			// refusing both leaves nothing to judge.
+			requirement: "gpu@1/devices-usable",
+			capability:  capGPU,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				var findings, skips []report.Finding
+				for _, scenario := range []struct{ fixture, driver string }{
+					{fixtureGPU, "nvidia.com/gpu"},
+					{"gpu-venus", "mesa3d.org/venus"},
+				} {
+					id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, scenario.fixture}, nil)
+					var refused *adapter.RefusedError
+					switch {
+					case errors.As(err, &refused):
+						skips = append(skips, report.Skipf("runtime refused the %s request: %s", scenario.driver, refused.Detail))
+					case err != nil:
+						findings = append(findings, report.Failf("%s: create: %v", scenario.driver, err))
+					default:
+						got, f := execOutput(ctx, e, id, "kit-tck-gpu", scenario.driver)
+						switch {
+						case f != nil:
+							findings = append(findings, *f)
+						case strings.TrimSpace(got) != "yes":
+							findings = append(findings, report.Failf(
+								"the kit requested %s GPUs; kit-tck-gpu reports %q", scenario.driver, strings.TrimSpace(got)))
+						}
+					}
+					cleanup()
+				}
+				if len(findings) == 0 && len(skips) == 2 {
+					return skips
+				}
+				return findings
+			},
+		},
+		check{
+			// No runtime offers the example.com driver or 65536 GPUs, so
+			// accepting either request grants less than the kit asked for.
+			requirement: "gpu@1/unsatisfiable-refused",
+			capability:  capGPU,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				var findings []report.Finding
+				for _, fixture := range []string{"gpu-unknown-driver", "gpu-too-many"} {
+					_, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixture}, nil)
+					cleanup()
+					var refused *adapter.RefusedError
+					switch {
+					case !errors.As(err, &refused):
+						findings = append(findings, report.Failf("%s: an unsatisfiable required GPU request must be refused: %v", fixture, err))
+					case !diagnosticNames(refused.Detail, capGPU):
+						findings = append(findings, report.Failf("%s: the refusal must name %s: %s", fixture, capGPU, refused.Detail))
+					}
+				}
+				return findings
 			},
 		},
 		check{

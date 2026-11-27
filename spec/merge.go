@@ -448,7 +448,9 @@ func mergeLicenses(contributions []Contribution, out *Descriptor) error {
 // filters union per direction, and the types
 // that describe the whole sandbox rather than a grant to it (resources,
 // agent-sessions, agent-interactive-sessions) admit one author, because
-// two different answers cannot both be the sandbox's.
+// two different answers cannot both be the sandbox's. gpu@1 is a grant,
+// but one sandbox gets one driver and one count, so it admits one author
+// too.
 func mergeCapabilities(contributions []Contribution) ([]Capability, []ContextSource, error) {
 	m := &capabilityMerge{
 		byKey:    map[string]keyed{},
@@ -567,6 +569,7 @@ type capabilityMerge struct {
 	context   []contextAsk
 
 	resources *keyed
+	gpu       *keyed
 	sessions  *keyed
 
 	// docker is the first dockerd@1 request, named when another
@@ -669,6 +672,9 @@ func (m *capabilityMerge) add(reference string, n Capability) error {
 
 	case CapabilityResources:
 		return mergeSole(&m.resources, reference, n, "resources")
+
+	case CapabilityGPU:
+		return mergeSole(&m.gpu, reference, n, "gpu")
 
 	case CapabilityAgentSessions, CapabilityAgentSessionsV2:
 		// Remembered for the list agreement in finish. This type was never
@@ -997,6 +1003,11 @@ func sameRequest(a, b Capability) bool {
 		if DecodeCapabilityConfig(a, &pa) == nil && DecodeCapabilityConfig(b, &pb) == nil {
 			return PortKey(pa) == PortKey(pb)
 		}
+	case CapabilityGPU:
+		var ga, gb GPU
+		if DecodeCapabilityConfig(a, &ga) == nil && DecodeCapabilityConfig(b, &gb) == nil {
+			return gpuSurface(ga) == gpuSurface(gb)
+		}
 	case CapabilityAgentSkill:
 		var sa, sb AgentSkill
 		if DecodeCapabilityConfig(a, &sa) == nil && DecodeCapabilityConfig(b, &sb) == nil {
@@ -1043,6 +1054,9 @@ func (m *capabilityMerge) finish() ([]Capability, []ContextSource, error) {
 	}
 	if m.clipboard != nil {
 		out = append(out, m.clipboard.merged())
+	}
+	if m.gpu != nil {
+		out = append(out, m.gpu.capability)
 	}
 	if m.sessions != nil {
 		out = append(out, m.sessions.capability)
