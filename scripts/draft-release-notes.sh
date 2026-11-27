@@ -4,8 +4,15 @@ set -euo pipefail
 : "${APP_NAME:?}" "${SBX_NAME:?}" "${AGENT_WORKSPACE:?}"
 # Public built-in Claude template, pinned independently of draft kit grammar.
 CLAUDE_TEMPLATE=docker/sandbox-templates@sha256:30ec2b1bb76e3993aff912c553a5c249ad95b595249a32fde7158eafb71bda25
+# A sandbox that was never created has nothing to remove, and no agent has
+# written output: let the create error stand instead of a cleanup failure.
+created=
 cleanup() {
   status=$?
+  if [ -z "$created" ]; then
+    sbx --app-name "$APP_NAME" rm --force "$SBX_NAME" >/dev/null 2>&1 || true
+    exit "$status"
+  fi
   if ! sbx --app-name "$APP_NAME" rm --force "$SBX_NAME"; then
     echo 'Sandbox cleanup failed; refusing to stage agent output' >&2
     exit 1
@@ -46,6 +53,7 @@ write a publishable placeholder or change the evidence to hide a gap.'
 
 sbx --app-name "$APP_NAME" --no-input create --name "$SBX_NAME" \
   --template "$CLAUDE_TEMPLATE" claude "$AGENT_WORKSPACE"
+created=1
 sbx --app-name "$APP_NAME" exec -w "$AGENT_WORKSPACE" \
   -e CI=true -e PROMPT="$PROMPT" "$SBX_NAME" \
   sh -c 'claude -p "$PROMPT" --dangerously-skip-permissions --output-format text'
