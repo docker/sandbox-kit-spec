@@ -130,6 +130,10 @@ jobs:
           set -euo pipefail
           printf '%s\n' "$HUB_TOKEN" | sbx --app-name "$APP_NAME" login --username "$HUB_USER" --password-stdin
           printf '%s\n' "$ANTHROPIC_API_KEY" | sbx --app-name "$APP_NAME" secret set anthropic
+          # A new app has no network policy and sbx refuses to create a
+          # sandbox without one. Balanced is the narrowest preset that
+          # reaches the Anthropic API.
+          sbx --app-name "$APP_NAME" policy init balanced
       - name: Draft with Claude inside sbx
         run: bash scripts/draft-release-notes.sh
       - name: Validate draft and save review diff
