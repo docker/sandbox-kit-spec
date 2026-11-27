@@ -206,7 +206,11 @@ def protected_parts(body):
             chunk = changelog_suffix(chunk)
         else:
             if not compare_line(chunk.splitlines()[0]):
-                yield chunk, True
+                # The line breaks after a section separate it from whatever
+                # follows; they are not its content. A GoReleaser footer ends
+                # the body, and a draft that moves it above another heading
+                # has to add a blank line there.
+                yield chunk.rstrip("\r\n"), True
                 continue
         # A generated compare line may separate the commit list from an
         # appended notice. Exempt that line alone; retain the exact suffix

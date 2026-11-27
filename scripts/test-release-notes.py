@@ -182,6 +182,25 @@ class PublicationTests(unittest.TestCase):
                 self.write_inputs()
                 self.assertEqual(len(self.exercise_preservation()), 1)
 
+    def test_moved_footer_section_ignores_only_its_trailing_line_breaks(self):
+        footer = "## Capability catalog for v3.2.0\n\n- `agent-skills@1`: discovery directories.\n"
+        moved = self.draft.replace("## Artifacts", footer + "\n## Artifacts")
+        # GoReleaser appends the footer last, so how the body ends decides
+        # how the section ends; none of these is a change to its content.
+        for ending in ("", "\n", "\n\n"):
+            with self.subTest(ending=ending):
+                self.snapshot["release"]["body"] = (
+                    "Release introduction.\n\n## Changelog\n* abcdef1234567890 fix: reject invalid credentials\n\n" +
+                    footer.rstrip("\n") + ending)
+                self.write_inputs()
+                (self.output / "release-notes.md").write_text(moved)
+                self.assertEqual(len(self.exercise_preservation()), 1)
+                for changed in (moved.replace("discovery directories.", "discovery directories.\nInjected entry."),
+                                moved.replace("discovery directories.", "discovery directories. "),
+                                moved.replace("- `agent-skills@1`", "\n- `agent-skills@1`")):
+                    (self.output / "release-notes.md").write_text(changed)
+                    self.assertEqual(self.exercise_preservation(fails=True), [])
+
     def test_appended_changelog_notices_must_survive_exactly(self):
         for notice in ("Security notice: revoke previously exposed tokens.\n",
                        "### Security notice\nRevoke previously exposed tokens.\n\nDo not reuse old credentials.\n"):
