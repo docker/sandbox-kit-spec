@@ -510,6 +510,11 @@ const (
 	// Hardware virtualization is a separate grant from container elevation.
 	CapabilityKVM = "com.docker.sandbox/kvm@1"
 
+	// CapabilityFUSE requests FUSE mounts in the sandbox: an openable
+	// /dev/fuse and CAP_SYS_ADMIN in the bounding set. No config.
+	// Independent of CapabilityPrivileged in both directions.
+	CapabilityFUSE = "com.docker.sandbox/fuse@1"
+
 	// CapabilityDockerd requests a Docker Engine; config decodes to
 	// Dockerd. The engine needs the same elevation privileged@1 asks for,
 	// so it counts as privileged on the permission surface. It owns

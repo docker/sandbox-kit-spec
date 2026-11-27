@@ -1,0 +1,7 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: FUSE
+description: Requests FUSE, so the device and the bounding-set bit are observable
+capabilities:
+  - type: com.docker.sandbox/fuse@1

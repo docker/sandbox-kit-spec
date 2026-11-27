@@ -180,6 +180,29 @@ esac
 echo yes
 GPU
 
+# Reports the two FUSE grants. `device`: /dev/fuse is the FUSE device
+# (10:229, which stat prints in hex) and this process can open it
+# read-write; the node can exist and still refuse open under a device
+# filter, and another device can stand at the path, so neither existence
+# nor an open alone is the grant. `cap`:
+# CAP_SYS_ADMIN (21) is in the bounding set, read as kit-tck-privileged
+# reads it, which a setuid or file-capability fusermount needs.
+COPY --chmod=0755 <<'FUSE' /usr/local/bin/kit-tck-fuse
+#!/bin/sh
+case "$1" in
+device)
+  if [ "$(stat -L -c '%t:%T' /dev/fuse 2>/dev/null)" = a:e5 ] && (exec 3<>/dev/fuse) 2>/dev/null; then echo yes; else echo no; fi
+  ;;
+cap)
+  bnd=$(awk '/^CapBnd:/ {print $2}' /proc/self/status)
+  [ -n "$bnd" ] || { echo unknown; exit 0; }
+  dec=$(printf '%d' "0x$bnd" 2>/dev/null) || { echo unknown; exit 0; }
+  if [ $(( (dec >> 21) & 1 )) -eq 1 ]; then echo yes; else echo no; fi
+  ;;
+*) echo "usage: kit-tck-fuse device|cap" >&2; exit 2 ;;
+esac
+FUSE
+
 # Observes the SSH agent a sandbox was given, one agent-protocol request
 # at a time: the script's docstring lists what it sends. It speaks the
 # protocol itself rather than through ssh-add because the checks need
@@ -191,6 +214,18 @@ COPY --chmod=0755 kit-tck-ssh-agent.py /usr/local/bin/kit-tck-ssh-agent
 
 # Device opens alone do not prove nesting. The probe exercises both kernel APIs.
 COPY --chmod=0755 kit-tck-kvm.py /usr/local/bin/kit-tck-kvm
+
+# The capability bit alone does not prove a non-root mount: no_new_privs,
+# a seccomp filter or a security module can still deny the setuid
+# fusermount3, which the base image does not carry. The probe mounts
+# through it, as nobody when exec runs as root. USER returns to the base
+# image's user, which sbx@1 checks honor.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends fuse3 \
+ && rm -rf /var/lib/apt/lists/*
+USER agent
+COPY --chmod=0755 kit-tck-fuse-mount.py /usr/local/bin/kit-tck-fuse-mount
 
 # A bare `bash` reads stdin, and the contract promises the adapter neither
 # a TTY nor anything on it, so it can exit at EOF — leaving a
@@ -217,6 +252,10 @@ ENV KIT_GREETING=image-greeting
 # evidence of absence, not a read before the write completed.
 COPY --chmod=0755 <<'ENTRY' /usr/local/bin/kit-tck-workload-entrypoint
 #!/bin/sh
+# The exec below keeps this PID, so probes can read the workload's own view
+# (its mount table) rather than the one exec runs in.
+echo "$$" > /var/tmp/kit-tck-workload-pid.tmp
+mv /var/tmp/kit-tck-workload-pid.tmp /var/tmp/kit-tck-workload-pid
 printf '%s' "${KIT_TCK_PHASE_TOKEN:-}" > /var/tmp/kit-tck-workload-credential.tmp
 mv /var/tmp/kit-tck-workload-credential.tmp /var/tmp/kit-tck-workload-credential
 printf '%s' "${SSH_AUTH_SOCK:-}" > /var/tmp/kit-tck-workload-ssh-sock

@@ -77,6 +77,16 @@ marker_line="Placed by tck/adapters/sbx"
 #   claiming a type nothing can judge states more than a report can
 #   support.
 #
+#   fuse@1 is absent because two of its checks change a sandbox's Kits
+#   through recreate, and recreate below replays only the create-time
+#   composition: given a different Kit list it exits 1, which the suite
+#   reads as a failure rather than a refusal, so fuse@1/grant-transition
+#   and fuse@1/independent-grants would fail whatever sbx does. The
+#   retained selection does not record FUSE either. Claiming it needs
+#   recreate to build from the replacement Kits and `selection` to report
+#   the FUSE contributors and service; until then a required fuse@1 is
+#   an unclaimed type, judged only by the required-unclaimed check.
+#
 #   ssh-agent@1 is present because a v3 kit set reaches the host agent
 #   only through its grant: the daemon decides the phase grants at
 #   create, filters the relay to listing/signing/session-bind, and

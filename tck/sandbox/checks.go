@@ -55,6 +55,32 @@ const (
 	fixtureKitRegistry              = "kit-registry"
 )
 
+// fuseProbe creates a sandbox requesting FUSE and expects the workload
+// probe argv names to report its grant present.
+func fuseProbe(argv ...string) func(context.Context, *Env) []report.Finding {
+	return func(ctx context.Context, e *Env) []report.Finding {
+		id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixtureFUSE}, nil)
+		defer cleanup()
+		var refused *adapter.RefusedError
+		if errors.As(err, &refused) {
+			// The page says a host MAY refuse.
+			return []report.Finding{report.Skipf("runtime refused the FUSE request: %s", refused.Detail)}
+		}
+		if err != nil {
+			return []report.Finding{report.Failf("create: %v", err)}
+		}
+		got, f := execOutput(ctx, e, id, argv...)
+		if f != nil {
+			return []report.Finding{*f}
+		}
+		if got = strings.TrimSpace(got); got != "yes" {
+			return []report.Finding{report.Failf(
+				"the kit requested FUSE; %s reports %q", strings.Join(argv, " "), got)}
+		}
+		return nil
+	}
+}
+
 // denyByDefault judges the connection-level allow list of whichever
 // policy version the fixture states: egress it does not name is refused.
 func denyByDefault(fixture string) func(context.Context, *Env) []report.Finding {
@@ -241,6 +267,7 @@ var checks = append(append(append(gitIdentityChecks, hostMountChecks...), clipbo
 				{capResources, fixtureResources, false},
 				{capPrivileged, fixturePrivileged, false},
 				{capGPU, fixtureGPU, false},
+				{capFUSE, fixtureFUSE, false},
 				{capDockerd, fixtureDocker, false},
 				{capAgentSkills, fixtureSkills, false},
 				{capAgentSkill, fixtureBundledSkill, false},
@@ -932,6 +959,7 @@ const (
 	capResources                = "com.docker.sandbox/resources@1"
 	capPrivileged               = "com.docker.sandbox/privileged@1"
 	capGPU                      = "com.docker.sandbox/gpu@1"
+	capFUSE                     = "com.docker.sandbox/fuse@1"
 	capAgentSkills              = "com.docker.sandbox/agent-skills@1"
 	capPort                     = "com.docker.sandbox/port@1"
 	capUSBDevice                = "com.docker.sandbox/usb-device@1"
@@ -948,6 +976,7 @@ const (
 	fixtureResources      = "resources"
 	fixturePrivileged     = "privileged"
 	fixtureGPU            = "gpu"
+	fixtureFUSE           = "fuse"
 	fixtureSkills         = "skills"
 	fixtureSkillsRW       = "skills-writable"
 	fixtureSkillsShared   = "skills-shared"
@@ -1302,6 +1331,55 @@ func init() {
 				if got != "yes" {
 					return []report.Finding{report.Failf(
 						"the kit requested privilege; the sandbox reports %q", got)}
+				}
+				return nil
+			},
+		},
+		check{
+			// The node can exist and still refuse open under a device
+			// filter, which is how FUSE failed in privileged sandboxes, so
+			// the probe opens it rather than testing for it.
+			requirement: "fuse@1/device-granted",
+			capability:  capFUSE,
+			run:         fuseProbe("kit-tck-fuse", "device"),
+		},
+		check{
+			// A setuid or file-capability fusermount gains CAP_SYS_ADMIN
+			// only if the bounding set still holds it.
+			requirement: "fuse@1/mount-capability",
+			capability:  capFUSE,
+			run:         fuseProbe("kit-tck-fuse", "cap"),
+		},
+		check{
+			// The bit is necessary, not sufficient: no_new_privs, seccomp
+			// or a security module can still deny the helper. Only a
+			// mount shows the whole path works.
+			requirement: "fuse@1/non-root-mount",
+			capability:  capFUSE,
+			run:         fuseProbe("kit-tck-fuse-mount"),
+		},
+		check{
+			// Elevation would meet every FUSE duty above while granting far
+			// more than the Kit asked for and the user approved.
+			requirement: "fuse@1/no-elevation",
+			capability:  capFUSE,
+			run: func(ctx context.Context, e *Env) []report.Finding {
+				id, cleanup, err := e.sandbox(ctx, []string{fixtureWorkload, fixtureFUSE}, nil)
+				defer cleanup()
+				var refused *adapter.RefusedError
+				if errors.As(err, &refused) {
+					return []report.Finding{report.Skipf("runtime refused the FUSE request: %s", refused.Detail)}
+				}
+				if err != nil {
+					return []report.Finding{report.Failf("create: %v", err)}
+				}
+				got, f := execOutput(ctx, e, id, "kit-tck-privileged")
+				if f != nil {
+					return []report.Finding{*f}
+				}
+				if got = strings.TrimSpace(got); got != "no" {
+					return []report.Finding{report.Failf(
+						"the kit requested FUSE and no elevation; kit-tck-privileged reports %q", got)}
 				}
 				return nil
 			},

@@ -29,6 +29,7 @@ var anchorPattern = regexp.MustCompile(`<!-- tck: (.+?) -->`)
 // several angles.
 var covers = map[string][]string{
 	"kvm@1/grant-transition":                      {"kvm@1/withdrawal"},
+	"fuse@1/grant-transition":                     {"fuse@1/withdrawal"},
 	"sbx@1/environment-hooks-internal":            {"sbx@1/environment-hooks", "sbx@1/environment-expanded"},
 	"sbx@1/environment-process-none":              {"sbx@1/environment-authoritative"},
 	"sbx@1/environment-provided":                  {"sbx@1/environment-authoritative", "sbx@1/identity-consistent", "sbx@1/workspace-at-workdir"},
@@ -377,6 +378,7 @@ var waived = map[string]string{
 	"gpu@1/driver-contract":                          "vendor driver stacks are outside the fixture image; the suite judges device access only",
 	"gpu@1/before-startup":                           "the device probe runs through exec after create; startup-hook timing is not observed for GPUs yet",
 	"gpu@1/selection-scoped":                         "needs a known host GPU inventory the suite cannot assume",
+	"fuse@1/widening-gates":                          "gate semantics are surface diffs, judged by the spec package's tests",
 	"resources@1/max-of-declarations":                "needs a multi-declaration fixture; not exercised yet",
 	"resources@1/never-undercut-workload":            "needs a multi-declaration fixture; not exercised yet",
 
@@ -452,6 +454,7 @@ var waived = map[string]string{
 	"port@1/name-surfaced":               "SHOULD; display surface, not sandbox behavior",
 
 	"privileged@1/explicit-consent": "SHOULD; consent flows are host UX the adapter hides",
+	"fuse@1/explicit-consent":       "SHOULD; consent flows are host UX the adapter hides",
 
 	"dockerd@1/explicit-consent":                "SHOULD; consent flows are host UX the adapter hides",
 	"dockerd@1/widening-gates":                  "gate semantics are surface diffs, judged by TestDockerSurface and TestDockerdAutoStartSurface",

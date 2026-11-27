@@ -714,6 +714,10 @@ declared, so a migration never adds it. Adding it is a new grant of every
 key the user's agent holds, which is a decision for the kit's author, not
 a translation.
 
+`fuse@1` has no v2 counterpart either: FUSE was the runtime setting
+`sandbox.fuse`. Add it only when the kit's tools mount FUSE filesystems;
+it is a new grant the user approves.
+
 ## Mixin variants
 
 A workload kit's `-mixin` sibling declares the same credentials, network policy,
