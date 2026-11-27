@@ -190,6 +190,10 @@ var checks = append(append(append(gitIdentityChecks, hostMountChecks...), clipbo
 	{requirement: "SPEC-v3 §7.1.1/lifetime", capability: capLifecycle, needs: []string{"com.docker.sandbox/volume@1"}, run: groupLifetime},
 	{requirement: "SPEC-v3 §7.1.1/execution", capability: capLifecycle, run: groupExecution},
 
+	{requirement: "display@1/socket-usable", capability: capDisplay, run: displaySocket},
+	{requirement: "display@1/no-grant", capability: capDisplay, run: displayNoGrant},
+	{requirement: "display@1/required-unsatisfiable-refused", capability: capDisplay, run: displayRequiredRefused},
+	{requirement: "display@1/optional-unavailable-skipped", capability: capDisplay, run: displayOptionalSkipped},
 	{requirement: "open-url@1/guest-helper", capability: capOpenURL, run: openURLGuestHelper},
 	{requirement: "open-url@1/invalid-requests-rejected", capability: capOpenURL, run: openURLRejectsInvalid},
 	{requirement: "long-running@1/survives-session-disconnect", capability: capLongRunning, run: survivesSessionDisconnect},
@@ -252,6 +256,7 @@ var checks = append(append(append(gitIdentityChecks, hostMountChecks...), clipbo
 				{capability: capLongRunning, fixture: fixtureLongRunning},
 				{capability: capAutoRestart, fixture: "auto-restart"},
 				{capability: capOpenURL, fixture: "open-url"},
+				{capability: capDisplay, fixture: "display"},
 				{capability: capKVM, fixture: "kvm"},
 				{capability: capClipboard, fixture: fixtureClipboard},
 				{capability: capGitIdentity, fixture: fixtureGitIdentity},

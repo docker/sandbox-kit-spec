@@ -153,6 +153,7 @@ var kitCovers = map[string][]string{
 		"agent-skill@1/source-literal",
 		"long-running@1/no-config",
 		"auto-restart@1/no-config",
+		"display@1/no-config",
 		"kvm@1/no-config",
 		"open-url@1/no-config",
 		"clipboard@1/config-valid",
@@ -225,7 +226,12 @@ var kitCovers = map[string][]string{
 // with its reason. A waiver is a decision, not a gap: it is reviewed like
 // any other line, and removing one is how coverage grows.
 var waived = map[string]string{
-	"kvm@1/required-preflight": "a refused create returns no sandbox ID, and the adapter has no failed-create effect trace to observe whether hooks or the workload ran before refusal",
+	"display@1/required-preflight":  "a refused create returns no sandbox ID or effect trace to observe whether the workload already started",
+	"display@1/host-presentation":   "the guest can create a Wayland surface, but the adapter cannot observe a window appearing in the authorized host session",
+	"display@1/clipboard-isolation": "the adapter has no isolated host display with observable clipboard and drag-and-drop payloads in both directions",
+	"display@1/explicit-consent":    "the adapter cannot observe user authorization or distinguish it from accepting every declaration",
+	"display@1/widening-gates":      "spec tests judge the display surface and widening diff; the adapter does not expose approval when broadening a recorded grant",
+	"kvm@1/required-preflight":      "a refused create returns no sandbox ID, and the adapter has no failed-create effect trace to observe whether hooks or the workload ran before refusal",
 	// The adapter can change Kit contributions through recreation. It has no
 	// in-place grant update, policy revocation, or explicit operator KVM grant
 	// control; those portions of the transition and contributor duties remain

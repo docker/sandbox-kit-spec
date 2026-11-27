@@ -586,6 +586,10 @@ const (
 	// default browser. It takes no config and grants no sandbox egress.
 	CapabilityOpenURL = "com.docker.sandbox/open-url@1"
 
+	// CapabilityDisplay requests a Wayland socket for presenting sandbox
+	// windows on the host desktop.
+	CapabilityDisplay = "com.docker.sandbox/display@1"
+
 	// CapabilityClipboard shares the runtime host's clipboard with the
 	// sandbox; optional config decodes to Clipboard, a per-direction
 	// media-type filter.

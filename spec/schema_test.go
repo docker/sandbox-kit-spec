@@ -74,7 +74,7 @@ func allCapabilityTypes() []string {
 		CapabilityVolume, CapabilityHostMount, CapabilityPort, CapabilityHostPort,
 		CapabilityUSBDevice, CapabilityResources, CapabilityPrivileged, CapabilityGPU, CapabilityKVM, CapabilityFUSE, CapabilityDockerd, CapabilityKitRegistry,
 		CapabilityAgentSessions, CapabilityAgentSessionsV2, CapabilityAgentInteractiveSessions, CapabilityACP, CapabilityLifecycle, CapabilityAgentContext, CapabilityAgentContextV2,
-		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilityClipboard, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
+		CapabilityAgentSkills, CapabilityAgentSkill, CapabilitySbx, CapabilityLongRunning, CapabilityAutoRestart, CapabilityOpenURL, CapabilityDisplay, CapabilityClipboard, CapabilitySSHAgent, CapabilityGitIdentity, CapabilityDockerAuth,
 	}
 }
 
